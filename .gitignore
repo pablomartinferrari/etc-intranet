@@ -1,0 +1,12 @@
+bin/
+obj/
+node_modules/
+dist/
+wwwroot/assets/
+*.user
+*.suo
+.vs/
+.azure/*.env
+.env
+infra/*.parameters.json
+!infra/main.bicepparam
