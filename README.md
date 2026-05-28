@@ -8,6 +8,8 @@ Starter intranet with **React** (Vite), **.NET 10 Web API**, and **PostgreSQL**,
 |------|-------------|
 | `src/web` | React SPA (Vite + TypeScript) |
 | `src/api` | ASP.NET Core 10 API + EF Core |
+| `src/api/MultifamilyLbp` | Multifamily lead inspection API (jobs, uploads, normalization, reports) |
+| `src/web/src/multifamily-lbp` | Lead inspection React workflow (SharePoint-launched) |
 | `infra/` | Azure Bicep templates |
 | `scripts/deploy.ps1` | Deploy infrastructure + API to Azure |
 | `docker-compose.yml` | Local PostgreSQL |
@@ -45,7 +47,27 @@ Starter intranet with **React** (Vite), **.NET 10 Web API**, and **PostgreSQL**,
 
    If npm warns about `esbuild` install scripts, either run `npm approve-scripts esbuild` or rely on the `allowScripts` entry already in `src/web/package.json`.
 
-Open http://localhost:5173 (Vite proxies `/api` to the API).
+| URL | What |
+|-----|------|
+| http://localhost:5173 | React dev server (proxies `/api` → API) |
+| http://localhost:5260 | API directly (`dotnet run` from `src/api`) |
+| http://localhost:5260/swagger | **Swagger UI** — browse and try multifamily + intranet endpoints |
+| http://localhost:5260/health | Health check (no auth) |
+| https://localhost:7055 | API with HTTPS profile |
+
+After `dotnet run`, the **http** profile opens Swagger automatically. Use **Authorize** in Swagger and paste a Bearer token from the SPA (or Entra) to call protected endpoints.
+
+### Multifamily lead inspection (from SharePoint)
+
+The full workflow from `multifamily-lbp` design docs is hosted in this app:
+
+| Route | Purpose |
+|-------|---------|
+| `/lead-inspection` | Job lookup and recent jobs |
+| `/jobs/{jobId}/multifamily-lbp` | Entity dashboard (SharePoint deep link) |
+| `/jobs/{jobId}/multifamily-lbp/grid` | Data grid, uploads, normalization, reports |
+
+SPFx web parts in the **multifamily-lbp** repo should set `processingAppBaseUrl` to this intranet URL.
 
 ## Build for production
 

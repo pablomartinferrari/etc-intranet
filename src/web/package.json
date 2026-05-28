@@ -14,10 +14,14 @@
   "dependencies": {
     "@fluentui/react-components": "^9.72.5",
     "@fluentui/react-icons": "^2.0.304",
+    "@fluentui/react-menu": "^9.23.0",
     "@azure/msal-browser": "^4.26.0",
     "@azure/msal-react": "^3.0.26",
+    "@tanstack/react-query": "^5.62.0",
+    "@tanstack/react-table": "^8.20.5",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^6.28.0"
   },
   "devDependencies": {
     "@types/react": "^19.1.2",

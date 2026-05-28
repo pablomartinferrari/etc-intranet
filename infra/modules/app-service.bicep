@@ -38,7 +38,7 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
     siteConfig: {
       linuxFxVersion: 'DOTNETCORE|10.0'
       alwaysOn: true
-      healthCheckPath: '/health'
+      healthCheckPath: '/health/live'
       appSettings: concat([
         {
           name: 'ASPNETCORE_ENVIRONMENT'
@@ -50,6 +50,14 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
         }
         {
           name: 'WEBSITE_RUN_FROM_PACKAGE'
+          value: '1'
+        }
+        {
+          name: 'ASPNETCORE_URLS'
+          value: 'http://+:8080'
+        }
+        {
+          name: 'WEBSITE_LOGGING_ENABLED'
           value: '1'
         }
       ], empty(applicationInsightsConnectionString) ? [] : [

@@ -1,11 +1,14 @@
 using Intranet.Api.Data;
 using Intranet.Api.Data.Entities;
-using Microsoft.AspNetCore.Authentication;
+using Intranet.Api.MultifamilyLbp;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Identity.Web;
+using Microsoft.OpenApi.Models;
 using System.Security.Claims;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,12 +19,49 @@ builder.Services.AddDbContext<IntranetDbContext>(options =>
     options.UseNpgsql(connectionString);
 });
 
-builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<IntranetDbContext>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
 builder.Services.AddAuthorization();
+builder.Services.AddMultifamilyLbp(builder.Configuration);
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "ETC Intranet API",
+        Version = "v1",
+        Description = "Intranet endpoints and multifamily lead inspection (jobs, uploads, normalization, reports).",
+    });
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Microsoft Entra access token with the API scope (same token the React app sends).",
+    });
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer",
+                },
+            },
+            Array.Empty<string>()
+        },
+    });
+});
+builder.Services.ConfigureHttpJsonOptions(o =>
+{
+    o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    o.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+});
 
 builder.Services.AddCors(options =>
 {
@@ -35,10 +75,13 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+try
 {
+    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<IntranetDbContext>();
     await db.Database.MigrateAsync();
+    await app.MigrateMultifamilyDatabaseAsync();
 
     if (!await db.SiteMessages.AnyAsync())
     {
@@ -51,10 +94,28 @@ using (var scope = app.Services.CreateScope())
         await db.SaveChangesAsync();
     }
 }
+catch (Exception ex)
+{
+    // Do not block Kestrel from starting — Azure health checks and logs need the process up.
+    startupLogger.LogError(ex, "Database migration/seed failed at startup. Fix ConnectionStrings:IntranetDb in App Service settings.");
+}
+
+var swaggerEnabled = app.Environment.IsDevelopment()
+    || app.Configuration.GetValue("Swagger:Enabled", false);
+
+if (swaggerEnabled)
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "ETC Intranet API v1");
+        options.DocumentTitle = "ETC Intranet API";
+        options.RoutePrefix = "swagger";
+    });
+}
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
     app.UseCors("DevCors");
 }
 else
@@ -66,6 +127,9 @@ else
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Liveness: no DB — used by Azure App Service health check (see app-service.bicep).
+app.MapGet("/health/live", () => Results.Ok(new { status = "alive", timestamp = DateTimeOffset.UtcNow }));
 
 app.MapHealthChecks("/health");
 
@@ -94,16 +158,61 @@ app.MapGet("/api/messages", async (IntranetDbContext db, CancellationToken cance
     return Results.Ok(messages);
 }).RequireAuthorization();
 
+app.MapControllers().RequireAuthorization();
+
 app.MapGet("/api/me", [Authorize] (ClaimsPrincipal user) =>
 {
-    string? GetClaim(string name) => user.FindFirstValue(name);
+    static string? FirstClaim(ClaimsPrincipal principal, params string[] claimTypes)
+    {
+        foreach (var claimType in claimTypes)
+        {
+            var value = principal.FindFirstValue(claimType);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    var identityName = user.Identity?.Name;
+    var nameClaim = FirstClaim(user, "name", ClaimTypes.Name);
+    var email = FirstClaim(
+        user,
+        "preferred_username",
+        "email",
+        ClaimTypes.Email,
+        "upn",
+        ClaimTypes.Upn,
+        "unique_name");
+    var objectId = FirstClaim(
+        user,
+        "oid",
+        "http://schemas.microsoft.com/identity/claims/objectidentifier",
+        ClaimTypes.NameIdentifier,
+        "sub");
+    var tenantId = FirstClaim(
+        user,
+        "tid",
+        "http://schemas.microsoft.com/identity/claims/tenantid",
+        "tenant_id");
+
+    // Identity.Name is often UPN/email in Entra; prefer a real display name when available.
+    var displayName = nameClaim;
+    if (string.IsNullOrWhiteSpace(displayName) && !string.IsNullOrWhiteSpace(identityName) && !identityName.Contains('@'))
+    {
+        displayName = identityName;
+    }
+
+    email ??= identityName?.Contains('@', StringComparison.Ordinal) == true ? identityName : null;
 
     return Results.Ok(new
     {
-        name = user.Identity?.Name ?? GetClaim("name"),
-        email = GetClaim("preferred_username") ?? GetClaim("upn"),
-        objectId = GetClaim("oid"),
-        tenantId = GetClaim("tid"),
+        name = displayName,
+        email,
+        objectId,
+        tenantId,
     });
 });
 
