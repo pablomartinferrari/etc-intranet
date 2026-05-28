@@ -1,6 +1,11 @@
 using Intranet.Api.Data;
 using Intranet.Api.Data.Entities;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Identity.Web;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +19,9 @@ builder.Services.AddDbContext<IntranetDbContext>(options =>
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<IntranetDbContext>();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
+builder.Services.AddAuthorization();
 
 builder.Services.AddCors(options =>
 {
@@ -56,6 +64,8 @@ else
 }
 
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapHealthChecks("/health");
 
@@ -71,7 +81,7 @@ app.MapGet("/api/status", async (IntranetDbContext db, CancellationToken cancell
         messageCount,
         timestamp = DateTimeOffset.UtcNow,
     });
-});
+}).RequireAuthorization();
 
 app.MapGet("/api/messages", async (IntranetDbContext db, CancellationToken cancellationToken) =>
 {
@@ -82,6 +92,19 @@ app.MapGet("/api/messages", async (IntranetDbContext db, CancellationToken cance
         .ToListAsync(cancellationToken);
 
     return Results.Ok(messages);
+}).RequireAuthorization();
+
+app.MapGet("/api/me", [Authorize] (ClaimsPrincipal user) =>
+{
+    string? GetClaim(string name) => user.FindFirstValue(name);
+
+    return Results.Ok(new
+    {
+        name = user.Identity?.Name ?? GetClaim("name"),
+        email = GetClaim("preferred_username") ?? GetClaim("upn"),
+        objectId = GetClaim("oid"),
+        tenantId = GetClaim("tid"),
+    });
 });
 
 app.MapFallbackToFile("index.html");

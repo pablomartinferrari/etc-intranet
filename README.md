@@ -121,8 +121,30 @@ Roughly **$20–35/month** (B1 App Service + B1ms PostgreSQL, no App Insights/Lo
 | Endpoint | Description |
 |----------|-------------|
 | `GET /health` | Health check (includes DB) |
-| `GET /api/status` | Service + database status |
-| `GET /api/messages` | Sample messages from PostgreSQL |
+| `GET /api/status` | Service + database status (requires Entra token) |
+| `GET /api/messages` | Sample messages from PostgreSQL (requires Entra token) |
+| `GET /api/me` | Signed-in user claims from Entra token |
+
+## SharePoint SSO with Entra ID
+
+The intranet now expects Microsoft Entra ID authentication for API access.
+
+1. Create two App Registrations in the same tenant as SharePoint:
+   - **API app registration** (for `src/api`)
+   - **SPA app registration** (for `src/web`)
+2. In the API app registration, expose a scope (for example `access_as_user`), producing a scope URI like:
+   - `api://<api-client-id>/access_as_user`
+3. Grant the SPA app permission to that API scope and grant tenant admin consent.
+4. Configure API settings (`src/api/appsettings.Development.json`):
+   - `AzureAd:TenantId`
+   - `AzureAd:ClientId` (API app client ID)
+   - `AzureAd:Audience` (for example `api://<api-client-id>`)
+5. Configure SPA settings via environment variables:
+   - `VITE_ENTRA_TENANT_ID=<tenant-guid>`
+   - `VITE_ENTRA_CLIENT_ID=<spa-client-id>`
+   - `VITE_API_SCOPE=api://<api-client-id>/access_as_user`
+
+When users navigate from SharePoint to this intranet in the same tenant, Entra SSO will identify them and `/api/me` returns their user context.
 
 ## Azure resources
 
