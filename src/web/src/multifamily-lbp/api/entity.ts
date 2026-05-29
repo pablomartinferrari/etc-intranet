@@ -1,4 +1,4 @@
-import { apiGet, apiPatch, apiPost, apiDelete } from "./client";
+import { apiGet, apiPatch, apiPost, apiDelete, apiDownload } from "./client";
 
 export interface EntityDashboard {
   jobId: string;
@@ -47,6 +47,15 @@ export interface UploadBatch {
   warnings?: string[];
 }
 
+export interface SharePointSourceFile {
+  id: string;
+  fileName: string;
+  areaType: string;
+  processedStatus: string;
+  createdAt: string | null;
+  modifiedAt: string | null;
+}
+
 export interface UploadResult {
   batchId: string;
   sourceFileName: string;
@@ -67,6 +76,43 @@ export interface NormalizationSuggestion {
   dataType: string;
   confidence: string;
   status: string;
+}
+
+export interface RunNormalizationResult {
+  needsReview: NormalizationSuggestion[];
+  autoAppliedCount: number;
+}
+
+/** True when the suggestion still needs Approve/Reject (non-exact or user-edited). */
+export function normalizationNeedsReview(s: NormalizationSuggestion): boolean {
+  if (s.status === "rejected") return false;
+  if (s.status === "edited" || s.status === "pending" || s.status === "approved") return true;
+  if (s.status === "applied") return differsFromAutoApplied(s);
+  return true;
+}
+
+function differsFromAutoApplied(s: NormalizationSuggestion): boolean {
+  if (s.approvedValue?.trim()) return true;
+
+  const effective = (s.approvedValue ?? s.suggestedValue).trim().toLowerCase();
+  const suggested = s.suggestedValue.trim().toLowerCase();
+  const originals = parseOriginalVariants(s.originalValue);
+
+  if (effective !== suggested) return true;
+  return !originals.every((o) => o.trim().toLowerCase() === effective);
+}
+
+/** Original column may join spellings with a middle dot (e.g. Cabinet Casing · Cabinet Casings). */
+export function parseOriginalVariants(originalValue: string): string[] {
+  return originalValue
+    .split("·")
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+export function formatOriginalDisplay(originalValue: string): string {
+  const parts = parseOriginalVariants(originalValue);
+  return parts.length > 1 ? parts.join(", ") : originalValue;
 }
 
 export interface ReportConfig {
@@ -116,6 +162,10 @@ export function fetchUploadBatches(jobId: string, entitySlug: string): Promise<U
   return apiGet<UploadBatch[]>(`${base(jobId, entitySlug)}/uploads`);
 }
 
+export function fetchSourceFiles(jobId: string, entitySlug: string): Promise<SharePointSourceFile[]> {
+  return apiGet<SharePointSourceFile[]>(`${base(jobId, entitySlug)}/source-files`);
+}
+
 export async function uploadFile(
   jobId: string,
   entitySlug: string,
@@ -150,8 +200,23 @@ export function deleteUploadBatch(
   return apiDelete(`${base(jobId, entitySlug)}/uploads/${batchId}`);
 }
 
-export function importLegacy(jobId: string, entitySlug: string, overwrite = false): Promise<{ imported: number }> {
+export function importLegacy(
+  jobId: string,
+  entitySlug: string,
+  overwrite = false
+): Promise<{ imported: number; filesAdded: number; filesSkipped: number }> {
   return apiPost(`${base(jobId, entitySlug)}/import-legacy`, { overwrite });
+}
+
+export interface ClearWorkspaceResult {
+  rowsRemoved: number;
+  batchesRemoved: number;
+  normalizationsRemoved: number;
+  reportsRemoved: number;
+}
+
+export function clearWorkspace(jobId: string, entitySlug: string): Promise<ClearWorkspaceResult> {
+  return apiPost(`${base(jobId, entitySlug)}/workspace/clear`, {});
 }
 
 export function runNormalization(
@@ -163,17 +228,23 @@ export function runNormalization(
     dataType?: string;
     rowIds?: string[];
   }
-): Promise<NormalizationSuggestion[]> {
+): Promise<RunNormalizationResult> {
   return apiPost(`${base(jobId, entitySlug)}/normalize`, body);
 }
 
 export function fetchNormalizations(
   jobId: string,
   entitySlug: string,
-  status?: string
+  status?: string,
+  fields?: string[]
 ): Promise<NormalizationSuggestion[]> {
-  const q = status ? `?status=${encodeURIComponent(status)}` : "";
-  return apiGet<NormalizationSuggestion[]>(`${base(jobId, entitySlug)}/normalizations${q}`);
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (fields?.length) params.set("fields", fields.join(","));
+  const q = params.toString();
+  return apiGet<NormalizationSuggestion[]>(
+    `${base(jobId, entitySlug)}/normalizations${q ? `?${q}` : ""}`
+  );
 }
 
 export function patchNormalization(
@@ -217,4 +288,18 @@ export function fetchReport(
   reportId: string
 ): Promise<ReportSnapshot> {
   return apiGet<ReportSnapshot>(`${base(jobId, entitySlug)}/reports/${reportId}`);
+}
+
+export async function downloadReportExcel(
+  jobId: string,
+  entitySlug: string,
+  reportId: string
+): Promise<void> {
+  const { blob, fileName } = await apiDownload(`${base(jobId, entitySlug)}/reports/${reportId}/export`);
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }

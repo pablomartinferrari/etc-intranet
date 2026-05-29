@@ -17,10 +17,13 @@ public static class MultifamilyLbpServiceExtensions
         services.Configure<AzureAdOptions>(configuration.GetSection(AzureAdOptions.SectionName));
         services.Configure<SharePointOptions>(configuration.GetSection(SharePointOptions.SectionName));
 
-        var connectionString = configuration.GetConnectionString("MultifamilyDb")
-            ?? configuration.GetConnectionString("IntranetDb")
+        // Use IntranetDb first — Azure App Service sets ConnectionStrings__IntranetDb in production.
+        // appsettings.json may still define MultifamilyDb for local dev; prefer IntranetDb so a
+        // bundled localhost MultifamilyDb value cannot override the deployed connection string.
+        var connectionString = configuration.GetConnectionString("IntranetDb")
+            ?? configuration.GetConnectionString("MultifamilyDb")
             ?? throw new InvalidOperationException(
-                "Connection string 'MultifamilyDb' or 'IntranetDb' must be configured.");
+                "Connection string 'IntranetDb' or 'MultifamilyDb' must be configured.");
 
         services.AddDbContext<MultifamilyDbContext>(options =>
             options.UseNpgsql(connectionString));
@@ -34,6 +37,7 @@ public static class MultifamilyLbpServiceExtensions
         services.AddScoped<EntityRowsService>();
         services.AddScoped<NormalizationService>();
         services.AddScoped<ReportGenerationService>();
+        services.AddScoped<ReportExcelExportService>();
 
         services.AddControllers()
             .AddJsonOptions(o =>
@@ -55,12 +59,30 @@ public static class MultifamilyLbpServiceExtensions
 
         try
         {
-            await db.Database.MigrateAsync();
+            if (db.Database.GetMigrations().Any())
+            {
+                await db.Database.MigrateAsync();
+                logger.LogInformation("Multifamily database migrated.");
+                return;
+            }
+
+            logger.LogWarning(
+                "No EF migrations registered for MultifamilyDbContext; creating schema with EnsureCreated.");
+            await db.Database.EnsureCreatedAsync();
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Multifamily migration failed; ensuring database is created.");
-            await db.Database.EnsureCreatedAsync();
+            logger.LogError(ex, "Multifamily database initialization failed.");
+            try
+            {
+                await db.Database.EnsureCreatedAsync();
+                logger.LogWarning("Multifamily schema created via EnsureCreated after migration failure.");
+            }
+            catch (Exception ensureEx)
+            {
+                logger.LogError(ensureEx, "EnsureCreated also failed for MultifamilyDbContext.");
+                throw;
+            }
         }
     }
 }

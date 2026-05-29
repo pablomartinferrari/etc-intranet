@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useIsAuthenticated } from "@azure/msal-react";
 import { useQuery } from "@tanstack/react-query";
+import { isAuthRequiredError } from "@mf/auth/AuthRequiredError";
+import { SignInPrompt } from "@mf/auth/SignInPrompt";
 import {
   Button,
   Card,
@@ -28,6 +31,7 @@ const useStyles = makeStyles({
 export function HomePage(): React.JSX.Element {
   const styles = useStyles();
   const nav = useNavigate();
+  const isAuthenticated = useIsAuthenticated();
   const [jobNumber, setJobNumber] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +40,7 @@ export function HomePage(): React.JSX.Element {
   const recentQuery = useQuery({
     queryKey: ["recent-jobs"],
     queryFn: () => fetchRecentJobs(10),
+    enabled: isAuthenticated,
   });
 
   const openJob = async (id: string): Promise<void> => {
@@ -56,7 +61,11 @@ export function HomePage(): React.JSX.Element {
       setPreview(job);
       if (!job) setError("Job not found via API. You can still open the workspace to create it.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Lookup failed");
+      if (isAuthRequiredError(e)) {
+        setError("Sign in to look up jobs.");
+      } else {
+        setError(e instanceof Error ? e.message : "Lookup failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -65,6 +74,12 @@ export function HomePage(): React.JSX.Element {
   const onContinue = (): void => {
     void openJob(jobNumber);
   };
+
+  if (!isAuthenticated) {
+    return (
+      <SignInPrompt message="Sign in to look up jobs and open the lead inspection workspace." />
+    );
+  }
 
   return (
     <div>
@@ -90,7 +105,12 @@ export function HomePage(): React.JSX.Element {
             />
           </Field>
           <div className={styles.actions}>
-            <Button appearance="primary" icon={<SearchRegular />} onClick={() => void onLookup()} disabled={loading || !jobNumber.trim()}>
+            <Button
+              appearance="primary"
+              icon={<SearchRegular />}
+              onClick={() => void onLookup()}
+              disabled={loading || !jobNumber.trim()}
+            >
               {loading ? <Spinner size="tiny" /> : "Look up"}
             </Button>
             <Button icon={<ArrowRightRegular />} onClick={onContinue} disabled={!jobNumber.trim()}>

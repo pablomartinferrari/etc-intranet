@@ -9,13 +9,14 @@ import {
   Spinner,
 } from "@fluentui/react-components";
 import {
-  HomeRegular,
   GridRegular,
-  ArrowUploadRegular,
+  ArrowDownloadRegular,
   SparkleRegular,
   DocumentRegular,
   BoardRegular,
+  GroupListRegular,
 } from "@fluentui/react-icons";
+import { RequireAuth } from "@mf/auth/RequireAuth";
 import { EntityProvider, useEntity } from "@mf/context/EntityContext";
 import { isValidEntitySlug } from "@mf/config/entities";
 
@@ -69,10 +70,11 @@ function ShellInner(): React.JSX.Element {
   }
 
   const navItems = [
-    { to: base, label: "Dashboard", icon: <BoardRegular /> },
-    { to: `${base}/uploads`, label: "Uploads", icon: <ArrowUploadRegular /> },
-    { to: `${base}/grid`, label: "Data Grid", icon: <GridRegular /> },
-    { to: `${base}/normalize`, label: "AI Normalization", icon: <SparkleRegular /> },
+    { to: `${base}/overview`, label: "Overview", icon: <BoardRegular /> },
+    { to: `${base}/uploads`, label: "Source files", icon: <ArrowDownloadRegular /> },
+    { to: `${base}/grid`, label: "Data grid", icon: <GridRegular /> },
+    { to: `${base}/normalize`, label: "AI normalization", icon: <SparkleRegular /> },
+    { to: `${base}/grid/groups`, label: "Grouped readings", icon: <GroupListRegular /> },
     { to: `${base}/reports/configure`, label: "Reports", icon: <DocumentRegular /> },
   ];
 
@@ -94,9 +96,6 @@ function ShellInner(): React.JSX.Element {
           </Body1>
         </div>
         <div className={styles.headerActions}>
-          <Button appearance="secondary" icon={<ArrowUploadRegular />} onClick={() => nav(`${base}/uploads`)}>
-            Upload
-          </Button>
           <Button appearance="secondary" icon={<SparkleRegular />} onClick={() => nav(`${base}/normalize`)}>
             Normalize
           </Button>
@@ -121,10 +120,6 @@ function ShellInner(): React.JSX.Element {
                 {item.label}
               </NavLink>
             ))}
-            <NavLink to="/" className={styles.navLink}>
-              <HomeRegular />
-              Job lookup
-            </NavLink>
           </nav>
           <main className={styles.main}>
             <Outlet />
@@ -137,8 +132,10 @@ function ShellInner(): React.JSX.Element {
 
 export function EntityShellLayout(): React.JSX.Element {
   return (
-    <EntityProvider>
-      <ShellInner />
-    </EntityProvider>
+    <RequireAuth>
+      <EntityProvider>
+        <ShellInner />
+      </EntityProvider>
+    </RequireAuth>
   );
 }

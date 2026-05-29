@@ -5,7 +5,13 @@ namespace Intranet.Api.MultifamilyLbp.Services;
 
 public static class InspectionRowMapper
 {
-    private const double LeadPositiveThreshold = 1.0;
+    public const double LeadPositiveThreshold = 1.0;
+
+    public static string EffectiveComponent(InspectionRowRecord row) =>
+        string.IsNullOrWhiteSpace(row.NormalizedComponent) ? row.Component : row.NormalizedComponent;
+
+    public static string EffectiveSubstrate(InspectionRowRecord row) =>
+        string.IsNullOrWhiteSpace(row.NormalizedSubstrate) ? (row.Substrate ?? "") : row.NormalizedSubstrate!;
 
     public static InspectionRowRecord FromDto(XrfReadingDto dto, Guid jobEntityId, Guid? batchId, string sourceFileName, string dataType)
     {

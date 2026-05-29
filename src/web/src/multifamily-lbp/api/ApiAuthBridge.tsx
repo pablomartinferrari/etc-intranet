@@ -1,5 +1,5 @@
 import { useMsal } from "@azure/msal-react";
-import { useEffect } from "react";
+import { useMemo } from "react";
 import { apiRequest } from "../../authConfig";
 import { setApiAuthHeadersProvider } from "@mf/api/client";
 
@@ -7,10 +7,12 @@ import { setApiAuthHeadersProvider } from "@mf/api/client";
 export function ApiAuthBridge({ children }: { children: React.ReactNode }) {
   const { instance, accounts } = useMsal();
 
-  useEffect(() => {
+  // Set provider during render (before child useEffects) so deep links from
+  // SharePoint do not call /api/* without Authorization on first paint.
+  useMemo(() => {
     if (accounts.length === 0) {
       setApiAuthHeadersProvider(null);
-      return;
+      return null;
     }
 
     const account = accounts[0];
@@ -21,8 +23,7 @@ export function ApiAuthBridge({ children }: { children: React.ReactNode }) {
       });
       return { Authorization: `Bearer ${tokenResponse.accessToken}` };
     });
-
-    return () => setApiAuthHeadersProvider(null);
+    return null;
   }, [accounts, instance]);
 
   return <>{children}</>;

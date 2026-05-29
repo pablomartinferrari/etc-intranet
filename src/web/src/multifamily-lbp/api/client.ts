@@ -1,6 +1,12 @@
+import { AuthRequiredError } from "@mf/auth/AuthRequiredError";
+
 const base = import.meta.env.VITE_API_BASE ?? "/api";
 
 let authHeadersProvider: (() => Promise<HeadersInit>) | null = null;
+
+export function hasApiAuth(): boolean {
+  return authHeadersProvider !== null;
+}
 
 export function setApiAuthHeadersProvider(
   provider: (() => Promise<HeadersInit>) | null,
@@ -10,7 +16,7 @@ export function setApiAuthHeadersProvider(
 
 async function mergeAuthHeaders(headers: HeadersInit): Promise<HeadersInit> {
   if (!authHeadersProvider) {
-    return headers;
+    throw new AuthRequiredError();
   }
 
   const auth = await authHeadersProvider();
@@ -83,4 +89,23 @@ export async function apiDelete(
   const headers = await mergeAuthHeaders(extraHeaders ?? {});
   const res = await fetch(`${base}${path}`, { method: "DELETE", headers });
   if (!res.ok) throw new Error(await res.text());
+}
+
+/** Download a file (e.g. Excel export). Returns blob and optional filename from Content-Disposition. */
+export async function apiDownload(
+  path: string,
+): Promise<{ blob: Blob; fileName: string }> {
+  const headers = await mergeAuthHeaders({
+    Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const res = await fetch(`${base}${path}`, { headers });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || `${res.status} ${res.statusText}`);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition");
+  const match = disposition?.match(/filename="?([^";\n]+)"?/i);
+  const fileName = match?.[1] ?? "download.xlsx";
+  return { blob, fileName };
 }

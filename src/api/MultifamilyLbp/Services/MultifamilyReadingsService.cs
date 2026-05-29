@@ -35,6 +35,115 @@ public sealed class MultifamilyReadingsService
 
     public async Task<IReadOnlyList<XrfReadingDto>> GetReadingsAsync(string jobNumber, string areaTypeSharePoint, CancellationToken cancellationToken = default)
     {
+        var perFile = await GetReadingsPerFileAsync(jobNumber, areaTypeSharePoint, cancellationToken);
+        return MergeReadingsFromFiles(perFile, areaTypeSharePoint);
+    }
+
+    /// <summary>Downloads and parses each SharePoint workbook for a job area type (Units or Common Areas).</summary>
+    public async Task<IReadOnlyList<SharePointFileReadings>> GetReadingsPerFileAsync(
+        string jobNumber,
+        string areaTypeSharePoint,
+        CancellationToken cancellationToken = default)
+    {
+        var (graphClient, siteId, listId) = await ResolveSourceListAsync(cancellationToken);
+        var jobEsc = EscapeODataString(jobNumber.Trim());
+        var filter = $"fields/JobNumber eq '{jobEsc}'";
+        var requestedArea = CanonicalizeRequestedAreaType(areaTypeSharePoint);
+
+        var listItems = await FetchListItemsAsync(graphClient, siteId, listId, filter, cancellationToken);
+        var filteredItems = FilterListItemsByAreaType(listItems, requestedArea, jobNumber, _logger);
+        if (filteredItems.Count == 0 && listItems.Count > 0)
+        {
+            var areaEsc = EscapeODataString(areaTypeSharePoint.Trim());
+            var strictFilter = $"fields/JobNumber eq '{jobEsc}' and fields/AreaType eq '{areaEsc}'";
+            var strictItems = await FetchListItemsAsync(graphClient, siteId, listId, strictFilter, cancellationToken);
+            if (strictItems.Count > 0)
+                filteredItems = strictItems;
+        }
+
+        var results = new List<SharePointFileReadings>();
+        foreach (var item in filteredItems)
+        {
+            var driveItem = item.DriveItem;
+            if (driveItem?.Id == null || string.IsNullOrEmpty(driveItem.ParentReference?.DriveId))
+                continue;
+
+            await using var stream = await graphClient.Drives[driveItem.ParentReference.DriveId].Items[driveItem.Id]
+                .Content.GetAsync(cancellationToken: cancellationToken);
+            if (stream == null) continue;
+            await using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms, cancellationToken);
+            var name = driveItem.Name ?? "file.xlsx";
+            var bytes = ms.ToArray();
+
+            IReadOnlyList<XrfReadingDto> readings;
+            try
+            {
+                readings = await _parser.ParseFileAsync(bytes, name, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Parse failed for {File}", name);
+                throw;
+            }
+
+            var itemId = item.Id ?? "";
+            if (string.IsNullOrEmpty(itemId))
+                continue;
+
+            results.Add(new SharePointFileReadings(itemId, name, requestedArea, readings));
+        }
+
+        return results;
+    }
+
+    public async Task<IReadOnlyList<SharePointFileReadings>> GetAllReadingsPerFileAsync(
+        string jobNumber,
+        CancellationToken cancellationToken = default)
+    {
+        var units = await GetReadingsPerFileAsync(jobNumber, "Units", cancellationToken);
+        var common = await GetReadingsPerFileAsync(jobNumber, "Common Areas", cancellationToken);
+        var combined = new List<SharePointFileReadings>(units.Count + common.Count);
+        combined.AddRange(units);
+        combined.AddRange(common);
+        return combined;
+    }
+
+    private static IReadOnlyList<XrfReadingDto> MergeReadingsFromFiles(
+        IReadOnlyList<SharePointFileReadings> files,
+        string areaTypeLabel)
+    {
+        var merged = new Dictionary<string, XrfReadingDto>(StringComparer.Ordinal);
+        for (var i = 0; i < files.Count; i++)
+        {
+            foreach (var r in files[i].Readings)
+            {
+                var key = $"{i}_{r.ReadingId}";
+                merged[key] = CloneWithArea(r, areaTypeLabel, i);
+            }
+        }
+
+        return merged.Values.ToList();
+    }
+
+    public async Task<IReadOnlyList<SharePointSourceFileDto>> GetSourceFilesByJobAsync(
+        string jobNumber,
+        CancellationToken cancellationToken = default)
+    {
+        var (graphClient, siteId, listId) = await ResolveSourceListAsync(cancellationToken);
+        var jobEsc = EscapeODataString(jobNumber.Trim());
+        var filter = $"fields/JobNumber eq '{jobEsc}'";
+
+        var listItems = await FetchListItemsAsync(graphClient, siteId, listId, filter, cancellationToken);
+        return listItems
+            .Select(MapSourceFile)
+            .OrderByDescending(f => f.CreatedAt ?? DateTimeOffset.MinValue)
+            .ToList();
+    }
+
+    private async Task<(GraphServiceClient Client, string SiteId, string ListId)> ResolveSourceListAsync(
+        CancellationToken cancellationToken)
+    {
         var opts = _azureAd.Value;
         var sp = _sharePoint.Value;
         if (string.IsNullOrWhiteSpace(opts.TenantId) || string.IsNullOrWhiteSpace(opts.ClientId) || string.IsNullOrWhiteSpace(opts.ClientSecret))
@@ -75,12 +184,17 @@ public sealed class MultifamilyReadingsService
         if (list?.Id == null)
             throw new InvalidOperationException($"List '{sp.SourceLibraryName}' not found on site.");
 
-        var jobEsc = EscapeODataString(jobNumber.Trim());
-        // Filter by job only; SharePoint choice OData often mismatches (spacing/casing/shape). AreaType is applied in-process.
-        var filter = $"fields/JobNumber eq '{jobEsc}'";
-        var requestedArea = CanonicalizeRequestedAreaType(areaTypeSharePoint);
+        return (graphClient, site.Id, list.Id);
+    }
 
-        var items = await graphClient.Sites[site.Id].Lists[list.Id].Items.GetAsync(requestConfiguration =>
+    private async Task<List<ListItem>> FetchListItemsAsync(
+        GraphServiceClient graphClient,
+        string siteId,
+        string listId,
+        string filter,
+        CancellationToken cancellationToken)
+    {
+        var items = await graphClient.Sites[siteId].Lists[listId].Items.GetAsync(requestConfiguration =>
         {
             requestConfiguration.QueryParameters.Filter = filter;
             requestConfiguration.QueryParameters.Expand = new[] { "driveItem", "fields" };
@@ -89,11 +203,10 @@ public sealed class MultifamilyReadingsService
         }, cancellationToken);
 
         var listItems = items?.Value?.ToList() ?? new List<ListItem>();
-        // Simple pagination
         var next = items?.OdataNextLink;
         while (!string.IsNullOrEmpty(next))
         {
-            var page = await graphClient.Sites[site.Id].Lists[list.Id].Items.WithUrl(next).GetAsync(requestConfiguration =>
+            var page = await graphClient.Sites[siteId].Lists[listId].Items.WithUrl(next).GetAsync(requestConfiguration =>
             {
                 AddHonorNonIndexedQueriesPreferHeader(requestConfiguration.Headers);
             }, cancellationToken);
@@ -101,62 +214,24 @@ public sealed class MultifamilyReadingsService
             next = page?.OdataNextLink;
         }
 
-        var jobOnlyItems = listItems;
-        var filteredItems = FilterListItemsByAreaType(jobOnlyItems, requestedArea, jobNumber, _logger);
-        if (filteredItems.Count == 0 && jobOnlyItems.Count > 0)
-        {
-            _logger.LogWarning(
-                "Job {Job}: {Count} file(s) matched job number but none matched AreaType {Area} after normalizing metadata. Retrying with strict OData filter.",
-                jobNumber,
-                jobOnlyItems.Count,
-                requestedArea);
-            var areaEsc = EscapeODataString(areaTypeSharePoint.Trim());
-            var strictFilter = $"fields/JobNumber eq '{jobEsc}' and fields/AreaType eq '{areaEsc}'";
-            var strict = await graphClient.Sites[site.Id].Lists[list.Id].Items.GetAsync(requestConfiguration =>
-            {
-                requestConfiguration.QueryParameters.Filter = strictFilter;
-                requestConfiguration.QueryParameters.Expand = new[] { "driveItem", "fields" };
-                requestConfiguration.QueryParameters.Orderby = new[] { "createdDateTime asc" };
-                AddHonorNonIndexedQueriesPreferHeader(requestConfiguration.Headers);
-            }, cancellationToken);
-            var strictItems = strict?.Value?.ToList() ?? [];
-            next = strict?.OdataNextLink;
-            while (!string.IsNullOrEmpty(next))
-            {
-                var page = await graphClient.Sites[site.Id].Lists[list.Id].Items.WithUrl(next).GetAsync(requestConfiguration =>
-                {
-                    AddHonorNonIndexedQueriesPreferHeader(requestConfiguration.Headers);
-                }, cancellationToken);
-                if (page?.Value != null) strictItems.AddRange(page.Value);
-                next = page?.OdataNextLink;
-            }
+        return listItems;
+    }
 
-            if (strictItems.Count > 0)
-                filteredItems = strictItems;
-            else
-                _logger.LogWarning(
-                    "Job {Job}: strict OData AreaType filter returned 0 items; keeping prior filtered set (empty). Job-only had {Count} item(s).",
-                    jobNumber,
-                    jobOnlyItems.Count);
-        }
-
-        var files = new List<(string FileName, byte[] Content)>();
-        foreach (var item in filteredItems)
-        {
-            var driveItem = item.DriveItem;
-            if (driveItem?.Id == null || string.IsNullOrEmpty(driveItem.ParentReference?.DriveId))
-                continue;
-
-            await using var stream = await graphClient.Drives[driveItem.ParentReference.DriveId].Items[driveItem.Id]
-                .Content.GetAsync(cancellationToken: cancellationToken);
-            if (stream == null) continue;
-            await using var ms = new MemoryStream();
-            await stream.CopyToAsync(ms, cancellationToken);
-            var name = driveItem.Name ?? "file.xlsx";
-            files.Add((name, ms.ToArray()));
-        }
-
-        return await MergeReadingsAsync(files, requestedArea, cancellationToken);
+    private static SharePointSourceFileDto MapSourceFile(ListItem item)
+    {
+        var fileName = item.DriveItem?.Name
+            ?? FieldValueToDisplayString(TryGetListItemFieldValue(item, "FileLeafRef"))
+            ?? FieldValueToDisplayString(TryGetListItemFieldValue(item, "Title"))
+            ?? "Unknown file";
+        var area = CanonicalizeStoredAreaType(TryGetListItemFieldValue(item, "AreaType")) ?? "Unknown";
+        var status = FieldValueToDisplayString(TryGetListItemFieldValue(item, "ProcessedStatus")) ?? "Pending";
+        return new SharePointSourceFileDto(
+            item.Id ?? "",
+            fileName,
+            area,
+            status,
+            item.CreatedDateTime,
+            item.LastModifiedDateTime);
     }
 
     private static List<ListItem> FilterListItemsByAreaType(
@@ -272,37 +347,6 @@ public sealed class MultifamilyReadingsService
         }
 
         return v.ToString();
-    }
-
-    private async Task<IReadOnlyList<XrfReadingDto>> MergeReadingsAsync(
-        IReadOnlyList<(string FileName, byte[] Content)> filesOrdered,
-        string areaTypeLabel,
-        CancellationToken cancellationToken)
-    {
-        var merged = new Dictionary<string, XrfReadingDto>(StringComparer.Ordinal);
-        for (var i = 0; i < filesOrdered.Count; i++)
-        {
-            var (fileName, content) = filesOrdered[i];
-            IReadOnlyList<XrfReadingDto> readings;
-            try
-            {
-                readings = await _parser.ParseFileAsync(content, fileName, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Parse failed for {File}", fileName);
-                throw;
-            }
-
-            foreach (var r in readings)
-            {
-                var key = $"{i}_{r.ReadingId}";
-                var copy = CloneWithArea(r, areaTypeLabel, i);
-                merged[key] = copy;
-            }
-        }
-
-        return merged.Values.ToList();
     }
 
     private static XrfReadingDto CloneWithArea(XrfReadingDto r, string areaTypeLabel, int fileIndex)

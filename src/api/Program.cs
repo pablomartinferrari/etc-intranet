@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Identity.Web;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -25,38 +25,34 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
 builder.Services.AddAuthorization();
 builder.Services.AddMultifamilyLbp(builder.Configuration);
-builder.Services.AddSwaggerGen(options =>
+
+var enableSwagger = builder.Environment.IsDevelopment()
+    || builder.Configuration.GetValue("Swagger:Enabled", false);
+if (enableSwagger)
 {
-    options.SwaggerDoc("v1", new OpenApiInfo
+    builder.Services.AddSwaggerGen(options =>
     {
-        Title = "ETC Intranet API",
-        Version = "v1",
-        Description = "Intranet endpoints and multifamily lead inspection (jobs, uploads, normalization, reports).",
-    });
-    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Name = "Authorization",
-        Type = SecuritySchemeType.Http,
-        Scheme = "bearer",
-        BearerFormat = "JWT",
-        In = ParameterLocation.Header,
-        Description = "Microsoft Entra access token with the API scope (same token the React app sends).",
-    });
-    options.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
+        options.SwaggerDoc("v1", new OpenApiInfo
         {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer",
-                },
-            },
-            Array.Empty<string>()
-        },
+            Title = "ETC Intranet API",
+            Version = "v1",
+            Description = "Intranet endpoints and multifamily lead inspection (jobs, uploads, normalization, reports).",
+        });
+        options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+        {
+            Name = "Authorization",
+            Type = SecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            In = ParameterLocation.Header,
+            Description = "Microsoft Entra access token with the API scope (same token the React app sends).",
+        });
+        options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecuritySchemeReference("Bearer", document)] = [],
+        });
     });
-});
+}
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
     o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
@@ -100,10 +96,15 @@ catch (Exception ex)
     startupLogger.LogError(ex, "Database migration/seed failed at startup. Fix ConnectionStrings:IntranetDb in App Service settings.");
 }
 
-var swaggerEnabled = app.Environment.IsDevelopment()
-    || app.Configuration.GetValue("Swagger:Enabled", false);
+var sharePointSiteUrl = builder.Configuration["SharePoint:SiteUrl"];
+var graphClientSecret = builder.Configuration["AzureAd:ClientSecret"];
+if (string.IsNullOrWhiteSpace(sharePointSiteUrl) || string.IsNullOrWhiteSpace(graphClientSecret))
+{
+    startupLogger.LogWarning(
+        "SharePoint import is disabled. Set SharePoint:SiteUrl and AzureAd:ClientSecret (plus Graph Sites.Read.All application permission) to enable import-legacy.");
+}
 
-if (swaggerEnabled)
+if (enableSwagger)
 {
     app.UseSwagger();
     app.UseSwaggerUI(options =>

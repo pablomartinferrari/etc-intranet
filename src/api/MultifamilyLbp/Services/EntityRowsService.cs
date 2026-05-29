@@ -22,6 +22,7 @@ public sealed class EntityRowsService
         string? sourceFile,
         string? validationStatus,
         string? search,
+        string? result,
         CancellationToken cancellationToken = default)
     {
         var entity = await _jobEntityService.ResolveAsync(jobIdentifier, entitySlug, cancellationToken);
@@ -33,6 +34,13 @@ public sealed class EntityRowsService
             query = query.Where(r => r.SourceFileName == sourceFile);
         if (!string.IsNullOrEmpty(validationStatus))
             query = query.Where(r => r.ValidationStatus == validationStatus);
+        if (!string.IsNullOrEmpty(result))
+        {
+            if (result.Equals("positive", StringComparison.OrdinalIgnoreCase))
+                query = query.Where(r => r.IsPositive || r.LeadContent >= InspectionRowMapper.LeadPositiveThreshold);
+            else if (result.Equals("negative", StringComparison.OrdinalIgnoreCase))
+                query = query.Where(r => !r.IsPositive && r.LeadContent < InspectionRowMapper.LeadPositiveThreshold);
+        }
         if (!string.IsNullOrEmpty(search))
         {
             var s = search.ToLower();
@@ -65,10 +73,14 @@ public sealed class EntityRowsService
             if (row == null) continue;
             if (patch.Location != null) row.Location = patch.Location;
             if (patch.RoomOrArea != null) row.RoomOrArea = patch.RoomOrArea;
-            if (patch.Component != null) row.Component = patch.Component;
-            if (patch.NormalizedComponent != null) row.NormalizedComponent = patch.NormalizedComponent;
-            if (patch.Substrate != null) row.Substrate = patch.Substrate;
-            if (patch.NormalizedSubstrate != null) row.NormalizedSubstrate = patch.NormalizedSubstrate;
+            if (patch.NormalizedComponent != null)
+                row.NormalizedComponent = patch.NormalizedComponent;
+            else if (patch.Component != null)
+                row.NormalizedComponent = patch.Component;
+            if (patch.NormalizedSubstrate != null)
+                row.NormalizedSubstrate = patch.NormalizedSubstrate;
+            else if (patch.Substrate != null)
+                row.NormalizedSubstrate = patch.Substrate;
             if (patch.ShotCount.HasValue) row.ShotCount = patch.ShotCount.Value;
             if (patch.Notes != null) row.Notes = patch.Notes;
             row.UpdatedAt = DateTimeOffset.UtcNow;

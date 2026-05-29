@@ -42,14 +42,14 @@ public sealed class ReportGenerationService
             ConfigJson = JsonSerializer.Serialize(config),
             ResultJson = JsonSerializer.Serialize(result),
             UniformThreshold = config.UniformThreshold,
-            UseNormalizedValues = config.UseNormalizedValues,
+            UseNormalizedValues = true,
             GeneratedBy = generatedBy,
             GeneratedAt = DateTimeOffset.UtcNow,
         };
         _db.ReportSnapshots.Add(snapshot);
         await _db.SaveChangesAsync(cancellationToken);
 
-        return new ReportSnapshotDto(snapshot.Id, dataType, config.UniformThreshold, config.UseNormalizedValues,
+        return new ReportSnapshotDto(snapshot.Id, dataType, config.UniformThreshold, true,
             snapshot.GeneratedAt, generatedBy, result);
     }
 
@@ -85,16 +85,13 @@ public sealed class ReportGenerationService
             snapshot.UseNormalizedValues, snapshot.GeneratedAt, snapshot.GeneratedBy, result);
     }
 
-    private static object BuildReport(List<InspectionRowRecord> rows, ReportConfigRequest config)
+    private static Dictionary<string, object> BuildReport(List<InspectionRowRecord> rows, ReportConfigRequest config)
     {
-        string Comp(InspectionRowRecord r) => config.UseNormalizedValues
-            ? r.NormalizedComponent ?? r.Component
-            : r.Component;
-        string Sub(InspectionRowRecord r) => config.UseNormalizedValues
-            ? r.NormalizedSubstrate ?? r.Substrate ?? ""
-            : r.Substrate ?? "";
+        static string Comp(InspectionRowRecord r) => InspectionRowMapper.EffectiveComponent(r);
+        static string Sub(InspectionRowRecord r) => InspectionRowMapper.EffectiveSubstrate(r);
 
-        var groups = rows.GroupBy(r => (Comp(r), Sub(r)));
+        // REQUIREMENTS.md §4.2: classify per unique (normalized) component, not per substrate.
+        var groups = rows.GroupBy(r => Comp(r), StringComparer.OrdinalIgnoreCase);
         var allShots = rows.Select(r => new
         {
             r.ReadingId,
@@ -114,73 +111,120 @@ public sealed class ReportGenerationService
         {
             var list = g.ToList();
             var total = list.Count;
-            var positives = list.Count(x => x.IsPositive);
+            var positives = list.Count(x =>
+                x.IsPositive || x.LeadContent >= InspectionRowMapper.LeadPositiveThreshold);
+            var negatives = total - positives;
             var pct = total > 0 ? positives * 100.0 / total : 0;
+            var substrateLabel = SummarizeSubstrates(list);
 
+            // REQUIREMENTS.md §4.2: >= 40 readings → statistical average (positive if > 2.5%).
             if (total >= StatisticalSampleSize)
             {
                 average.Add(new
                 {
-                    component = g.Key.Item1,
-                    substrate = g.Key.Item2,
+                    component = g.Key,
+                    substrate = substrateLabel,
                     totalReadings = total,
                     positiveCount = positives,
+                    negativeCount = negatives,
                     positivePercent = Math.Round(pct, 2),
-                    result = pct >= PositivePercentThreshold ? "POSITIVE" : "NEGATIVE",
+                    negativePercent = Math.Round(100 - pct, 2),
+                    result = pct > PositivePercentThreshold ? "POSITIVE" : "NEGATIVE",
                 });
             }
-            else if (total >= config.UniformThreshold)
+            // < 40 readings, all same result → uniform.
+            else if (positives == 0 || positives == total)
             {
                 uniform.Add(new
                 {
-                    component = g.Key.Item1,
-                    substrate = g.Key.Item2,
+                    component = g.Key,
+                    substrate = substrateLabel,
+                    result = positives == total ? "POSITIVE" : "NEGATIVE",
                     totalReadings = total,
-                    positiveCount = positives,
-                    shotCount = total,
                 });
             }
+            // < 40 readings, mixed results → non-uniform (include shot detail for review).
             else
             {
                 nonUniform.Add(new
                 {
-                    component = g.Key.Item1,
-                    substrate = g.Key.Item2,
-                    readings = list.Select(x => new { x.ReadingId, x.LeadContent, x.IsPositive, x.Location }),
+                    component = g.Key,
+                    substrate = substrateLabel,
+                    positiveCount = positives,
+                    negativeCount = negatives,
+                    positivePercent = Math.Round(pct, 2),
+                    totalReadings = total,
+                    readings = list.Select(x => new
+                    {
+                        x.ReadingId,
+                        substrate = Sub(x),
+                        x.Location,
+                        leadContent = x.LeadContent,
+                        isPositive = x.IsPositive || x.LeadContent >= InspectionRowMapper.LeadPositiveThreshold,
+                    }),
                 });
             }
         }
 
-        return new
+        var result = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
         {
-            metadata = new
+            ["metadata"] = new
             {
                 generatedAt = DateTimeOffset.UtcNow,
-                uniformThreshold = config.UniformThreshold,
-                useNormalizedValues = config.UseNormalizedValues,
+                statisticalSampleSize = StatisticalSampleSize,
+                positivePercentThreshold = PositivePercentThreshold,
+                useNormalizedValues = true,
                 totalReadings = rows.Count,
+                sections = config.Sections,
             },
-            allShots,
-            uniformShots = uniform,
-            nonUniformShots = nonUniform,
-            byComponent = groups.GroupBy(g => g.Key.Item1).Select(cg => new
-            {
-                component = cg.Key,
-                count = cg.Sum(x => x.Count()),
-            }),
-            bySubstrate = groups.GroupBy(g => g.Key.Item2).Where(g => !string.IsNullOrEmpty(g.Key)).Select(sg => new
-            {
-                substrate = sg.Key,
-                count = sg.Sum(x => x.Count()),
-            }),
-            averageComponents = average,
-            exceptions = rows.Where(r => r.ValidationStatus != "clean").Select(r => new
-            {
-                r.ReadingId,
-                r.ValidationStatus,
-                r.Component,
-                r.Location,
-            }),
+        };
+
+        if (SectionIncluded(config, "allShots"))
+            result["allShots"] = allShots;
+        if (SectionIncluded(config, "uniformShots"))
+            result["uniformShots"] = uniform;
+        if (SectionIncluded(config, "nonUniformShots"))
+            result["nonUniformShots"] = nonUniform;
+        if (SectionIncluded(config, "averageComponents"))
+            result["averageComponents"] = average;
+
+        return result;
+    }
+
+    private static bool SectionIncluded(ReportConfigRequest config, string resultKey)
+    {
+        if (config.Sections is not { Count: > 0 })
+            return true;
+
+        string[] aliases = resultKey switch
+        {
+            "allShots" => ["allShots", "all"],
+            "uniformShots" => ["uniformShots", "uniform"],
+            "nonUniformShots" => ["nonUniformShots", "nonUniform"],
+            "averageComponents" => ["averageComponents", "average"],
+            _ => [resultKey],
+        };
+
+        return config.Sections.Any(s =>
+            aliases.Any(a => string.Equals(a, s, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static string SummarizeSubstrates(List<InspectionRowRecord> rows)
+    {
+        static string Sub(InspectionRowRecord r) => InspectionRowMapper.EffectiveSubstrate(r);
+
+        var substrates = rows
+            .Select(Sub)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return substrates.Count switch
+        {
+            0 => "",
+            1 => substrates[0],
+            _ => "Multiple",
         };
     }
 }

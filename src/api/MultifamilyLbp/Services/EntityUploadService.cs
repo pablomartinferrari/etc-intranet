@@ -159,7 +159,7 @@ public sealed class EntityUploadService
         return true;
     }
 
-    public async Task<int> ImportLegacyAsync(
+    public async Task<ImportLegacyResult> ImportLegacyAsync(
         string jobIdentifier,
         string entitySlug,
         bool overwrite,
@@ -169,32 +169,112 @@ public sealed class EntityUploadService
 
         if (overwrite)
         {
-            var existing = _db.InspectionRows.Where(r => r.JobEntityId == entity.Id);
-            _db.InspectionRows.RemoveRange(existing);
+            var existingRows = _db.InspectionRows.Where(r => r.JobEntityId == entity.Id);
+            var existingBatches = _db.UploadBatches.Where(b => b.JobEntityId == entity.Id);
+            _db.InspectionRows.RemoveRange(existingRows);
+            _db.UploadBatches.RemoveRange(existingBatches);
             await _db.SaveChangesAsync(cancellationToken);
         }
-        else if (await _db.InspectionRows.AnyAsync(r => r.JobEntityId == entity.Id, cancellationToken))
+
+        var importedIds = await _db.UploadBatches
+            .Where(b => b.JobEntityId == entity.Id && b.SharePointFileUrl != null)
+            .Select(b => b.SharePointFileUrl!)
+            .ToListAsync(cancellationToken);
+        var alreadyImported = importedIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var existingFileKeys = (await _db.InspectionRows
+                .Where(r => r.JobEntityId == entity.Id)
+                .Select(r => new { r.SourceFileName, r.DataType })
+                .Distinct()
+                .ToListAsync(cancellationToken))
+            .Select(x => $"{x.DataType}|{x.SourceFileName}")
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var files = await _legacyReadings.GetAllReadingsPerFileAsync(jobIdentifier, cancellationToken);
+        var imported = 0;
+        var filesAdded = 0;
+        var filesSkipped = 0;
+
+        foreach (var file in files)
         {
-            return 0;
+            if (string.IsNullOrWhiteSpace(file.ItemId))
+                continue;
+
+            if (!overwrite && alreadyImported.Contains(file.ItemId))
+            {
+                filesSkipped++;
+                continue;
+            }
+
+            var dataType = InspectionRowMapper.NormalizeDataType(file.AreaType);
+            var fileKey = $"{dataType}|{file.FileName}";
+            if (!overwrite && existingFileKeys.Contains(fileKey))
+            {
+                filesSkipped++;
+                alreadyImported.Add(file.ItemId);
+                continue;
+            }
+            var batch = new UploadBatchRecord
+            {
+                Id = Guid.NewGuid(),
+                JobEntityId = entity.Id,
+                SourceFileName = file.FileName,
+                SharePointFileUrl = file.ItemId,
+                DataType = dataType,
+                Status = "imported",
+                ImportedRowCount = file.Readings.Count,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            };
+            _db.UploadBatches.Add(batch);
+
+            foreach (var dto in file.Readings)
+            {
+                var row = InspectionRowMapper.FromDto(dto, entity.Id, batch.Id, file.FileName, dataType);
+                _db.InspectionRows.Add(row);
+                imported++;
+            }
+
+            filesAdded++;
+            alreadyImported.Add(file.ItemId);
+            existingFileKeys.Add(fileKey);
         }
 
-        var units = await _legacyReadings.GetReadingsAsync(jobIdentifier, "Units", cancellationToken);
-        var common = await _legacyReadings.GetReadingsAsync(jobIdentifier, "Common Areas", cancellationToken);
-        var count = 0;
-
-        foreach (var dto in units)
-        {
-            _db.InspectionRows.Add(InspectionRowMapper.FromDto(dto, entity.Id, null, "legacy-import", "units"));
-            count++;
-        }
-        foreach (var dto in common)
-        {
-            _db.InspectionRows.Add(InspectionRowMapper.FromDto(dto, entity.Id, null, "legacy-import", "commonAreas"));
-            count++;
-        }
-
+        entity.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
-        return count;
+        return new ImportLegacyResult(imported, filesAdded, filesSkipped);
+    }
+
+    /// <summary>Removes all imported rows, batches, normalization suggestions, and reports for this job workspace.</summary>
+    public async Task<ClearWorkspaceResult> ClearWorkspaceAsync(
+        string jobIdentifier,
+        string entitySlug,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await _jobEntityService.ResolveAsync(jobIdentifier, entitySlug, cancellationToken);
+
+        var rows = await _db.InspectionRows
+            .Where(r => r.JobEntityId == entity.Id)
+            .ToListAsync(cancellationToken);
+        var batches = await _db.UploadBatches
+            .Where(b => b.JobEntityId == entity.Id)
+            .ToListAsync(cancellationToken);
+        var suggestions = await _db.NormalizationSuggestions
+            .Where(s => s.JobEntityId == entity.Id)
+            .ToListAsync(cancellationToken);
+        var reports = await _db.ReportSnapshots
+            .Where(r => r.JobEntityId == entity.Id)
+            .ToListAsync(cancellationToken);
+
+        _db.InspectionRows.RemoveRange(rows);
+        _db.UploadBatches.RemoveRange(batches);
+        _db.NormalizationSuggestions.RemoveRange(suggestions);
+        _db.ReportSnapshots.RemoveRange(reports);
+
+        entity.UpdatedAt = DateTimeOffset.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return new ClearWorkspaceResult(rows.Count, batches.Count, suggestions.Count, reports.Count);
     }
 
     private static IReadOnlyList<string> DeserializeList(string? json)

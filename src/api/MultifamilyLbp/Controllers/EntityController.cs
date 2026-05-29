@@ -12,21 +12,30 @@ public sealed class EntityController : ControllerBase
     private readonly EntityDashboardService _dashboard;
     private readonly EntityUploadService _uploads;
     private readonly EntityRowsService _rows;
+    private readonly MultifamilyReadingsService _sharePoint;
     private readonly NormalizationService _normalization;
     private readonly ReportGenerationService _reports;
+    private readonly ReportExcelExportService _reportExcel;
+    private readonly ILogger<EntityController> _logger;
 
     public EntityController(
         EntityDashboardService dashboard,
         EntityUploadService uploads,
         EntityRowsService rows,
+        MultifamilyReadingsService sharePoint,
         NormalizationService normalization,
-        ReportGenerationService reports)
+        ReportGenerationService reports,
+        ReportExcelExportService reportExcel,
+        ILogger<EntityController> logger)
     {
         _dashboard = dashboard;
         _uploads = uploads;
         _rows = rows;
+        _sharePoint = sharePoint;
         _normalization = normalization;
         _reports = reports;
+        _reportExcel = reportExcel;
+        _logger = logger;
     }
 
     [HttpGet]
@@ -38,22 +47,14 @@ public sealed class EntityController : ControllerBase
     }
 
     [HttpPost("uploads")]
-    [RequestSizeLimit(52_428_800)]
-    public async Task<ActionResult<UploadResultDto>> Upload(
-        string jobId,
-        string entitySlug,
-        IFormFile file,
-        [FromForm] string dataType,
-        [FromForm] string? buildingProperty,
-        [FromForm] DateOnly? inspectionDate,
-        [FromForm] string? batchName,
-        CancellationToken ct)
+    public ActionResult UploadDisabled(string jobId, string entitySlug)
     {
         if (!EntityRegistry.IsValid(entitySlug)) return NotFound();
-        if (file == null || file.Length == 0) return BadRequest("File is required.");
-        if (string.IsNullOrWhiteSpace(dataType)) return BadRequest("dataType is required (units or commonAreas).");
-        var result = await _uploads.UploadAsync(jobId, entitySlug, file, dataType, buildingProperty, inspectionDate, batchName, ct);
-        return Ok(result);
+        return StatusCode(StatusCodes.Status403Forbidden, new
+        {
+            error = "Direct file upload is disabled. Upload files in SharePoint (XRF-SourceFiles), then use import-legacy.",
+            code = "direct_upload_disabled",
+        });
     }
 
     [HttpGet("uploads")]
@@ -78,12 +79,53 @@ public sealed class EntityController : ControllerBase
         return await _uploads.DeleteBatchAsync(jobId, entitySlug, batchId, ct) ? NoContent() : NotFound();
     }
 
+    [HttpGet("source-files")]
+    public async Task<ActionResult<IReadOnlyList<SharePointSourceFileDto>>> ListSourceFiles(
+        string jobId,
+        string entitySlug,
+        CancellationToken ct)
+    {
+        if (!EntityRegistry.IsValid(entitySlug)) return NotFound();
+        try
+        {
+            return Ok(await _sharePoint.GetSourceFilesByJobAsync(jobId, ct));
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "SharePoint source file list not available for job {JobId}", jobId);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error = ex.Message,
+                code = "sharepoint_list_unavailable",
+            });
+        }
+    }
+
     [HttpPost("import-legacy")]
     public async Task<ActionResult<object>> ImportLegacy(string jobId, string entitySlug, [FromBody] ImportLegacyRequest? body, CancellationToken ct)
     {
         if (!EntityRegistry.IsValid(entitySlug)) return NotFound();
-        var count = await _uploads.ImportLegacyAsync(jobId, entitySlug, body?.Overwrite ?? false, ct);
-        return Ok(new { imported = count });
+        try
+        {
+            var result = await _uploads.ImportLegacyAsync(jobId, entitySlug, body?.Overwrite ?? false, ct);
+            return Ok(new { imported = result.Imported, filesAdded = result.FilesAdded, filesSkipped = result.FilesSkipped });
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "SharePoint import not available for job {JobId}", jobId);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                error = ex.Message,
+                code = "sharepoint_import_unavailable",
+            });
+        }
+    }
+
+    [HttpPost("workspace/clear")]
+    public async Task<ActionResult<ClearWorkspaceResult>> ClearWorkspace(string jobId, string entitySlug, CancellationToken ct)
+    {
+        if (!EntityRegistry.IsValid(entitySlug)) return NotFound();
+        return Ok(await _uploads.ClearWorkspaceAsync(jobId, entitySlug, ct));
     }
 
     [HttpGet("rows")]
@@ -94,10 +136,11 @@ public sealed class EntityController : ControllerBase
         [FromQuery] string? sourceFile,
         [FromQuery] string? validationStatus,
         [FromQuery] string? search,
+        [FromQuery] string? result,
         CancellationToken ct)
     {
         if (!EntityRegistry.IsValid(entitySlug)) return NotFound();
-        return Ok(await _rows.ListAsync(jobId, entitySlug, dataType, sourceFile, validationStatus, search, ct));
+        return Ok(await _rows.ListAsync(jobId, entitySlug, dataType, sourceFile, validationStatus, search, result, ct));
     }
 
     [HttpPatch("rows")]
@@ -109,7 +152,7 @@ public sealed class EntityController : ControllerBase
     }
 
     [HttpPost("normalize")]
-    public async Task<ActionResult<IReadOnlyList<NormalizationSuggestionDto>>> RunNormalize(
+    public async Task<ActionResult<RunNormalizationResultDto>> RunNormalize(
         string jobId, string entitySlug, [FromBody] RunNormalizationRequest request, CancellationToken ct)
     {
         if (!EntityRegistry.IsValid(entitySlug)) return NotFound();
@@ -118,10 +161,25 @@ public sealed class EntityController : ControllerBase
 
     [HttpGet("normalizations")]
     public async Task<ActionResult<IReadOnlyList<NormalizationSuggestionDto>>> ListNormalizations(
-        string jobId, string entitySlug, [FromQuery] string? status, CancellationToken ct)
+        string jobId,
+        string entitySlug,
+        [FromQuery] string? status,
+        [FromQuery] string? fields,
+        CancellationToken ct)
     {
         if (!EntityRegistry.IsValid(entitySlug)) return NotFound();
-        return Ok(await _normalization.ListAsync(jobId, entitySlug, status, ct));
+        IReadOnlyList<string>? fieldList = null;
+        if (!string.IsNullOrWhiteSpace(fields))
+        {
+            fieldList = fields
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(f => f.ToLowerInvariant())
+                .Where(f => f is "component" or "substrate")
+                .Distinct()
+                .ToList();
+        }
+
+        return Ok(await _normalization.ListAsync(jobId, entitySlug, status, fieldList, ct));
     }
 
     [HttpPatch("normalizations/{suggestionId:guid}")]
@@ -167,6 +225,25 @@ public sealed class EntityController : ControllerBase
         if (!EntityRegistry.IsValid(entitySlug)) return NotFound();
         var r = await _reports.GetAsync(jobId, entitySlug, reportId, ct);
         return r == null ? NotFound() : Ok(r);
+    }
+
+    [HttpGet("reports/{reportId:guid}/export")]
+    public async Task<IActionResult> ExportReport(
+        string jobId,
+        string entitySlug,
+        Guid reportId,
+        CancellationToken ct)
+    {
+        if (!EntityRegistry.IsValid(entitySlug)) return NotFound();
+        var snapshot = await _reports.GetAsync(jobId, entitySlug, reportId, ct);
+        if (snapshot == null) return NotFound();
+
+        var bytes = _reportExcel.Export(snapshot.Result, jobId, snapshot.DataType, snapshot.GeneratedAt);
+        var fileName = $"LBP-Report-{jobId}-{snapshot.DataType}-{snapshot.GeneratedAt:yyyyMMdd-HHmm}.xlsx";
+        return File(
+            bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            fileName);
     }
 }
 

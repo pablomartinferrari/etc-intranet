@@ -25,6 +25,14 @@ public record UploadBatchDto(
     DateTimeOffset CreatedAt,
     IReadOnlyList<string>? Warnings);
 
+public record SharePointSourceFileDto(
+    string Id,
+    string FileName,
+    string AreaType,
+    string ProcessedStatus,
+    DateTimeOffset? CreatedAt,
+    DateTimeOffset? ModifiedAt);
+
 public record UploadResultDto(
     Guid BatchId,
     string SourceFileName,
@@ -70,6 +78,10 @@ public record RunNormalizationRequest(
     string? DataType,
     IReadOnlyList<Guid>? RowIds);
 
+public record RunNormalizationResultDto(
+    IReadOnlyList<NormalizationSuggestionDto> NeedsReview,
+    int AutoAppliedCount);
+
 public record ApplyNormalizationRequest(IReadOnlyList<Guid> SuggestionIds);
 
 public record ReportConfigRequest(
@@ -102,3 +114,11 @@ public record InspectionRowPatch(
     string? Notes);
 
 public record ImportLegacyRequest(bool Overwrite = false);
+
+public record ImportLegacyResult(int Imported, int FilesAdded, int FilesSkipped);
+
+public record ClearWorkspaceResult(
+    int RowsRemoved,
+    int BatchesRemoved,
+    int NormalizationsRemoved,
+    int ReportsRemoved);

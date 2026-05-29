@@ -4,33 +4,23 @@ import {
   Card,
   CardHeader,
   FluentProvider,
-  Spinner,
   makeStyles,
   tokens,
   webLightTheme,
 } from "@fluentui/react-components";
 import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
-import { BrowserRouter, Link as RouterLink, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Link as RouterLink, Route, Routes, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { apiRequest, loginRequest } from "./authConfig";
+import { apiRequest, signInRequest } from "./authConfig";
 import etcLogo from "./images/etc-logo.png";
 import MultifamilyRoutes from "./multifamily-lbp/MultifamilyRoutes";
 import { ApiAuthBridge } from "./multifamily-lbp/api/ApiAuthBridge";
-
-type ApiStatus = {
-  service: string;
-  database: string;
-  messageCount: number;
-  timestamp: string;
-};
-
-type SiteMessage = {
-  id: number;
-  title: string;
-  body: string;
-  createdAt: string;
-};
+import {
+  parseJobIdFromReturnPath,
+  readPostLoginReturnPath,
+  POST_LOGIN_NAV_KEY,
+} from "./multifamily-lbp/auth/jobEntryPaths";
 
 type MeResponse = {
   name: string | null;
@@ -40,20 +30,42 @@ type MeResponse = {
 };
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      retry: (failureCount, error) =>
+        failureCount < 1 && !(error instanceof Error && error.name === "AuthRequiredError"),
+    },
+  },
 });
+
+/** After Entra redirect, return user to a multifamily deep link saved before login. */
+function PostLoginRedirect(): null {
+  const navigate = useNavigate();
+  const { accounts } = useMsal();
+
+  useEffect(() => {
+    if (accounts.length === 0) return;
+    const target = readPostLoginReturnPath();
+    if (target) {
+      sessionStorage.removeItem(POST_LOGIN_NAV_KEY);
+      navigate(target, { replace: true });
+    }
+  }, [accounts.length, navigate]);
+
+  return null;
+}
 
 function IntranetHome() {
   const styles = useStyles();
   const { instance, accounts } = useMsal();
   const [me, setMe] = useState<MeResponse | null>(null);
-  const [status, setStatus] = useState<ApiStatus | null>(null);
-  const [messages, setMessages] = useState<SiteMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
 
   const isSignedIn = accounts.length > 0;
   const account = accounts[0];
+  const pendingReturnPath = readPostLoginReturnPath();
+  const pendingJobId = parseJobIdFromReturnPath(pendingReturnPath);
   const displayName =
     me?.name && !me.name.includes("@")
       ? me.name
@@ -62,13 +74,10 @@ function IntranetHome() {
 
   async function loadData() {
     if (!isSignedIn) {
-      setStatus(null);
-      setMessages([]);
       setMe(null);
       return;
     }
 
-    setIsLoading(true);
     setError(null);
 
     try {
@@ -82,25 +91,17 @@ function IntranetHome() {
         Authorization: `Bearer ${tokenResponse.accessToken}`,
       };
 
-      const [statusRes, messagesRes, meRes] = await Promise.all([
-        fetch("/api/status", { headers: authHeaders }),
-        fetch("/api/messages", { headers: authHeaders }),
-        fetch("/api/me", { headers: authHeaders }),
-      ]);
+      const meRes = await fetch("/api/me", { headers: authHeaders });
 
-      if (!statusRes.ok || !messagesRes.ok || !meRes.ok) {
+      if (!meRes.ok) {
         throw new Error("API request failed");
       }
 
-      setStatus(await statusRes.json());
-      setMessages(await messagesRes.json());
       setMe(await meRes.json());
     } catch {
       setError(
         "Could not authenticate with the API. Check Entra app registrations and API scope configuration.",
       );
-    } finally {
-      setIsLoading(false);
     }
   }
 
@@ -121,7 +122,12 @@ function IntranetHome() {
             {!isSignedIn ? (
               <Button
                 appearance="primary"
-                onClick={() => void instance.loginRedirect(loginRequest)}
+                onClick={() => {
+                  if (pendingReturnPath) {
+                    sessionStorage.setItem(POST_LOGIN_NAV_KEY, pendingReturnPath);
+                  }
+                  void instance.loginRedirect(signInRequest);
+                }}
               >
                 Sign in with Microsoft
               </Button>
@@ -138,12 +144,24 @@ function IntranetHome() {
         </div>
         {!isSignedIn ? (
           <Body1 className={styles.subtitle}>
-            Company intranet — sign in with your Microsoft work account.
+            {pendingJobId
+              ? `Continuing from SharePoint — sign in to open job ${pendingJobId} in the lead inspection workspace. Your upload is already saved.`
+              : "Company intranet — sign in with your Microsoft work account."}
           </Body1>
         ) : (
           <Body1 className={styles.subtitle}>Welcome, {displayName}.</Body1>
         )}
       </header>
+
+      {!isSignedIn && pendingJobId && (
+        <Card>
+          <CardHeader header={<strong>Lead inspection workspace</strong>} />
+          <Body1>
+            After you sign in, you will return to job <strong>{pendingJobId}</strong> to import
+            SharePoint files, review readings, and generate reports.
+          </Body1>
+        </Card>
+      )}
 
       {isSignedIn && (
         <Card>
@@ -158,6 +176,7 @@ function IntranetHome() {
       {isSignedIn && (me || account) && (
         <Card>
           <CardHeader header={<strong>Signed-in user</strong>} />
+          {error && <Body1 className={styles.error}>{error}</Body1>}
           <div className={styles.statusGrid}>
             <div className={styles.statusTile}>
               <Body1 className={styles.statusLabel}>Name</Body1>
@@ -176,51 +195,6 @@ function IntranetHome() {
           </div>
         </Card>
       )}
-
-      <Card>
-        <CardHeader header={<strong>API status</strong>} />
-        {error && <Body1 className={styles.error}>{error}</Body1>}
-        {!isSignedIn && (
-          <Body1 className={styles.subtitle}>
-            Sign in to load API data and user context from the tenant.
-          </Body1>
-        )}
-        {isLoading && <Spinner label="Loading API status..." />}
-        {status && (
-          <div className={styles.statusGrid}>
-            <div className={styles.statusTile}>
-              <Body1 className={styles.statusLabel}>Service</Body1>
-              <Body1 className={styles.statusValue}>{status.service}</Body1>
-            </div>
-            <div className={styles.statusTile}>
-              <Body1 className={styles.statusLabel}>Database</Body1>
-              <Body1 className={styles.statusValue}>{status.database}</Body1>
-            </div>
-            <div className={styles.statusTile}>
-              <Body1 className={styles.statusLabel}>Messages</Body1>
-              <Body1 className={styles.statusValue}>{status.messageCount}</Body1>
-            </div>
-          </div>
-        )}
-      </Card>
-
-      <Card>
-        <CardHeader header={<strong>Latest messages</strong>} />
-        {isSignedIn && messages.length === 0 ? (
-          <Body1>No messages yet.</Body1>
-        ) : isSignedIn ? (
-          <div className={styles.messages}>
-            {messages.map((message) => (
-              <article className={styles.messageItem} key={message.id}>
-                <strong>{message.title}</strong>
-                <Body1>{message.body}</Body1>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <Body1 className={styles.subtitle}>Sign in to view messages.</Body1>
-        )}
-      </Card>
     </main>
   );
 }
@@ -231,6 +205,7 @@ export default function App() {
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <ApiAuthBridge>
+            <PostLoginRedirect />
             <Routes>
               <Route path="/" element={<IntranetHome />} />
               <Route path="/*" element={<MultifamilyRoutes />} />
@@ -314,18 +289,8 @@ const useStyles = makeStyles({
   statusValue: {
     fontWeight: tokens.fontWeightSemibold,
   },
-  messages: {
-    display: "grid",
-    rowGap: "10px",
-  },
-  messageItem: {
-    backgroundColor: tokens.colorNeutralBackground2,
-    borderRadius: tokens.borderRadiusMedium,
-    padding: "12px",
-    display: "grid",
-    rowGap: "4px",
-  },
   error: {
     color: tokens.colorPaletteRedForeground1,
+    marginBottom: "12px",
   },
 });

@@ -43,7 +43,7 @@ export function UploadResultsPage(): React.JSX.Element {
         <Button appearance="primary" onClick={() => nav(`${base}/grid`)}>
           Go to data grid
         </Button>
-        <Button onClick={() => nav(`${base}/uploads`)}>Upload more</Button>
+        <Button onClick={() => nav(`${base}/uploads`)}>Back to source files</Button>
         <Link to={base}>Back to dashboard</Link>
       </div>
     </div>

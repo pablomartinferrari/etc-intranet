@@ -18,86 +18,146 @@ public sealed class NormalizationService
         _jobEntityService = jobEntityService;
     }
 
-    public async Task<IReadOnlyList<NormalizationSuggestionDto>> RunAsync(
+    public async Task<RunNormalizationResultDto> RunAsync(
         string jobIdentifier,
         string entitySlug,
         RunNormalizationRequest request,
         CancellationToken cancellationToken = default)
     {
         var entity = await _jobEntityService.ResolveAsync(jobIdentifier, entitySlug, cancellationToken);
+        var fields = NormalizeRequestedFields(request.Fields);
+        if (fields.Count == 0)
+            throw new InvalidOperationException("At least one field (component or substrate) is required.");
         var rows = await GetScopedRows(entity.Id, request, cancellationToken);
 
-        var fields = request.Fields.Count > 0 ? request.Fields : ["component", "substrate"];
-        var suggestions = new List<NormalizationSuggestionRecord>();
+        var staleForRun = await _db.NormalizationSuggestions
+            .Where(s => s.JobEntityId == entity.Id && fields.Contains(s.FieldName))
+            .ToListAsync(cancellationToken);
+        if (staleForRun.Count > 0)
+            _db.NormalizationSuggestions.RemoveRange(staleForRun);
+
+        var needsReview = new List<NormalizationSuggestionRecord>();
+        var autoAppliedCount = 0;
 
         foreach (var field in fields)
         {
-            var groups = field.Equals("substrate", StringComparison.OrdinalIgnoreCase)
-                ? GroupSubstrates(rows)
-                : GroupComponents(rows);
+            var fieldRows = FilterRowsForField(rows, request, field);
+            var groups = IsSubstrateField(field)
+                ? GroupSubstrates(fieldRows)
+                : GroupComponents(fieldRows);
 
-            foreach (var (original, affected, dataType) in groups)
+            foreach (var group in groups)
             {
-                if (string.IsNullOrWhiteSpace(original)) continue;
+                if (string.IsNullOrWhiteSpace(group.DisplayOriginal)) continue;
+
+                var cacheOriginal = group.Variants[0];
                 var cached = await _db.NormalizationCaches
                     .FirstOrDefaultAsync(
-                        c => c.FieldName == field && c.OriginalValue == original,
+                        c => c.FieldName == field && c.OriginalValue == cacheOriginal,
                         cancellationToken);
 
-                var suggested = cached?.NormalizedValue ?? SuggestCanonical(original, field);
-                var confidence = cached != null ? "high" : ScoreConfidence(original, suggested);
+                var suggested = cached?.NormalizedValue ?? SuggestCanonical(group.Variants[0], field);
+                var confidence = cached != null ? "high" : ScoreConfidence(group.DisplayOriginal, suggested);
+                var isExactMatch = group.Variants.All(v => ValuesMatch(v, suggested));
 
-                var existing = await _db.NormalizationSuggestions
-                    .FirstOrDefaultAsync(
-                        s => s.JobEntityId == entity.Id && s.FieldName == field && s.OriginalValue == original && s.Status == "pending",
-                        cancellationToken);
-
-                if (existing != null)
+                var rec = new NormalizationSuggestionRecord
                 {
-                    existing.SuggestedValue = suggested;
-                    existing.AffectedRowCount = affected;
-                    existing.Confidence = confidence;
-                    existing.UpdatedAt = DateTimeOffset.UtcNow;
-                    suggestions.Add(existing);
+                    Id = Guid.NewGuid(),
+                    JobEntityId = entity.Id,
+                    FieldName = field,
+                    OriginalValue = group.DisplayOriginal,
+                    SuggestedValue = suggested,
+                    AffectedRowCount = group.Count,
+                    DataType = group.DataType,
+                    Confidence = confidence,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                };
+
+                if (isExactMatch)
+                {
+                    ApplyClusterToMatchingRows(fieldRows, field, group.Variants, suggested);
+                    rec.Status = "applied";
+                    rec.ApprovedAt = DateTimeOffset.UtcNow;
+                    foreach (var variant in group.Variants)
+                        await UpsertCacheAsync(field, variant, suggested, cancellationToken);
+                    autoAppliedCount++;
+                    _db.NormalizationSuggestions.Add(rec);
                 }
                 else
                 {
-                    var rec = new NormalizationSuggestionRecord
-                    {
-                        Id = Guid.NewGuid(),
-                        JobEntityId = entity.Id,
-                        FieldName = field,
-                        OriginalValue = original,
-                        SuggestedValue = suggested,
-                        AffectedRowCount = affected,
-                        DataType = dataType,
-                        Confidence = confidence,
-                        Status = "pending",
-                        CreatedAt = DateTimeOffset.UtcNow,
-                        UpdatedAt = DateTimeOffset.UtcNow,
-                    };
+                    rec.Status = "pending";
                     _db.NormalizationSuggestions.Add(rec);
-                    suggestions.Add(rec);
+                    needsReview.Add(rec);
                 }
             }
         }
 
         await _db.SaveChangesAsync(cancellationToken);
-        return suggestions.Select(ToDto).ToList();
+        return new RunNormalizationResultDto(
+            needsReview.Select(ToDto).ToList(),
+            autoAppliedCount);
     }
 
     public async Task<IReadOnlyList<NormalizationSuggestionDto>> ListAsync(
         string jobIdentifier,
         string entitySlug,
         string? status,
+        IReadOnlyList<string>? fields = null,
         CancellationToken cancellationToken = default)
     {
         var entity = await _jobEntityService.ResolveAsync(jobIdentifier, entitySlug, cancellationToken);
         var query = _db.NormalizationSuggestions.Where(s => s.JobEntityId == entity.Id);
         if (!string.IsNullOrEmpty(status))
             query = query.Where(s => s.Status == status);
-        var list = await query.OrderBy(s => s.FieldName).ThenBy(s => s.OriginalValue).ToListAsync(cancellationToken);
-        return list.Select(ToDto).ToList();
+        if (fields is { Count: > 0 })
+            query = query.Where(s => fields.Contains(s.FieldName));
+        var list = await query.OrderByDescending(s => s.UpdatedAt).ThenBy(s => s.FieldName).ThenBy(s => s.OriginalValue)
+            .ToListAsync(cancellationToken);
+
+        // One row per distinct original display (latest wins) — avoids duplicates after re-runs.
+        var deduped = new List<NormalizationSuggestionRecord>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in list)
+        {
+            var key = $"{s.FieldName}|{s.OriginalValue}";
+            if (!seen.Add(key)) continue;
+            deduped.Add(s);
+        }
+
+        return deduped.Select(ToDto).ToList();
+    }
+
+    /// <summary>Suggestions that still need a human decision (excludes auto-applied exact matches).</summary>
+    public static bool NeedsReview(NormalizationSuggestionDto s)
+    {
+        if (string.Equals(s.Status, "rejected", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (string.Equals(s.Status, "edited", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(s.Status, "pending", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(s.Status, "approved", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (string.Equals(s.Status, "applied", StringComparison.OrdinalIgnoreCase))
+            return DiffersFromAutoApplied(s);
+
+        return true;
+    }
+
+    private static bool DiffersFromAutoApplied(NormalizationSuggestionDto s)
+    {
+        if (!string.IsNullOrWhiteSpace(s.ApprovedValue))
+            return true;
+
+        var effective = (s.ApprovedValue ?? s.SuggestedValue).Trim();
+        var suggested = s.SuggestedValue.Trim();
+        var originals = ParseOriginalVariants(s.OriginalValue);
+
+        if (!ValuesMatch(effective, suggested))
+            return true;
+
+        return !originals.All(o => ValuesMatch(o, effective));
     }
 
     public async Task<NormalizationSuggestionDto?> PatchAsync(
@@ -112,9 +172,34 @@ public sealed class NormalizationService
         var s = await _db.NormalizationSuggestions
             .FirstOrDefaultAsync(x => x.Id == suggestionId && x.JobEntityId == entity.Id, cancellationToken);
         if (s == null) return null;
-        s.Status = status;
+
+        var nextStatus = status;
+        if (!string.IsNullOrWhiteSpace(approvedValue)
+            && string.Equals(s.Status, "applied", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(status, "rejected", StringComparison.OrdinalIgnoreCase)
+            && !ValuesMatch(approvedValue, s.SuggestedValue))
+        {
+            nextStatus = "edited";
+        }
+
+        s.Status = nextStatus;
         if (approvedValue != null) s.ApprovedValue = approvedValue;
         s.UpdatedAt = DateTimeOffset.UtcNow;
+
+        if (string.Equals(nextStatus, "approved", StringComparison.OrdinalIgnoreCase))
+        {
+            var rows = await _db.InspectionRows
+                .Where(r => r.JobEntityId == entity.Id)
+                .ToListAsync(cancellationToken);
+            var value = s.ApprovedValue ?? s.SuggestedValue;
+            var variants = ParseOriginalVariants(s.OriginalValue);
+            ApplyClusterToMatchingRows(rows, s.FieldName, variants, value);
+            foreach (var variant in variants)
+                await UpsertCacheAsync(s.FieldName, variant, value, cancellationToken);
+            s.Status = "applied";
+            s.ApprovedAt = DateTimeOffset.UtcNow;
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
         return ToDto(s);
     }
@@ -137,31 +222,61 @@ public sealed class NormalizationService
         foreach (var s in suggestions)
         {
             var value = s.ApprovedValue ?? s.SuggestedValue;
-            foreach (var row in rows)
-            {
-                var match = s.FieldName == "substrate"
-                    ? string.Equals(row.Substrate, s.OriginalValue, StringComparison.OrdinalIgnoreCase)
-                    : string.Equals(row.Component, s.OriginalValue, StringComparison.OrdinalIgnoreCase);
-                if (!match) continue;
-
-                if (s.FieldName == "substrate")
-                    row.NormalizedSubstrate = value;
-                else
-                    row.NormalizedComponent = value;
-                row.UpdatedAt = DateTimeOffset.UtcNow;
-                applied++;
-            }
+            var variants = ParseOriginalVariants(s.OriginalValue);
+            applied += ApplyClusterToMatchingRows(rows, s.FieldName, variants, value);
 
             s.Status = "applied";
             s.ApprovedAt = DateTimeOffset.UtcNow;
             s.UpdatedAt = DateTimeOffset.UtcNow;
 
-            await UpsertCacheAsync(s.FieldName, s.OriginalValue, value, cancellationToken);
+            foreach (var variant in variants)
+                await UpsertCacheAsync(s.FieldName, variant, value, cancellationToken);
         }
 
         await _db.SaveChangesAsync(cancellationToken);
         return applied;
     }
+
+    private static int ApplyClusterToMatchingRows(
+        IEnumerable<InspectionRowRecord> rows,
+        string field,
+        IReadOnlyList<string> originalVariants,
+        string normalizedValue)
+    {
+        var variantKeys = originalVariants
+            .Select(v => ClusterKey(v, field))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var applied = 0;
+        foreach (var row in rows)
+        {
+            var raw = IsSubstrateField(field) ? row.Substrate : row.Component;
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            if (!variantKeys.Contains(ClusterKey(raw, field))) continue;
+
+            if (IsSubstrateField(field))
+                row.NormalizedSubstrate = normalizedValue;
+            else
+                row.NormalizedComponent = normalizedValue;
+            row.UpdatedAt = DateTimeOffset.UtcNow;
+            applied++;
+        }
+
+        return applied;
+    }
+
+    private static IReadOnlyList<string> ParseOriginalVariants(string originalValue) =>
+        originalValue.Split('·', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+    private static int ApplyToMatchingRows(
+        IEnumerable<InspectionRowRecord> rows,
+        string field,
+        string originalValue,
+        string normalizedValue) =>
+        ApplyClusterToMatchingRows(rows, field, ParseOriginalVariants(originalValue), normalizedValue);
+
+    private static bool ValuesMatch(string a, string b) =>
+        string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private async Task UpsertCacheAsync(string field, string original, string normalized, CancellationToken ct)
     {
@@ -196,30 +311,107 @@ public sealed class NormalizationService
             query = query.Where(r => r.DataType == InspectionRowMapper.NormalizeDataType(request.DataType));
         if (request.RowIds is { Count: > 0 })
             query = query.Where(r => request.RowIds.Contains(r.Id));
-        if (request.Scope == "missing")
-        {
-            query = query.Where(r =>
-                string.IsNullOrEmpty(r.NormalizedComponent) || string.IsNullOrEmpty(r.NormalizedSubstrate));
-        }
         return await query.ToListAsync(ct);
     }
 
-    private static IEnumerable<(string original, int count, string dataType)> GroupComponents(List<InspectionRowRecord> rows) =>
-        rows.GroupBy(r => r.Component.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Select(g => (g.Key, g.Count(), g.Select(x => x.DataType).Distinct().Count() > 1 ? "both" : g.First().DataType));
-
-    private static IEnumerable<(string original, int count, string dataType)> GroupSubstrates(List<InspectionRowRecord> rows) =>
-        rows.Where(r => !string.IsNullOrWhiteSpace(r.Substrate))
-            .GroupBy(r => r.Substrate!.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Select(g => (g.Key, g.Count(), g.Select(x => x.DataType).Distinct().Count() > 1 ? "both" : g.First().DataType));
-
-    private static string SuggestCanonical(string original, string field)
+    private static IReadOnlyList<string> NormalizeRequestedFields(IReadOnlyList<string> fields)
     {
-        var s = Regex.Replace(original.Trim(), @"\s+", " ");
-        if (field == "substrate")
-            return CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s.ToLowerInvariant());
-        return CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s.ToLowerInvariant());
+        if (fields.Count == 0)
+            return ["component", "substrate"];
+
+        return fields
+            .Select(f => f.Trim().ToLowerInvariant())
+            .Where(f => f is "component" or "substrate")
+            .Distinct()
+            .ToList();
     }
+
+    private static List<InspectionRowRecord> FilterRowsForField(
+        List<InspectionRowRecord> rows,
+        RunNormalizationRequest request,
+        string field)
+    {
+        if (!string.Equals(request.Scope, "missing", StringComparison.OrdinalIgnoreCase))
+            return rows;
+
+        return IsSubstrateField(field)
+            ? rows.Where(r => string.IsNullOrWhiteSpace(r.NormalizedSubstrate)).ToList()
+            : rows.Where(r => string.IsNullOrWhiteSpace(r.NormalizedComponent)).ToList();
+    }
+
+    private static bool IsSubstrateField(string field) =>
+        field.Equals("substrate", StringComparison.OrdinalIgnoreCase);
+
+    private static IEnumerable<ComponentGroup> GroupComponents(List<InspectionRowRecord> rows) =>
+        rows
+            .Where(r => !string.IsNullOrWhiteSpace(r.Component))
+            .GroupBy(r => ClusterKey(r.Component, "component"), StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var variants = g.Select(x => x.Component.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var display = variants.Count == 1
+                    ? variants[0]
+                    : string.Join(" · ", variants);
+                return new ComponentGroup(
+                    display,
+                    variants,
+                    g.Count(),
+                    g.Select(x => x.DataType).Distinct().Count() > 1 ? "both" : g.First().DataType);
+            });
+
+    private static IEnumerable<ComponentGroup> GroupSubstrates(List<InspectionRowRecord> rows) =>
+        rows
+            .Where(r => !string.IsNullOrWhiteSpace(r.Substrate))
+            .GroupBy(r => ClusterKey(r.Substrate!, "substrate"), StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var variants = g.Select(x => x.Substrate!.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var display = variants.Count == 1
+                    ? variants[0]
+                    : string.Join(" · ", variants);
+                return new ComponentGroup(
+                    display,
+                    variants,
+                    g.Count(),
+                    g.Select(x => x.DataType).Distinct().Count() > 1 ? "both" : g.First().DataType);
+            });
+
+    private sealed record ComponentGroup(string DisplayOriginal, IReadOnlyList<string> Variants, int Count, string DataType);
+
+    private static string ClusterKey(string? value, string field) =>
+        IsSubstrateField(field) ? SubstrateClusterKey(value) : ComponentClusterKey(value);
+
+    /// <summary>Groups minor spelling/plural variants (e.g. Cabinet Casing / Cabinet Casings).</summary>
+    private static string ComponentClusterKey(string? component)
+    {
+        if (string.IsNullOrWhiteSpace(component)) return "";
+        var s = Regex.Replace(component.Trim(), @"\s+", " ");
+        s = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s.ToLowerInvariant());
+        if (s.Length > 3
+            && s.EndsWith("s", StringComparison.OrdinalIgnoreCase)
+            && !s.EndsWith("ss", StringComparison.OrdinalIgnoreCase)
+            && !s.EndsWith("us", StringComparison.OrdinalIgnoreCase))
+        {
+            return s[..^1];
+        }
+
+        return s;
+    }
+
+    private static string SubstrateClusterKey(string? substrate)
+    {
+        if (string.IsNullOrWhiteSpace(substrate)) return "";
+        return Regex.Replace(substrate.Trim(), @"\s+", " ");
+    }
+
+    private static string SuggestCanonical(string original, string field) =>
+        ClusterKey(original, field);
 
     private static string ScoreConfidence(string original, string suggested)
     {

@@ -69,6 +69,9 @@ The full workflow from `multifamily-lbp` design docs is hosted in this app:
 
 SPFx web parts in the **multifamily-lbp** repo should set `processingAppBaseUrl` to this intranet URL.
 
+**End-to-end tutorial (Units + Common Areas reports):** [docs/multifamily-lbp-end-to-end-tutorial.md](docs/multifamily-lbp-end-to-end-tutorial.md)  
+**Video script:** multifamily-lbp repo → `docs/tutorials/10-end-to-end-units-and-common-areas.md`
+
 ## Build for production
 
 ```powershell
