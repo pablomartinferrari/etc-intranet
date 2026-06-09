@@ -1,0 +1,197 @@
+using System.Text.Json;
+using Intranet.Api.KnowledgeBase.Data;
+using Intranet.Api.KnowledgeBase.Models;
+using Intranet.Api.KnowledgeBase.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace Intranet.Api.KnowledgeBase.Controllers;
+
+[ApiController]
+[Route("api/kb")]
+public sealed class KnowledgeChatController : ControllerBase
+{
+    private readonly RagService _rag;
+    private readonly ChatExportService _export;
+    private readonly KnowledgeDbContext _db;
+
+    public KnowledgeChatController(RagService rag, ChatExportService export, KnowledgeDbContext db)
+    {
+        _rag = rag;
+        _export = export;
+        _db = db;
+    }
+
+    /// <summary>Feature flags only (no secrets). Anonymous so devs can verify WebSearch config without a token.</summary>
+    [AllowAnonymous]
+    [HttpGet("chat/capabilities")]
+    public ActionResult<ChatCapabilitiesDto> GetCapabilities() => Ok(_rag.GetCapabilities());
+
+    [HttpGet("chat/sessions")]
+    public async Task<ActionResult<IReadOnlyList<ChatSessionDto>>> ListSessions(
+        [FromQuery] Guid? projectId,
+        CancellationToken cancellationToken)
+    {
+        var userOid = RequireUserOid();
+        if (userOid is null)
+        {
+            return Unauthorized();
+        }
+
+        var query = _db.ChatSessions.Where(s => s.UserOid == userOid);
+        if (projectId.HasValue)
+        {
+            query = query.Where(s => s.ProjectId == projectId.Value);
+        }
+
+        var sessions = await query
+            .OrderByDescending(s => s.UpdatedAt)
+            .Take(50)
+            .Select(s => new ChatSessionDto(
+                s.Id,
+                s.ProjectId,
+                s.Title,
+                s.CreatedAt,
+                s.UpdatedAt))
+            .ToListAsync(cancellationToken);
+
+        return Ok(sessions);
+    }
+
+    [HttpPatch("chat/sessions/{sessionId:guid}")]
+    public async Task<ActionResult<ChatSessionDto>> UpdateSession(
+        Guid sessionId,
+        [FromBody] UpdateChatSessionRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var userOid = RequireUserOid();
+        if (userOid is null)
+        {
+            return Unauthorized();
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Title))
+        {
+            return BadRequest("Title is required.");
+        }
+
+        var session = await _db.ChatSessions
+            .FirstOrDefaultAsync(s => s.Id == sessionId && s.UserOid == userOid, cancellationToken);
+
+        if (session is null)
+        {
+            return NotFound();
+        }
+
+        session.Title = request.Title.Trim();
+        session.UpdatedAt = DateTimeOffset.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new ChatSessionDto(
+            session.Id,
+            session.ProjectId,
+            session.Title,
+            session.CreatedAt,
+            session.UpdatedAt));
+    }
+
+    [HttpGet("chat/sessions/{sessionId:guid}/messages")]
+    public async Task<ActionResult<IReadOnlyList<ChatMessageDto>>> GetSessionMessages(
+        Guid sessionId,
+        CancellationToken cancellationToken)
+    {
+        var userOid = RequireUserOid();
+        if (userOid is null)
+        {
+            return Unauthorized();
+        }
+
+        var ownsSession = await _db.ChatSessions
+            .AnyAsync(s => s.Id == sessionId && s.UserOid == userOid, cancellationToken);
+
+        if (!ownsSession)
+        {
+            return NotFound();
+        }
+
+        var messages = await _db.ChatMessages
+            .Where(m => m.SessionId == sessionId)
+            .OrderBy(m => m.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        var messageIds = messages.Select(m => m.Id).ToList();
+        var attachmentsByMessage = await _db.GeneratedFiles
+            .AsNoTracking()
+            .Where(f => f.MessageId != null && messageIds.Contains(f.MessageId.Value))
+            .GroupBy(f => f.MessageId!.Value)
+            .ToDictionaryAsync(
+                g => g.Key,
+                g => (IReadOnlyList<ChatAttachmentDto>)g
+                    .Select(f => new ChatAttachmentDto(f.Id, f.Filename, f.MimeType, f.Format))
+                    .ToList(),
+                cancellationToken);
+
+        var result = messages.Select(m =>
+        {
+            IReadOnlyList<CitationDto>? citations = null;
+            if (!string.IsNullOrWhiteSpace(m.CitationsJson))
+            {
+                citations = JsonSerializer.Deserialize<List<CitationDto>>(m.CitationsJson);
+            }
+
+            attachmentsByMessage.TryGetValue(m.Id, out var attachments);
+
+            return new ChatMessageDto(
+                m.Id,
+                m.Role,
+                m.Content,
+                citations,
+                attachments is { Count: > 0 } ? attachments : null,
+                m.CreatedAt);
+        }).ToList();
+
+        return Ok(result);
+    }
+
+    [HttpGet("generated/{fileId:guid}/download")]
+    public async Task<IActionResult> DownloadGeneratedFile(
+        Guid fileId,
+        CancellationToken cancellationToken)
+    {
+        var userOid = RequireUserOid();
+        if (userOid is null)
+        {
+            return Unauthorized();
+        }
+
+        var result = await _export.TryReadForUserAsync(fileId, userOid, cancellationToken);
+        if (result is null)
+        {
+            return NotFound();
+        }
+
+        var (file, bytes) = result.Value;
+        return File(bytes, file.MimeType, file.Filename);
+    }
+
+    [HttpPost("chat")]
+    public async Task<ActionResult<ChatResponseDto>> Chat(
+        [FromBody] ChatRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Query))
+        {
+            return BadRequest("Query is required.");
+        }
+
+        var userOid = RequireUserOid();
+
+        var response = await _rag.ChatAsync(request, userOid, cancellationToken);
+        return Ok(response);
+    }
+
+    private string? RequireUserOid() =>
+        User.FindFirst("oid")?.Value
+        ?? User.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value;
+}

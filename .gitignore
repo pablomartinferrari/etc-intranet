@@ -7,6 +7,8 @@ wwwroot/assets/
 *.suo
 .vs/
 .azure/*.env
+.azure/knowledge-connection.txt
+.azure/knowledge-blob-connection.txt
 .env
 infra/*.parameters.json
 !infra/main.bicepparam

@@ -10,6 +10,9 @@ Starter intranet with **React** (Vite), **.NET 10 Web API**, and **PostgreSQL**,
 | `src/api` | ASP.NET Core 10 API + EF Core |
 | `src/api/MultifamilyLbp` | Multifamily lead inspection API (jobs, uploads, normalization, reports) |
 | `src/web/src/multifamily-lbp` | Lead inspection React workflow (SharePoint-launched) |
+| `src/api/KnowledgeBase` | Semantic search + RAG chat over company documents |
+| `src/web/src/knowledge-base` | Knowledge Base UI (search, chat, ingest) |
+| `../etc-kg` | Python ingestion pipeline (SharePoint, local upload, pgvector) |
 | `infra/` | Azure Bicep templates |
 | `scripts/deploy.ps1` | Deploy infrastructure + API to Azure |
 | `docker-compose.yml` | Local PostgreSQL |
@@ -69,8 +72,47 @@ The full workflow from `multifamily-lbp` design docs is hosted in this app:
 
 SPFx web parts in the **multifamily-lbp** repo should set `processingAppBaseUrl` to this intranet URL.
 
-**End-to-end tutorial (Units + Common Areas reports):** [docs/multifamily-lbp-end-to-end-tutorial.md](docs/multifamily-lbp-end-to-end-tutorial.md)  
+**User guide (inspectors / PMs):** [docs/multifamily-lbp-user-guide.md](docs/multifamily-lbp-user-guide.md)  
+**End-to-end runbook (trainers / admins):** [docs/multifamily-lbp-end-to-end-tutorial.md](docs/multifamily-lbp-end-to-end-tutorial.md)  
 **Video script:** multifamily-lbp repo → `docs/tutorials/10-end-to-end-units-and-common-areas.md`
+
+### Knowledge Base (semantic search + RAG)
+
+Local stack uses a **separate Postgres** (pgvector) in the sibling [`etc-kg`](../etc-kg) repo plus **Ollama** on your machine.
+
+1. Start knowledge Postgres:
+
+   ```powershell
+   cd ..\etc-kg
+   docker compose up -d
+   ```
+
+2. Install Ollama and pull models:
+
+   ```powershell
+   ollama pull nomic-embed-text
+   ollama pull llama3.1:8b
+   ```
+
+3. Ingest sample documents (requires Python 3.11+ in `etc-kg`):
+
+   ```powershell
+   cd ..\etc-kg
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   pip install -e .
+   python -m ingest.cli ingest local --path .\sample-docs
+   ```
+
+4. Run intranet API + web as usual. Open **Knowledge Base** from the home page or `/knowledge`.
+
+| Route | Purpose |
+|-------|---------|
+| `/knowledge` | Semantic search, chat Q&A, file upload, document list |
+
+API endpoints: `POST /api/kb/search`, `POST /api/kb/chat`, `POST /api/kb/ingest/upload`, `GET /api/kb/documents`
+
+Azure promotion: [docs/knowledge-base-azure.md](docs/knowledge-base-azure.md)
 
 ## Build for production
 

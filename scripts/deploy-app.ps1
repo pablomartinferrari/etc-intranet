@@ -64,6 +64,15 @@ Push-Location "$root/src/api"
 try {
     dotnet publish -c Release -o ./publish
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed." }
+
+    $migrationsSrc = (Resolve-Path "$root/../etc-kg/migrations").Path
+    $migrationsDest = "./publish/migrations"
+    if (Test-Path $migrationsSrc) {
+        New-Item -ItemType Directory -Force -Path $migrationsDest | Out-Null
+        Copy-Item "$migrationsSrc/*.sql" $migrationsDest -Force
+        Write-Host "Bundled knowledge migrations into publish/migrations"
+    }
+
     if (Test-Path ./publish.zip) { Remove-Item ./publish.zip -Force }
     Compress-Archive -Path ./publish/* -DestinationPath ./publish.zip -Force
 }

@@ -1,5 +1,6 @@
 using Intranet.Api.Data;
 using Intranet.Api.Data.Entities;
+using Intranet.Api.KnowledgeBase;
 using Intranet.Api.MultifamilyLbp;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -25,6 +26,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
 builder.Services.AddAuthorization();
 builder.Services.AddMultifamilyLbp(builder.Configuration);
+builder.Services.AddKnowledgeBase(builder.Configuration);
 
 var enableSwagger = builder.Environment.IsDevelopment()
     || builder.Configuration.GetValue("Swagger:Enabled", false);
@@ -72,12 +74,22 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+if (app.Environment.IsDevelopment())
+{
+    startupLogger.LogInformation(
+        "Environment={Environment} AzureAd:TenantId={TenantId} AzureAd:Audience={Audience}",
+        app.Environment.EnvironmentName,
+        builder.Configuration["AzureAd:TenantId"],
+        builder.Configuration["AzureAd:Audience"]);
+}
+
 try
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<IntranetDbContext>();
     await db.Database.MigrateAsync();
     await app.MigrateMultifamilyDatabaseAsync();
+    await app.InitializeKnowledgeDatabaseAsync();
 
     if (!await db.SiteMessages.AnyAsync())
     {

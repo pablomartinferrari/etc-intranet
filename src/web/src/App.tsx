@@ -1,13 +1,22 @@
 import {
   Body1,
   Button,
+  Caption1,
   Card,
   CardHeader,
   FluentProvider,
+  Subtitle1,
+  Title1,
+  Title3,
   makeStyles,
   tokens,
   webLightTheme,
 } from "@fluentui/react-components";
+import {
+  ArrowRight24Regular,
+  ChatSparkle24Regular,
+  ClipboardTaskListLtr24Regular,
+} from "@fluentui/react-icons";
 import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
 import { BrowserRouter, Link as RouterLink, Route, Routes, useNavigate } from "react-router-dom";
@@ -15,6 +24,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { apiRequest, signInRequest } from "./authConfig";
 import etcLogo from "./images/etc-logo.png";
 import MultifamilyRoutes from "./multifamily-lbp/MultifamilyRoutes";
+import KnowledgeRoutes from "./knowledge-base/KnowledgeRoutes";
 import { ApiAuthBridge } from "./multifamily-lbp/api/ApiAuthBridge";
 import {
   parseJobIdFromReturnPath,
@@ -56,6 +66,23 @@ function PostLoginRedirect(): null {
   return null;
 }
 
+const INTRANET_APPS = [
+  {
+    to: "/lead-inspection",
+    title: "Lead inspection data manager",
+    description: "Upload XRF readings, review the grid, normalize components, and generate reports.",
+    Icon: ClipboardTaskListLtr24Regular,
+    accent: tokens.colorPaletteBlueBorderActive,
+  },
+  {
+    to: "/knowledge",
+    title: "Knowledge assistant",
+    description: "Organize project files, search your library, and chat with citations or web results.",
+    Icon: ChatSparkle24Regular,
+    accent: tokens.colorPaletteTealBorderActive,
+  },
+] as const;
+
 function IntranetHome() {
   const styles = useStyles();
   const { instance, accounts } = useMsal();
@@ -70,6 +97,7 @@ function IntranetHome() {
     me?.name && !me.name.includes("@")
       ? me.name
       : (account?.name ?? me?.name ?? "there");
+  const firstName = displayName.split(/\s+/)[0] ?? displayName;
   const displayEmail = me?.email ?? account?.username ?? null;
 
   async function loadData() {
@@ -142,21 +170,32 @@ function IntranetHome() {
             )}
           </div>
         </div>
+
         {!isSignedIn ? (
-          <Body1 className={styles.subtitle}>
-            {pendingJobId
-              ? `Continuing from SharePoint — sign in to open job ${pendingJobId} in the lead inspection workspace. Your upload is already saved.`
-              : "Company intranet — sign in with your Microsoft work account."}
-          </Body1>
+          <div className={styles.hero}>
+            <Title1 className={styles.heroTitle}>ETC intranet</Title1>
+            <Body1 className={styles.heroLead}>
+              {pendingJobId
+                ? `Sign in to continue to job ${pendingJobId} in the lead inspection workspace.`
+                : "Sign in with your Microsoft work account to open company applications."}
+            </Body1>
+          </div>
         ) : (
-          <Body1 className={styles.subtitle}>Welcome, {displayName}.</Body1>
+          <div className={styles.hero}>
+            <Caption1 className={styles.heroEyebrow}>Environmental Testing & Consulting</Caption1>
+            <Title1 className={styles.heroTitle}>Welcome back, {firstName}</Title1>
+            {displayEmail && (
+              <Caption1 className={styles.heroMeta}>{displayEmail}</Caption1>
+            )}
+            {error && <Body1 className={styles.error}>{error}</Body1>}
+          </div>
         )}
       </header>
 
       {!isSignedIn && pendingJobId && (
-        <Card>
-          <CardHeader header={<strong>Lead inspection workspace</strong>} />
-          <Body1>
+        <Card className={styles.noticeCard}>
+          <CardHeader header={<Title3>Lead inspection workspace</Title3>} />
+          <Body1 className={styles.noticeBody}>
             After you sign in, you will return to job <strong>{pendingJobId}</strong> to import
             SharePoint files, review readings, and generate reports.
           </Body1>
@@ -164,36 +203,26 @@ function IntranetHome() {
       )}
 
       {isSignedIn && (
-        <Card>
-          <CardHeader header={<strong>Applications</strong>} />
-          <Body1>
-            <RouterLink to="/lead-inspection">Lead inspection data manager</RouterLink>{" "}
-            — multifamily LBP upload, grid, normalization, and reports.
-          </Body1>
-        </Card>
-      )}
-
-      {isSignedIn && (me || account) && (
-        <Card>
-          <CardHeader header={<strong>Signed-in user</strong>} />
-          {error && <Body1 className={styles.error}>{error}</Body1>}
-          <div className={styles.statusGrid}>
-            <div className={styles.statusTile}>
-              <Body1 className={styles.statusLabel}>Name</Body1>
-              <Body1 className={styles.statusValue}>{displayName}</Body1>
-            </div>
-            <div className={styles.statusTile}>
-              <Body1 className={styles.statusLabel}>Email</Body1>
-              <Body1 className={styles.statusValue}>{displayEmail ?? "n/a"}</Body1>
-            </div>
-            <div className={styles.statusTile}>
-              <Body1 className={styles.statusLabel}>Tenant</Body1>
-              <Body1 className={styles.statusValue}>
-                {me?.tenantId ?? account?.tenantId ?? "n/a"}
-              </Body1>
-            </div>
+        <section className={styles.appsSection}>
+          <Subtitle1 className={styles.appsHeading}>Applications</Subtitle1>
+          <div className={styles.appGrid}>
+            {INTRANET_APPS.map((app) => (
+              <RouterLink key={app.to} to={app.to} className={styles.appCard}>
+                <div
+                  className={styles.appIconWrap}
+                  style={{ borderColor: app.accent }}
+                >
+                  <app.Icon className={styles.appIcon} />
+                </div>
+                <div className={styles.appCopy}>
+                  <Subtitle1 className={styles.appTitle}>{app.title}</Subtitle1>
+                  <Caption1 className={styles.appDescription}>{app.description}</Caption1>
+                </div>
+                <ArrowRight24Regular className={styles.appArrow} aria-hidden />
+              </RouterLink>
+            ))}
           </div>
-        </Card>
+        </section>
       )}
     </main>
   );
@@ -208,6 +237,7 @@ export default function App() {
             <PostLoginRedirect />
             <Routes>
               <Route path="/" element={<IntranetHome />} />
+              <Route path="/knowledge/*" element={<KnowledgeRoutes />} />
               <Route path="/*" element={<MultifamilyRoutes />} />
             </Routes>
           </ApiAuthBridge>
@@ -220,14 +250,18 @@ export default function App() {
 const useStyles = makeStyles({
   page: {
     margin: "0 auto",
-    maxWidth: "980px",
-    padding: "32px 20px 56px",
-    display: "grid",
-    rowGap: "16px",
+    maxWidth: "960px",
+    minHeight: "100vh",
+    padding: "28px 24px 64px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "32px",
+    backgroundColor: tokens.colorNeutralBackground2,
   },
   header: {
-    display: "grid",
-    rowGap: "12px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "28px",
   },
   brandBar: {
     display: "flex",
@@ -235,10 +269,10 @@ const useStyles = makeStyles({
     justifyContent: "space-between",
     flexWrap: "wrap",
     gap: "16px",
-    padding: "14px 20px",
+    padding: "16px 24px",
     backgroundColor: "#000000",
-    borderRadius: tokens.borderRadiusLarge,
-    boxShadow: tokens.shadow8,
+    borderRadius: tokens.borderRadiusXLarge,
+    boxShadow: tokens.shadow16,
   },
   logo: {
     display: "block",
@@ -267,30 +301,120 @@ const useStyles = makeStyles({
       borderLeftColor: "#ffffff",
     },
   },
-  subtitle: {
-    color: tokens.colorNeutralForeground2,
-    paddingLeft: "4px",
+  hero: {
+    padding: "8px 4px 0",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
   },
-  statusGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
-    gap: "12px",
-  },
-  statusTile: {
-    backgroundColor: tokens.colorNeutralBackground2,
-    borderRadius: tokens.borderRadiusMedium,
-    padding: "12px",
-    display: "grid",
-    rowGap: "6px",
-  },
-  statusLabel: {
+  heroEyebrow: {
     color: tokens.colorNeutralForeground3,
-  },
-  statusValue: {
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
     fontWeight: tokens.fontWeightSemibold,
+  },
+  heroTitle: {
+    fontWeight: tokens.fontWeightSemibold,
+    letterSpacing: "-0.02em",
+    lineHeight: tokens.lineHeightHero800,
+  },
+  heroLead: {
+    maxWidth: "560px",
+    color: tokens.colorNeutralForeground2,
+    fontSize: tokens.fontSizeBase400,
+    lineHeight: tokens.lineHeightBase400,
+  },
+  heroMeta: {
+    color: tokens.colorNeutralForeground3,
+    marginTop: "2px",
+  },
+  noticeCard: {
+    borderRadius: tokens.borderRadiusXLarge,
+    boxShadow: tokens.shadow4,
+  },
+  noticeBody: {
+    padding: "0 16px 16px",
+    color: tokens.colorNeutralForeground2,
+  },
+  appsSection: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+  },
+  appsHeading: {
+    paddingLeft: "4px",
+    color: tokens.colorNeutralForeground2,
+    fontWeight: tokens.fontWeightSemibold,
+  },
+  appGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+    gap: "16px",
+  },
+  appCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: "16px",
+    padding: "20px",
+    borderRadius: tokens.borderRadiusXLarge,
+    backgroundColor: tokens.colorNeutralBackground1,
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    boxShadow: tokens.shadow2,
+    textDecoration: "none",
+    color: "inherit",
+    transitionProperty: "transform, box-shadow, border-color",
+    transitionDuration: "160ms",
+    transitionTimingFunction: "ease-out",
+    ":hover": {
+      transform: "translateY(-2px)",
+      boxShadow: tokens.shadow8,
+      borderTopColor: tokens.colorNeutralStroke1,
+      borderRightColor: tokens.colorNeutralStroke1,
+      borderBottomColor: tokens.colorNeutralStroke1,
+      borderLeftColor: tokens.colorNeutralStroke1,
+    },
+    ":focus-visible": {
+      outline: `2px solid ${tokens.colorBrandStroke1}`,
+      outlineOffset: "2px",
+    },
+  },
+  appIconWrap: {
+    flexShrink: 0,
+    width: "48px",
+    height: "48px",
+    borderRadius: tokens.borderRadiusLarge,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: tokens.colorNeutralBackground2,
+    border: "1px solid",
+  },
+  appIcon: {
+    width: "24px",
+    height: "24px",
+    color: tokens.colorNeutralForeground1,
+  },
+  appCopy: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+  },
+  appTitle: {
+    fontWeight: tokens.fontWeightSemibold,
+    lineHeight: tokens.lineHeightBase300,
+  },
+  appDescription: {
+    color: tokens.colorNeutralForeground3,
+    lineHeight: tokens.lineHeightBase200,
+  },
+  appArrow: {
+    flexShrink: 0,
+    color: tokens.colorNeutralForeground3,
   },
   error: {
     color: tokens.colorPaletteRedForeground1,
-    marginBottom: "12px",
+    marginTop: "8px",
   },
 });
