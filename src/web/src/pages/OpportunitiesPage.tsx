@@ -112,9 +112,11 @@ export function OpportunitiesPage() {
         <MessageBar intent="warning">
           <MessageBarBody>
             <MessageBarTitle>Add Cleat__ApiKey</MessageBarTitle>
-            {error.message} The intranet compiles and runs without a key; set
-            it in user secrets locally or as an App Setting / Key Vault secret
-            in Azure, then refresh this page.
+            <div>
+              {error.message} The intranet compiles and runs without a key; set
+              it in user secrets locally or as an App Setting / Key Vault secret
+              in Azure, then refresh this page.
+            </div>
           </MessageBarBody>
         </MessageBar>
       )}
@@ -123,7 +125,7 @@ export function OpportunitiesPage() {
         <MessageBar intent="error">
           <MessageBarBody>
             <MessageBarTitle>Could not load CLEATUS recommendations</MessageBarTitle>
-            {error.message}
+            <div>{error.message}</div>
           </MessageBarBody>
         </MessageBar>
       )}
@@ -132,9 +134,11 @@ export function OpportunitiesPage() {
         <MessageBar intent="info">
           <MessageBarBody>
             <MessageBarTitle>No recommendations</MessageBarTitle>
-            CLEATUS returned no opportunities at the default minimum score of{" "}
-            {DEFAULT_MIN_SCORE}. Try a lower threshold later, or review the
-            capture profile in CLEATUS.
+            <div>
+              CLEATUS returned no opportunities at the default minimum score of{" "}
+              {DEFAULT_MIN_SCORE}. Try a lower threshold later, or review the
+              capture profile in CLEATUS.
+            </div>
           </MessageBarBody>
         </MessageBar>
       )}
@@ -237,7 +241,7 @@ export function OpportunitiesPage() {
               {detailError && (
                 <MessageBar intent="warning">
                   <MessageBarBody>
-                    Showing the list row only. {detailError}
+                    <div>Showing the list row only. {detailError}</div>
                   </MessageBarBody>
                 </MessageBar>
               )}
