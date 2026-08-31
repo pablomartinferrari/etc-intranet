@@ -15,7 +15,9 @@ export default function App() {
   const navigate = useNavigate();
   const selected = location.pathname.startsWith("/opportunities")
     ? "opportunities"
-    : "home";
+    : location.pathname.startsWith("/pipeline")
+      ? "pipeline"
+      : "home";
 
   return (
     <FluentProvider theme={webLightTheme}>
@@ -28,11 +30,18 @@ export default function App() {
           <TabList
             selectedValue={selected}
             onTabSelect={(_, data) => {
-              navigate(data.value === "opportunities" ? "/opportunities" : "/");
+              if (data.value === "opportunities") {
+                navigate("/opportunities");
+              } else if (data.value === "pipeline") {
+                navigate("/pipeline");
+              } else {
+                navigate("/");
+              }
             }}
           >
             <Tab value="home">Home</Tab>
             <Tab value="opportunities">Opportunities</Tab>
+            <Tab value="pipeline">Pipeline</Tab>
           </TabList>
         </header>
         <Outlet />

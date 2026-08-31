@@ -35,7 +35,11 @@ public sealed partial class CleatClient(
             ["limit"] = limit.ToString(System.Globalization.CultureInfo.InvariantCulture),
         };
 
-        using var document = await SendAsync(QueryHelpers.AddQueryString("v1/recommendations", query), cancellationToken);
+        using var document = await SendAsync(
+            HttpMethod.Get,
+            QueryHelpers.AddQueryString("v1/recommendations", query),
+            body: null,
+            cancellationToken);
         return CleatJsonMapper.MapRecommendations(document.RootElement.Clone(), _options.AppBaseUrl);
     }
 
@@ -43,15 +47,95 @@ public sealed partial class CleatClient(
     {
         EnsureConfigured();
 
-        if (!OpportunityIdPattern().IsMatch(opportunityId))
+        if (!IsValidOpportunityId(opportunityId))
         {
             return null;
         }
 
         using var document = await SendAsync(
+            HttpMethod.Get,
             "v1/opportunities/" + Uri.EscapeDataString(opportunityId),
+            body: null,
             cancellationToken);
         return CleatJsonMapper.TryMapOpportunity(document.RootElement.Clone(), _options.AppBaseUrl);
+    }
+
+    public async Task<PursuitListDto> SearchPipelineAsync(
+        string? status,
+        string? cursor,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        EnsureConfigured();
+
+        var query = new Dictionary<string, string?>
+        {
+            ["limit"] = limit.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        };
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            query["status"] = status;
+        }
+
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            query["cursor"] = cursor;
+        }
+
+        using var document = await SendAsync(
+            HttpMethod.Get,
+            QueryHelpers.AddQueryString("v1/pipeline/search", query),
+            body: null,
+            cancellationToken);
+        return CleatJsonMapper.MapPipelineSearch(document.RootElement.Clone(), _options.AppBaseUrl);
+    }
+
+    public async Task<PursuitDto?> GetPursuitAsync(string pursuitId, CancellationToken cancellationToken)
+    {
+        EnsureConfigured();
+
+        if (!IsValidOpportunityId(pursuitId))
+        {
+            return null;
+        }
+
+        using var document = await SendAsync(
+            HttpMethod.Get,
+            "v1/pursuits/" + Uri.EscapeDataString(pursuitId),
+            body: null,
+            cancellationToken);
+        return CleatJsonMapper.TryMapPursuit(document.RootElement.Clone(), _options.AppBaseUrl);
+    }
+
+    public async Task UpdatePursuitAsync(
+        string pursuitId,
+        string? columnTitle,
+        bool? archived,
+        CancellationToken cancellationToken)
+    {
+        EnsureConfigured();
+
+        if (!IsValidOpportunityId(pursuitId))
+        {
+            throw new CleatUpstreamException("Pursuit id looks invalid.", 400, "invalid_pursuit_id");
+        }
+
+        var payload = new System.Text.Json.Nodes.JsonObject();
+        if (!string.IsNullOrWhiteSpace(columnTitle))
+        {
+            payload["column_id"] = columnTitle;
+        }
+
+        if (archived is not null)
+        {
+            payload["archived"] = archived.Value;
+        }
+
+        using var document = await SendAsync(
+            HttpMethod.Patch,
+            "v1/pursuits/" + Uri.EscapeDataString(pursuitId),
+            payload.ToJsonString(),
+            cancellationToken);
     }
 
     public static bool IsValidOpportunityId(string? opportunityId) =>
@@ -65,11 +149,19 @@ public sealed partial class CleatClient(
         }
     }
 
-    private async Task<JsonDocument> SendAsync(string relativeUrl, CancellationToken cancellationToken)
+    private async Task<JsonDocument> SendAsync(
+        HttpMethod method,
+        string relativeUrl,
+        string? body,
+        CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, relativeUrl);
+        using var request = new HttpRequestMessage(method, relativeUrl);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.TryAddWithoutValidation("X-Api-Key", _options.ApiKey);
+        if (body is not null)
+        {
+            request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+        }
 
         HttpResponseMessage response;
         try
@@ -91,7 +183,7 @@ public sealed partial class CleatClient(
         {
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                throw new CleatUpstreamException("Opportunity not found in CLEATUS.", 404, "cleat_not_found");
+                throw new CleatUpstreamException("Not found in CLEATUS.", 404, "cleat_not_found");
             }
 
             if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
@@ -123,10 +215,15 @@ public sealed partial class CleatClient(
                     502);
             }
 
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var json = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return JsonDocument.Parse("{}");
+            }
+
             try
             {
-                return await JsonDocument.ParseAsync(stream, ParseOptions, cancellationToken);
+                return JsonDocument.Parse(json, ParseOptions);
             }
             catch (JsonException ex)
             {

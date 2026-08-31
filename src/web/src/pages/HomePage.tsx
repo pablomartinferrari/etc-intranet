@@ -65,8 +65,8 @@ export function HomePage() {
         <Title1>Welcome to ETC</Title1>
         <Body1 className={styles.subtitle}>
           React frontend, .NET 10 API, and PostgreSQL powered by Microsoft
-          Fluent UI. Recommended government-contract opportunities from CLEATUS
-          are on the Opportunities page.
+          Fluent UI. Recommended bids are on Opportunities; pursued work and
+          close-out sit on Pipeline.
         </Body1>
       </header>
 

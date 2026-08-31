@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import App from "./App";
 import { HomePage } from "./pages/HomePage";
 import { OpportunitiesPage } from "./pages/OpportunitiesPage";
+import { PipelinePage } from "./pages/PipelinePage";
 import "./index.css";
 
 createRoot(document.getElementById("root")!).render(
@@ -13,6 +14,7 @@ createRoot(document.getElementById("root")!).render(
         <Route element={<App />}>
           <Route index element={<HomePage />} />
           <Route path="opportunities" element={<OpportunitiesPage />} />
+          <Route path="pipeline" element={<PipelinePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

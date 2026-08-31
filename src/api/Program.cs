@@ -23,6 +23,7 @@ builder.Services.AddHttpClient<CleatClient>((sp, client) =>
     client.BaseAddress = new Uri(origin + "/");
     client.Timeout = TimeSpan.FromSeconds(30);
 });
+builder.Services.AddScoped<PipelineService>();
 
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks()
@@ -144,6 +145,65 @@ app.MapGet("/api/cleat/opportunities/{id}", async (
                 },
                 statusCode: StatusCodes.Status404NotFound)
             : Results.Ok(opportunity);
+    }
+    catch (Exception ex) when (ex is CleatNotConfiguredException or CleatUpstreamException)
+    {
+        return MapCleatError(ex);
+    }
+});
+
+app.MapGet("/api/cleat/pipeline", async (
+    PipelineService pipeline,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var dashboard = await pipeline.GetDashboardAsync(cancellationToken);
+        return Results.Ok(dashboard);
+    }
+    catch (Exception ex) when (ex is CleatNotConfiguredException or CleatUpstreamException)
+    {
+        return MapCleatError(ex);
+    }
+});
+
+app.MapPost("/api/cleat/pursuits/{id}/close-out", async (
+    string id,
+    CloseoutRequest request,
+    PipelineService pipeline,
+    CancellationToken cancellationToken) =>
+{
+    if (!CleatClient.IsValidOpportunityId(id))
+    {
+        return Results.Json(
+            new CleatErrorResponse
+            {
+                Error = "invalid_pursuit_id",
+                Message = "Pursuit id looks invalid.",
+            },
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    try
+    {
+        var result = await pipeline.CloseOutAsync(id, request, cancellationToken);
+        if (result.CleatusUpdated)
+        {
+            return Results.Ok(result);
+        }
+
+        var status = result.Error == "cleat_api_key_missing"
+            ? StatusCodes.Status503ServiceUnavailable
+            : result.Error == "cleat_not_found"
+                ? StatusCodes.Status404NotFound
+                : StatusCodes.Status502BadGateway;
+        return Results.Json(result, statusCode: status);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.Json(
+            new CleatErrorResponse { Error = "invalid_closeout", Message = ex.Message },
+            statusCode: StatusCodes.Status400BadRequest);
     }
     catch (Exception ex) when (ex is CleatNotConfiguredException or CleatUpstreamException)
     {

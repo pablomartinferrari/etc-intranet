@@ -2,7 +2,7 @@
 
 Starter intranet with **React** (Vite), **.NET 10 Web API**, and **PostgreSQL**, deployable to **Azure App Service** + **Azure Database for PostgreSQL**.
 
-Staff can open **Opportunities** in the SPA to review CLEATUS-recommended government-contract bids (SAM.gov / SLED) without signing into CLEATUS first. Each row can open the record in the CLEATUS web app.
+Staff can open **Opportunities** in the SPA to review CLEATUS-recommended government-contract bids (SAM.gov / SLED) without signing into CLEATUS first. **Pipeline** lists pursuits already on the board, highlights work that needs close-out, and stores win/loss/drop reasons in PostgreSQL.
 
 ## Project layout
 
@@ -49,7 +49,7 @@ Staff can open **Opportunities** in the SPA to review CLEATUS-recommended govern
 
 Open http://localhost:5173 (Vite proxies `/api` to the API).
 
-The API compiles and runs **without** a CLEATUS key. Home works as before. The Opportunities page calls `GET /api/cleat/recommendations` on load and shows a friendly “Add Cleat__ApiKey” message (HTTP 503) until a key is configured.
+The API compiles and runs **without** a CLEATUS key. Home works as before. The Opportunities and Pipeline pages call CLEATUS on load and show a friendly “Add Cleat__ApiKey” message (HTTP 503) until a key is configured. Close-out writes with a missing key save the reason locally, return 503, and do not pretend CLEATUS was updated.
 
 ### CLEATUS API key (optional until you want live recommendations)
 
@@ -167,8 +167,20 @@ Roughly **$20–35/month** (B1 App Service + B1ms PostgreSQL, no App Insights/Lo
 | `GET /api/messages` | Sample messages from PostgreSQL |
 | `GET /api/cleat/recommendations` | Proxy of CLEATUS `GET /v1/recommendations` (optional `minScore`, default 80). Missing `Cleat__ApiKey` returns **503** JSON `{ error: "cleat_api_key_missing", message: "Add Cleat__ApiKey ..." }`. |
 | `GET /api/cleat/opportunities/{id}` | Proxy of CLEATUS `GET /v1/opportunities/{opportunity_id}`. Same missing-key 503. |
+| `GET /api/cleat/pipeline` | Page-load pipeline dashboard: `GET /v1/pipeline/search` (active, won, archived) joined with opportunity deadlines when missing, plus local close-out reasons. Same missing-key 503. |
+| `POST /api/cleat/pursuits/{id}/close-out` | Persist a win/loss/drop reason in PostgreSQL, then `PATCH /v1/pursuits/{id}` (`column_id` Won/Lost, or `archived: true` for no longer pursuing). If the CLEATUS write fails, the local reason is kept and the response is 503/502 with `cleatusUpdated: false`. |
 
-CLEATUS data is fetched on page load only (no webhooks, no Postgres persistence). Public OpenAPI response schemas are empty objects; the intranet maps documented Zapier/contract field names defensively onto a stable shape (`id`, `title`, `agency`, `naics`, `score`, dates, solicitation number, set-aside, summary/overview, CLEATUS deep link).
+Recommendations are not stored in Postgres. **Close-out reasons are** (table `PursuitCloseouts`) because CLEATUS has no documented win/loss-reason field. Do not put reasons in git or in CLEATUS tags.
+
+### Pipeline close-out rules
+
+A pursuit **needs close-out** when it is not won, lost, or archived, and any of:
+
+1. Opportunity response/deadline is in the past
+2. Phase is triage / preparing / submitted and last-activity is 21+ days old, **if** CLEATUS sends an updated-at / last-activity field
+3. If there is no last-activity field (current public OpenAPI/Zapier payloads do not document one), use deadline-only, and flag **no deadline on file** so those rows still appear
+
+No email is sent; visibility on the Pipeline page is enough.
 
 ## Azure resources
 

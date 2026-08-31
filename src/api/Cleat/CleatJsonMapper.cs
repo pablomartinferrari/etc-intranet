@@ -80,6 +80,219 @@ public static class CleatJsonMapper
         return $"{origin}/dashboard/contracts/{Uri.EscapeDataString(opportunityId)}";
     }
 
+    public static string BuildCleatusPursuitUrl(string pursuitId, string appBaseUrl)
+    {
+        var origin = string.IsNullOrWhiteSpace(appBaseUrl) ? "https://www.cleat.ai" : appBaseUrl.TrimEnd('/');
+        return $"{origin}/dashboard/pipeline/{Uri.EscapeDataString(pursuitId)}";
+    }
+
+    public static PursuitListDto MapPipelineSearch(JsonElement root, string appBaseUrl)
+    {
+        var items = new List<PursuitDto>();
+        foreach (var element in EnumerateItems(root))
+        {
+            var mapped = TryMapPursuit(element, appBaseUrl);
+            if (mapped is not null)
+            {
+                items.Add(mapped);
+            }
+        }
+
+        return new PursuitListDto
+        {
+            Items = items,
+            HasMore = ReadBool(IndexObject(root), "hasmore", "has_more") ?? false,
+            NextCursor = ReadString(IndexObject(root), "nextcursor", "cursor", "next_cursor"),
+        };
+    }
+
+    public static PursuitDto? TryMapPursuit(JsonElement root, string appBaseUrl)
+    {
+        if (root.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        var fields = FlattenPursuit(root);
+        var id = ReadString(fields, "id", "pursuitid", "pursuit_id");
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        var opportunityId = ReadString(
+            fields,
+            "opportunityid",
+            "opportunity_id",
+            "contractid",
+            "contract_id");
+        if (string.Equals(opportunityId, id, StringComparison.OrdinalIgnoreCase)
+            && id.StartsWith("pur_", StringComparison.OrdinalIgnoreCase))
+        {
+            opportunityId = null;
+        }
+
+        var lastActivity = ReadString(
+            fields,
+            "updatedat",
+            "updated_at",
+            "lastactivity",
+            "last_activity",
+            "lastactivityat",
+            "last_activity_at",
+            "modifiedat",
+            "modified_at");
+
+        var assignee = ReadAssignee(fields);
+        var cleatusUrl = !string.IsNullOrWhiteSpace(opportunityId)
+            ? ResolveCleatusUrl(fields, opportunityId, appBaseUrl)
+            : BuildCleatusPursuitUrl(id, appBaseUrl);
+
+        return new PursuitDto
+        {
+            Id = id,
+            OpportunityId = opportunityId,
+            Title = ReadString(fields, "pursuittitle", "pursuit_title", "title", "name"),
+            Agency = FirstNonBlank(
+                ReadString(fields, "agencyname", "agency_name", "agency"),
+                ReadString(fields, "agencyorgname", "agency_org_name")),
+            Phase = ReadString(fields, "phase", "status"),
+            ColumnTitle = ReadString(fields, "columntitle", "column_title"),
+            Archived = ReadBool(fields, "archived", "isarchived", "is_archived") ?? false,
+            Favorite = ReadBool(fields, "favorite", "isfavorite", "is_favorite"),
+            DeadlineDate = ReadString(fields, "deadlinedate", "deadline_date", "duedate", "due_date"),
+            PostedDate = ReadString(fields, "posteddate", "posted_date"),
+            SolicitationNumber = ReadString(fields, "solicitationnumber", "solicitation_number"),
+            Naics = ReadNaics(fields),
+            SetAside = FirstNonBlank(
+                ReadString(fields, "typeofsetasidedescription", "type_of_set_aside_description"),
+                ReadString(fields, "typeofsetaside", "type_of_set_aside", "setaside", "set_aside")),
+            Summary = ReadString(fields, "summary"),
+            Overview = ReadString(fields, "overview"),
+            Description = ReadString(fields, "description"),
+            Assignee = assignee,
+            CreatedAt = ReadString(fields, "pursuitcreatedat", "pursuit_created_at", "createdat", "created_at"),
+            LastActivityAt = lastActivity,
+            LastActivityAvailable = lastActivity is not null,
+            CleatusUrl = cleatusUrl,
+            SourceUrl = ReadString(fields, "sourceurl", "source_url", "providerurl", "provider_url"),
+        };
+    }
+
+    private static Dictionary<string, JsonElement> FlattenPursuit(JsonElement root)
+    {
+        var map = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return map;
+        }
+
+        if (TryGetIgnoreCase(root, "data", out var data)
+            && data.ValueKind == JsonValueKind.Object
+            && !HasLikelyOpportunityFields(root)
+            && !TryGetIgnoreCase(root, "phase", out _))
+        {
+            return FlattenPursuit(data);
+        }
+
+        Merge(map, IndexObject(root));
+
+        foreach (var nestedName in new[] { "contract", "opportunity" })
+        {
+            if (TryGetIgnoreCase(root, nestedName, out var nested) && nested.ValueKind == JsonValueKind.Object)
+            {
+                var nestedMap = IndexObject(nested);
+                if (nestedMap.TryGetValue("id", out var nestedId) || nestedMap.TryGetValue("Id", out nestedId))
+                {
+                    map["contractid"] = nestedId;
+                    map["contract_id"] = nestedId;
+                    map["opportunityid"] = nestedId;
+                    map["opportunity_id"] = nestedId;
+                }
+
+                foreach (var pair in nestedMap)
+                {
+                    if (string.Equals(Normalize(pair.Key), "id", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    map[pair.Key] = pair.Value;
+                }
+            }
+        }
+
+        Restore(map, IndexObject(root),
+            "id", "pursuitid", "pursuit_id",
+            "phase", "status",
+            "columntitle", "column_title", "columnid", "column_id",
+            "archived", "favorite",
+            "pursuittitle", "pursuit_title",
+            "createdat", "created_at", "pursuitcreatedat", "pursuit_created_at",
+            "updatedat", "updated_at", "lastactivity", "last_activity");
+
+        return map;
+    }
+
+    private static string? ReadAssignee(Dictionary<string, JsonElement> fields)
+    {
+        var direct = ReadString(
+            fields,
+            "assignee",
+            "assigneename",
+            "assignee_name",
+            "assignedto",
+            "assigned_to",
+            "owner",
+            "ownername",
+            "owner_name",
+            "owneremail",
+            "owner_email");
+        if (!string.IsNullOrWhiteSpace(direct))
+        {
+            return direct;
+        }
+
+        foreach (var name in new[] { "assignees", "assignedto", "assigned_to", "owners" })
+        {
+            if (!(fields.TryGetValue(name, out var value) || fields.TryGetValue(Normalize(name), out value)))
+            {
+                continue;
+            }
+
+            if (value.ValueKind == JsonValueKind.Array)
+            {
+                var parts = value.EnumerateArray()
+                    .Select(item => item.ValueKind == JsonValueKind.Object
+                        ? StringifyNameObject(item)
+                        : Stringify(item))
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .ToArray();
+                if (parts.Length > 0)
+                {
+                    return string.Join(", ", parts);
+                }
+            }
+            else if (value.ValueKind == JsonValueKind.Object)
+            {
+                var nested = StringifyNameObject(value);
+                if (!string.IsNullOrWhiteSpace(nested))
+                {
+                    return nested;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string? StringifyNameObject(JsonElement obj)
+    {
+        var fields = IndexObject(obj);
+        return FirstNonBlank(
+            ReadString(fields, "fullname", "full_name", "name", "email", "label", "title"));
+    }
+
     private static IEnumerable<JsonElement> EnumerateItems(JsonElement root)
     {
         if (root.ValueKind == JsonValueKind.Array)
@@ -97,7 +310,7 @@ public static class CleatJsonMapper
             yield break;
         }
 
-        foreach (var name in new[] { "items", "recommendations", "results", "opportunities", "data" })
+        foreach (var name in new[] { "items", "recommendations", "results", "opportunities", "pursuits", "pipeline", "data" })
         {
             if (TryGetIgnoreCase(root, name, out var candidate) && candidate.ValueKind == JsonValueKind.Array)
             {
