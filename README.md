@@ -2,6 +2,8 @@
 
 Starter intranet with **React** (Vite), **.NET 10 Web API**, and **PostgreSQL**, deployable to **Azure App Service** + **Azure Database for PostgreSQL**.
 
+Staff can open **Opportunities** in the SPA to review CLEATUS-recommended government-contract bids (SAM.gov / SLED) without signing into CLEATUS first. Each row can open the record in the CLEATUS web app.
+
 ## Project layout
 
 | Path | Description |
@@ -46,6 +48,46 @@ Starter intranet with **React** (Vite), **.NET 10 Web API**, and **PostgreSQL**,
    If npm warns about `esbuild` install scripts, either run `npm approve-scripts esbuild` or rely on the `allowScripts` entry already in `src/web/package.json`.
 
 Open http://localhost:5173 (Vite proxies `/api` to the API).
+
+The API compiles and runs **without** a CLEATUS key. Home works as before. The Opportunities page calls `GET /api/cleat/recommendations` on load and shows a friendly “Add Cleat__ApiKey” message (HTTP 503) until a key is configured.
+
+### CLEATUS API key (optional until you want live recommendations)
+
+Mint a key in CLEATUS: **Settings → Integrations → API Keys**. Store it outside git.
+
+**Local (user secrets — preferred):**
+
+```powershell
+cd src/api
+dotnet user-secrets set "Cleat:ApiKey" "<your-cleatus-api-key>"
+```
+
+Equivalent environment variable: `Cleat__ApiKey`. Do not put a real key in `appsettings.json`, README examples, or source control.
+
+**Azure App Service setting:**
+
+```powershell
+az webapp config appsettings set `
+  --resource-group rg-intranet-dev `
+  --name "<web-app-name>" `
+  --settings Cleat__ApiKey="<your-cleatus-api-key>"
+```
+
+**Azure Key Vault** (same pattern as the PostgreSQL connection string). Create a secret (name `Cleat--ApiKey` is a valid Key Vault encoding of `Cleat:ApiKey`) and wire it as an App Setting Key Vault reference:
+
+```powershell
+az keyvault secret set `
+  --vault-name "<key-vault-name>" `
+  --name "Cleat--ApiKey" `
+  --value "<your-cleatus-api-key>"
+
+az webapp config appsettings set `
+  --resource-group rg-intranet-dev `
+  --name "<web-app-name>" `
+  --settings Cleat__ApiKey="@Microsoft.KeyVault(SecretUri=https://<key-vault-name>.vault.azure.net/secrets/Cleat--ApiKey/)"
+```
+
+The App Service system-assigned identity already has Key Vault Secrets User. Restart the web app after adding the secret. `Cleat:BaseUrl` defaults to `https://api.cleat.ai` and does not need to be set.
 
 ## Build for production
 
@@ -123,6 +165,10 @@ Roughly **$20–35/month** (B1 App Service + B1ms PostgreSQL, no App Insights/Lo
 | `GET /health` | Health check (includes DB) |
 | `GET /api/status` | Service + database status |
 | `GET /api/messages` | Sample messages from PostgreSQL |
+| `GET /api/cleat/recommendations` | Proxy of CLEATUS `GET /v1/recommendations` (optional `minScore`, default 80). Missing `Cleat__ApiKey` returns **503** JSON `{ error: "cleat_api_key_missing", message: "Add Cleat__ApiKey ..." }`. |
+| `GET /api/cleat/opportunities/{id}` | Proxy of CLEATUS `GET /v1/opportunities/{opportunity_id}`. Same missing-key 503. |
+
+CLEATUS data is fetched on page load only (no webhooks, no Postgres persistence). Public OpenAPI response schemas are empty objects; the intranet maps documented Zapier/contract field names defensively onto a stable shape (`id`, `title`, `agency`, `naics`, `score`, dates, solicitation number, set-aside, summary/overview, CLEATUS deep link).
 
 ## Azure resources
 
