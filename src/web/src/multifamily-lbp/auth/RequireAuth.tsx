@@ -3,6 +3,7 @@ import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { Navigate, useLocation } from "react-router-dom";
 import { Spinner } from "@fluentui/react-components";
 import {
+  isIntranetAppReturnPath,
   isMultifamilyJobEntryPath,
   savePostLoginReturnPath,
 } from "./jobEntryPaths";
@@ -22,7 +23,7 @@ export function RequireAuth({ children }: RequireAuthProps): React.JSX.Element {
   }
 
   if (!isAuthenticated) {
-    if (isMultifamilyJobEntryPath(pathname)) {
+    if (isMultifamilyJobEntryPath(pathname) || isIntranetAppReturnPath(pathname)) {
       savePostLoginReturnPath(pathname, search);
     }
     return <Navigate to="/" replace />;

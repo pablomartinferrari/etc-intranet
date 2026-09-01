@@ -1,3 +1,4 @@
+using Intranet.Api.Cleat;
 using Intranet.Api.Data;
 using Intranet.Api.Data.Entities;
 using Intranet.Api.KnowledgeBase;
@@ -5,6 +6,7 @@ using Intranet.Api.MultifamilyLbp;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.Identity.Web;
 using Microsoft.OpenApi;
 using System.Security.Claims;
@@ -25,6 +27,17 @@ builder.Services.AddHealthChecks()
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
 builder.Services.AddAuthorization();
+builder.Services.Configure<CleatOptions>(builder.Configuration.GetSection(CleatOptions.SectionName));
+builder.Services.AddHttpClient<CleatClient>((sp, client) =>
+{
+    var options = sp.GetRequiredService<IOptions<CleatOptions>>().Value;
+    var origin = string.IsNullOrWhiteSpace(options.BaseUrl)
+        ? "https://api.cleat.ai"
+        : options.BaseUrl.TrimEnd('/');
+    client.BaseAddress = new Uri(origin + "/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddScoped<PipelineService>();
 builder.Services.AddMultifamilyLbp(builder.Configuration);
 builder.Services.AddKnowledgeBase(builder.Configuration);
 
@@ -38,7 +51,7 @@ if (enableSwagger)
         {
             Title = "ETC Intranet API",
             Version = "v1",
-            Description = "Intranet endpoints and multifamily lead inspection (jobs, uploads, normalization, reports).",
+            Description = "Intranet endpoints, CLEATUS opportunities/pipeline, and multifamily lead inspection.",
         });
         options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
         {
@@ -173,6 +186,119 @@ app.MapGet("/api/messages", async (IntranetDbContext db, CancellationToken cance
 
 app.MapControllers().RequireAuthorization();
 
+app.MapGet("/api/cleat/recommendations", async (
+    CleatClient cleat,
+    CancellationToken cancellationToken,
+    double? minScore,
+    int? limit) =>
+{
+    try
+    {
+        var score = minScore is null ? 80 : Math.Clamp(minScore.Value, 0, 100);
+        var pageSize = limit is null ? 20 : Math.Clamp(limit.Value, 1, 100);
+        var result = await cleat.GetRecommendationsAsync(score, pageSize, cancellationToken);
+        return Results.Ok(result);
+    }
+    catch (Exception ex) when (ex is CleatNotConfiguredException or CleatUpstreamException)
+    {
+        return MapCleatError(ex);
+    }
+}).RequireAuthorization();
+
+app.MapGet("/api/cleat/opportunities/{id}", async (
+    string id,
+    CleatClient cleat,
+    CancellationToken cancellationToken) =>
+{
+    if (!CleatClient.IsValidOpportunityId(id))
+    {
+        return Results.Json(
+            new CleatErrorResponse
+            {
+                Error = "invalid_opportunity_id",
+                Message = "Opportunity id looks invalid.",
+            },
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    try
+    {
+        var opportunity = await cleat.GetOpportunityAsync(id, cancellationToken);
+        return opportunity is null
+            ? Results.Json(
+                new CleatErrorResponse
+                {
+                    Error = "cleat_not_found",
+                    Message = "Opportunity not found in CLEATUS.",
+                },
+                statusCode: StatusCodes.Status404NotFound)
+            : Results.Ok(opportunity);
+    }
+    catch (Exception ex) when (ex is CleatNotConfiguredException or CleatUpstreamException)
+    {
+        return MapCleatError(ex);
+    }
+}).RequireAuthorization();
+
+app.MapGet("/api/cleat/pipeline", async (
+    PipelineService pipeline,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var dashboard = await pipeline.GetDashboardAsync(cancellationToken);
+        return Results.Ok(dashboard);
+    }
+    catch (Exception ex) when (ex is CleatNotConfiguredException or CleatUpstreamException)
+    {
+        return MapCleatError(ex);
+    }
+}).RequireAuthorization();
+
+app.MapPost("/api/cleat/pursuits/{id}/close-out", async (
+    string id,
+    CloseoutRequest request,
+    PipelineService pipeline,
+    CancellationToken cancellationToken) =>
+{
+    if (!CleatClient.IsValidOpportunityId(id))
+    {
+        return Results.Json(
+            new CleatErrorResponse
+            {
+                Error = "invalid_pursuit_id",
+                Message = "Pursuit id looks invalid.",
+            },
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    try
+    {
+        var result = await pipeline.CloseOutAsync(id, request, cancellationToken);
+        if (result.CleatusUpdated)
+        {
+            return Results.Ok(result);
+        }
+
+        var status = result.Error == "cleat_api_key_missing"
+            ? StatusCodes.Status503ServiceUnavailable
+            : result.Error == "cleat_not_found"
+                ? StatusCodes.Status404NotFound
+                : StatusCodes.Status502BadGateway;
+        return Results.Json(result, statusCode: status);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.Json(
+            new CleatErrorResponse { Error = "invalid_closeout", Message = ex.Message },
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+    catch (Exception ex) when (ex is CleatNotConfiguredException or CleatUpstreamException)
+    {
+        return MapCleatError(ex);
+    }
+}).RequireAuthorization();
+
 app.MapGet("/api/me", [Authorize] (ClaimsPrincipal user) =>
 {
     static string? FirstClaim(ClaimsPrincipal principal, params string[] claimTypes)
@@ -232,3 +358,30 @@ app.MapGet("/api/me", [Authorize] (ClaimsPrincipal user) =>
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+static IResult MapCleatError(Exception ex) => ex switch
+{
+    CleatNotConfiguredException => Results.Json(
+        new CleatErrorResponse
+        {
+            Error = "cleat_api_key_missing",
+            Message = CleatNotConfiguredException.UserMessage,
+        },
+        statusCode: StatusCodes.Status503ServiceUnavailable),
+    CleatUpstreamException { StatusCode: 404 } upstream => Results.Json(
+        new CleatErrorResponse { Error = upstream.ErrorCode, Message = upstream.Message },
+        statusCode: StatusCodes.Status404NotFound),
+    CleatUpstreamException { StatusCode: 503 or 504 } upstream => Results.Json(
+        new CleatErrorResponse { Error = upstream.ErrorCode, Message = upstream.Message },
+        statusCode: upstream.StatusCode),
+    CleatUpstreamException upstream => Results.Json(
+        new CleatErrorResponse { Error = upstream.ErrorCode, Message = upstream.Message },
+        statusCode: StatusCodes.Status502BadGateway),
+    _ => Results.Json(
+        new CleatErrorResponse
+        {
+            Error = "cleat_upstream_error",
+            Message = "CLEATUS request failed.",
+        },
+        statusCode: StatusCodes.Status502BadGateway),
+};

@@ -5,6 +5,18 @@ export function isMultifamilyJobEntryPath(pathname: string): boolean {
   return MULTIFAMILY_JOB_PATH.test(pathname);
 }
 
+/** Signed-in app cards that should return here after Entra redirect. */
+export function isIntranetAppReturnPath(pathname: string): boolean {
+  return (
+    pathname === "/opportunities" ||
+    pathname.startsWith("/opportunities/") ||
+    pathname === "/pipeline" ||
+    pathname.startsWith("/pipeline/") ||
+    pathname === "/knowledge" ||
+    pathname.startsWith("/knowledge/")
+  );
+}
+
 export function parseJobIdFromReturnPath(path: string | null | undefined): string | null {
   if (!path) return null;
   const match = path.match(/^\/jobs\/([^/?#]+)\/multifamily-lbp/);

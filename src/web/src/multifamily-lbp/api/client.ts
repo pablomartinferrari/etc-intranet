@@ -14,6 +14,14 @@ export function setApiAuthHeadersProvider(
   authHeadersProvider = provider;
 }
 
+export async function getApiAuthHeaders(): Promise<HeadersInit> {
+  if (!authHeadersProvider) {
+    throw new AuthRequiredError();
+  }
+
+  return authHeadersProvider();
+}
+
 async function mergeAuthHeaders(headers: HeadersInit): Promise<HeadersInit> {
   if (!authHeadersProvider) {
     throw new AuthRequiredError();
