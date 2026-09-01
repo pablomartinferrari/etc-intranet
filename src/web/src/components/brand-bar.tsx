@@ -40,7 +40,7 @@ export function SignOutButton({ outlineOnBlack = false }: { outlineOnBlack?: boo
       variant="outline"
       className={
         outlineOnBlack
-          ? "border-white/85 bg-transparent text-white hover:bg-white hover:text-black"
+          ? "border-white bg-black text-white hover:bg-white hover:text-black"
           : undefined
       }
       onClick={() => void instance.logoutRedirect()}
