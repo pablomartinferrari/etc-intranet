@@ -1,4 +1,5 @@
-import { BuildingBankRegular, DataTrendingRegular } from "@fluentui/react-icons";
+import { Building2Icon, TrendingUpIcon } from "lucide-react";
+
 import { RequireAuth } from "../multifamily-lbp/auth/RequireAuth";
 import { CleatusChrome } from "./CleatusChrome";
 import { OpportunitiesPage } from "./pages/OpportunitiesPage";
@@ -10,7 +11,7 @@ export function CleatusOpportunitiesRoute(): React.JSX.Element {
       <CleatusChrome
         title="Opportunities"
         subtitle="CLEATUS-recommended SAM.gov and SLED bids"
-        icon={<BuildingBankRegular fontSize={28} />}
+        icon={<Building2Icon className="size-7" />}
       >
         <OpportunitiesPage />
       </CleatusChrome>
@@ -24,7 +25,7 @@ export function CleatusPipelineRoute(): React.JSX.Element {
       <CleatusChrome
         title="Pipeline"
         subtitle="Pursued, won, and lost work — close-out reasons stay in the intranet"
-        icon={<DataTrendingRegular fontSize={28} />}
+        icon={<TrendingUpIcon className="size-7" />}
       >
         <PipelinePage />
       </CleatusChrome>

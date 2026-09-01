@@ -1,66 +1,35 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
+import { ArrowLeftIcon } from "lucide-react";
+
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
-  Button,
-  Input,
-  MessageBar,
-  MessageBarBody,
-  Spinner,
-  Tab,
-  TabList,
-  Text,
-  Title1,
-  makeStyles,
-  tokens,
-} from "@fluentui/react-components";
-import { ArrowLeftRegular } from "@fluentui/react-icons";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { fetchJob, type JobDto } from "@mf/api/jobs";
 import { fetchUnitsReadings, fetchCommonAreasReadings } from "@mf/api/multifamily";
+import { DataTablePanel, useDataTableStyles } from "@mf/components/DataTablePanel";
 import type { AreaType, XrfReading } from "@mf/types/xrfReading";
 import { buildShotIdMap } from "@mf/utils/shotIdUtils";
 import { getDisplayUnit } from "@mf/utils/displayUnitUtils";
-
-const useStyles = makeStyles({
-  toolbar: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: tokens.spacingHorizontalM,
-    alignItems: "flex-end",
-    marginBottom: tokens.spacingVerticalM,
-  },
-  stats: {
-    display: "flex",
-    gap: tokens.spacingHorizontalXL,
-    marginBottom: tokens.spacingVerticalM,
-    padding: tokens.spacingVerticalM,
-    backgroundColor: tokens.colorNeutralBackground3,
-    borderRadius: tokens.borderRadiusMedium,
-  },
-  gridWrap: {
-    maxHeight: "560px",
-    overflow: "auto",
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
-    borderRadius: tokens.borderRadiusMedium,
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse" as const,
-    fontSize: tokens.fontSizeBase200,
-  },
-  th: {
-    textAlign: "left" as const,
-    padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalS}`,
-    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
-    backgroundColor: tokens.colorNeutralBackground3,
-    position: "sticky" as const,
-    top: 0,
-    zIndex: 1,
-  },
-  td: {
-    padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalS}`,
-    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
-  },
-});
 
 function useFilteredReadings(
   readings: XrfReading[],
@@ -96,7 +65,7 @@ function useFilteredReadings(
 }
 
 function ShotsGrid(props: { readings: XrfReading[]; areaType: AreaType }): React.JSX.Element {
-  const styles = useStyles();
+  const tableStyles = useDataTableStyles();
   const [searchText, setSearchText] = useState("");
   const [filterResult, setFilterResult] = useState("all");
   const [filterSide, setFilterSide] = useState("all");
@@ -120,109 +89,114 @@ function ShotsGrid(props: { readings: XrfReading[]; areaType: AreaType }): React
 
   return (
     <div>
-      <div className={styles.toolbar}>
+      <div className="mb-4 flex flex-wrap items-end gap-4">
         <FieldSmall label="Search">
-          <Input value={searchText} onChange={(_, d) => setSearchText(d.value)} placeholder="Shot ID, component, location…" />
+          <Input
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            placeholder="Shot ID, component, location…"
+          />
         </FieldSmall>
         <FieldSmall label="Result">
-          <select
-            value={filterResult}
-            onChange={(e) => setFilterResult(e.target.value)}
-            style={{ minHeight: 32, padding: "0 8px", borderRadius: 4, border: "1px solid #c4c4c4" }}
-          >
-            <option value="all">All</option>
-            <option value="positive">Positive</option>
-            <option value="negative">Negative</option>
-          </select>
+          <Select value={filterResult} onValueChange={setFilterResult}>
+            <SelectTrigger className="min-w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="positive">Positive</SelectItem>
+              <SelectItem value="negative">Negative</SelectItem>
+            </SelectContent>
+          </Select>
         </FieldSmall>
         <FieldSmall label="Side">
-          <select
-            value={filterSide}
-            onChange={(e) => setFilterSide(e.target.value)}
-            style={{ minHeight: 32, padding: "0 8px", borderRadius: 4, border: "1px solid #c4c4c4" }}
-          >
-            <option value="all">All</option>
-            {uniqueSides.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+          <Select value={filterSide} onValueChange={setFilterSide}>
+            <SelectTrigger className="min-w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              {uniqueSides.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </FieldSmall>
       </div>
-      <div className={styles.stats}>
+      <div className="mb-4 flex gap-8 rounded-md bg-muted p-4">
         <div>
-          <Text size={200}>Total shots</Text>
-          <Title1>{stats.total}</Title1>
+          <p className="text-xs text-muted-foreground">Total shots</p>
+          <p className="text-3xl font-bold">{stats.total}</p>
         </div>
         <div>
-          <Text size={200}>Positive</Text>
-          <Title1>{stats.positive}</Title1>
+          <p className="text-xs text-muted-foreground">Positive</p>
+          <p className="text-3xl font-bold">{stats.positive}</p>
         </div>
         <div>
-          <Text size={200}>Shown (filtered)</Text>
-          <Title1>{stats.filtered}</Title1>
+          <p className="text-xs text-muted-foreground">Shown (filtered)</p>
+          <p className="text-3xl font-bold">{stats.filtered}</p>
         </div>
       </div>
-      <div className={styles.gridWrap}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th className={styles.th}>Shot ID</th>
-              <th className={styles.th}>Reading #</th>
-              <th className={styles.th}>Component (Substrate)</th>
-              <th className={styles.th}>Unit #</th>
-              <th className={styles.th}>Room Type</th>
-              <th className={styles.th}>Room #</th>
-              <th className={styles.th}>Side</th>
-              <th className={styles.th}>Substrate</th>
-              <th className={styles.th}>Color</th>
-              <th className={styles.th}>PbC (mg/cm²)</th>
-              <th className={styles.th}>Result</th>
-            </tr>
-          </thead>
-          <tbody>
+      <DataTablePanel maxHeight="560px">
+        <Table className={tableStyles.table}>
+          <TableHeader className={tableStyles.stickyHead}>
+            <TableRow>
+              {[
+                "Shot ID",
+                "Reading #",
+                "Component (Substrate)",
+                "Unit #",
+                "Room Type",
+                "Room #",
+                "Side",
+                "Substrate",
+                "Color",
+                "PbC (mg/cm²)",
+                "Result",
+              ].map((h) => (
+                <TableHead key={h} className={tableStyles.headCell}>
+                  {h}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {filtered.map((item) => {
               const c = item.normalizedComponent || item.component;
               const sub = item.normalizedSubstrate || item.substrate;
               const compDisp = sub ? `${c} (${sub})` : c;
+              const tone = item.isPositive ? "text-destructive" : "text-green-600";
               return (
-                <tr key={item.readingId}>
-                  <td className={styles.td}>{shotIdMap.get(item.readingId) ?? "—"}</td>
-                  <td className={styles.td}>{item.readingId}</td>
-                  <td className={styles.td}>{compDisp}</td>
-                  <td className={styles.td}>{getDisplayUnit(item, props.areaType)}</td>
-                  <td className={styles.td}>{item.roomType || "—"}</td>
-                  <td className={styles.td}>{item.roomNumber || "—"}</td>
-                  <td className={styles.td}>{item.side || "—"}</td>
-                  <td className={styles.td}>{item.normalizedSubstrate || item.substrate || "—"}</td>
-                  <td className={styles.td}>{item.color}</td>
-                  <td className={styles.td}>
-                    <Text style={{ color: item.isPositive ? tokens.colorPaletteRedForeground1 : tokens.colorPaletteGreenForeground1 }}>
-                      {item.leadContent.toFixed(2)}
-                    </Text>
-                  </td>
-                  <td className={styles.td}>
-                    <Text weight="semibold" style={{ color: item.isPositive ? tokens.colorPaletteRedForeground1 : tokens.colorPaletteGreenForeground1 }}>
-                      {item.isPositive ? "POSITIVE" : "Negative"}
-                    </Text>
-                  </td>
-                </tr>
+                <TableRow key={item.readingId} className={tableStyles.zebra}>
+                  <TableCell className={tableStyles.bodyCell}>{shotIdMap.get(item.readingId) ?? "—"}</TableCell>
+                  <TableCell className={tableStyles.bodyCell}>{item.readingId}</TableCell>
+                  <TableCell className={tableStyles.bodyCell}>{compDisp}</TableCell>
+                  <TableCell className={tableStyles.bodyCell}>{getDisplayUnit(item, props.areaType)}</TableCell>
+                  <TableCell className={tableStyles.bodyCell}>{item.roomType || "—"}</TableCell>
+                  <TableCell className={tableStyles.bodyCell}>{item.roomNumber || "—"}</TableCell>
+                  <TableCell className={tableStyles.bodyCell}>{item.side || "—"}</TableCell>
+                  <TableCell className={tableStyles.bodyCell}>{item.normalizedSubstrate || item.substrate || "—"}</TableCell>
+                  <TableCell className={tableStyles.bodyCell}>{item.color}</TableCell>
+                  <TableCell className={cn(tableStyles.bodyCell, tone)}>{item.leadContent.toFixed(2)}</TableCell>
+                  <TableCell className={cn(tableStyles.bodyCell, "font-semibold", tone)}>
+                    {item.isPositive ? "POSITIVE" : "Negative"}
+                  </TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
-      </div>
+          </TableBody>
+        </Table>
+      </DataTablePanel>
     </div>
   );
 }
 
 function FieldSmall(props: { label: string; children: ReactNode }): React.JSX.Element {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: tokens.spacingVerticalXXS, minWidth: 140 }}>
-      <Text size={200} weight="semibold">
-        {props.label}
-      </Text>
+    <div className="grid min-w-[140px] gap-1.5">
+      <Label>{props.label}</Label>
       {props.children}
     </div>
   );
@@ -279,42 +253,49 @@ export function MultifamilyJobPage(): React.JSX.Element {
 
   return (
     <div>
-      <div style={{ display: "flex", gap: tokens.spacingHorizontalM, alignItems: "center", marginBottom: tokens.spacingVerticalM }}>
-        <Link to="/" style={{ textDecoration: "none" }}>
-          <Button icon={<ArrowLeftRegular />} appearance="subtle">
+      <div className="mb-4 flex items-center gap-4">
+        <Button variant="ghost" asChild>
+          <Link to="/">
+            <ArrowLeftIcon />
             Back
-          </Button>
-        </Link>
+          </Link>
+        </Button>
       </div>
-      <Title1 block>Job {decoded}</Title1>
+      <h1 className="text-2xl font-semibold tracking-tight">Job {decoded}</h1>
       {job && (
-        <MessageBar intent="info" style={{ marginTop: tokens.spacingVerticalM }}>
-          <MessageBarBody>
+        <Alert className="mt-4">
+          <AlertDescription>
             {job.clientName}
             {job.facilityAddress || job.facilityName ? ` · ${job.facilityAddress ?? job.facilityName}` : ""}
-          </MessageBarBody>
-        </MessageBar>
+          </AlertDescription>
+        </Alert>
       )}
       {!job && job !== undefined && (
-        <MessageBar intent="warning" style={{ marginTop: tokens.spacingVerticalM }}>
-          <MessageBarBody>Could not load job metadata from API.</MessageBarBody>
-        </MessageBar>
+        <Alert className="mt-4">
+          <AlertDescription>Could not load job metadata from API.</AlertDescription>
+        </Alert>
       )}
       {loadError && (
-        <MessageBar intent="error" style={{ marginTop: tokens.spacingVerticalM }}>
-          <MessageBarBody>{loadError}</MessageBarBody>
-        </MessageBar>
+        <Alert variant="destructive" className="mt-4">
+          <AlertDescription>{loadError}</AlertDescription>
+        </Alert>
       )}
-      <TabList selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as "units" | "common")} style={{ marginTop: tokens.spacingVerticalL }}>
-        <Tab value="units">Units — All shots</Tab>
-        <Tab value="common">Common areas — All shots</Tab>
-      </TabList>
+      <Tabs
+        value={tab}
+        onValueChange={(v) => setTab(v as "units" | "common")}
+        className="mt-6"
+      >
+        <TabsList>
+          <TabsTrigger value="units">Units — All shots</TabsTrigger>
+          <TabsTrigger value="common">Common areas — All shots</TabsTrigger>
+        </TabsList>
+      </Tabs>
       {loadingReadings ? (
-        <div style={{ marginTop: tokens.spacingVerticalL }}>
+        <div className="mt-6">
           <Spinner label="Loading shots…" />
         </div>
       ) : (
-        <div style={{ marginTop: tokens.spacingVerticalL }}>
+        <div className="mt-6">
           <ShotsGrid readings={activeReadings} areaType={areaType} />
         </div>
       )}

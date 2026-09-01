@@ -77,7 +77,7 @@ export function dataTypeLabel(value: string): string {
   return REPORT_DATA_TYPES.find((d) => d.value === value)?.label ?? value;
 }
 
-/** Fluent Dropdown `value` is display text — map stored option value to its label. */
+/** Map stored option value to its label for select display. */
 export function dropdownDisplayValue(
   options: ReadonlyArray<{ value: string; label: string }>,
   selectedValue: string

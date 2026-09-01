@@ -2,34 +2,20 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useIsAuthenticated } from "@azure/msal-react";
 import { useQuery } from "@tanstack/react-query";
+import { ArrowRightIcon, SearchIcon } from "lucide-react";
+
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
 import { isAuthRequiredError } from "@mf/auth/AuthRequiredError";
 import { SignInPrompt } from "@mf/auth/SignInPrompt";
-import {
-  Button,
-  Card,
-  CardHeader,
-  Field,
-  Input,
-  MessageBar,
-  MessageBarBody,
-  Spinner,
-  Text,
-  Title1,
-  makeStyles,
-  tokens,
-} from "@fluentui/react-components";
-import { SearchRegular, ArrowRightRegular } from "@fluentui/react-icons";
 import { ensureJob, fetchJob, fetchRecentJobs } from "@mf/api/jobs";
 import { entityDashboardPath, MULTIFAMILY_LBP_SLUG } from "@mf/config/entities";
 
-const useStyles = makeStyles({
-  card: { maxWidth: "520px" },
-  actions: { display: "flex", gap: tokens.spacingHorizontalM, marginTop: tokens.spacingVerticalL, flexWrap: "wrap" },
-  recent: { marginTop: tokens.spacingVerticalXL, maxWidth: "520px" },
-});
-
 export function HomePage(): React.JSX.Element {
-  const styles = useStyles();
   const nav = useNavigate();
   const isAuthenticated = useIsAuthenticated();
   const [jobNumber, setJobNumber] = useState("");
@@ -76,55 +62,52 @@ export function HomePage(): React.JSX.Element {
   };
 
   if (!isAuthenticated) {
-    return (
-      <SignInPrompt message="Sign in to look up jobs and open the lead inspection workspace." />
-    );
+    return <SignInPrompt message="Sign in to look up jobs and open the lead inspection workspace." />;
   }
 
   return (
     <div>
-      <Title1 block style={{ marginBottom: tokens.spacingVerticalL }}>
-        Job lookup
-      </Title1>
-      <Card className={styles.card}>
-        <CardHeader
-          header={<Text weight="semibold">Enter job number</Text>}
-          description={
-            <Text size={200}>
-              Opens the multifamily LBP dashboard for this project.
-            </Text>
-          }
-        />
-        <div style={{ padding: tokens.spacingHorizontalL }}>
-          <Field label="Job number">
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight">Job lookup</h1>
+      <Card className="max-w-[520px]">
+        <CardHeader>
+          <CardTitle>Enter job number</CardTitle>
+          <CardDescription>Opens the multifamily LBP dashboard for this project.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-1.5">
+            <Label htmlFor="job-number">Job number</Label>
             <Input
+              id="job-number"
               value={jobNumber}
-              onChange={(_, d) => setJobNumber(d.value)}
+              onChange={(e) => setJobNumber(e.target.value)}
               placeholder="e.g. 285744"
               onKeyDown={(e) => e.key === "Enter" && void onLookup()}
             />
-          </Field>
-          <div className={styles.actions}>
-            <Button
-              appearance="primary"
-              icon={<SearchRegular />}
-              onClick={() => void onLookup()}
-              disabled={loading || !jobNumber.trim()}
-            >
-              {loading ? <Spinner size="tiny" /> : "Look up"}
+          </div>
+          <div className="mt-6 flex flex-wrap gap-4">
+            <Button onClick={() => void onLookup()} disabled={loading || !jobNumber.trim()}>
+              {loading ? (
+                <Spinner size="sm" />
+              ) : (
+                <>
+                  <SearchIcon />
+                  Look up
+                </>
+              )}
             </Button>
-            <Button icon={<ArrowRightRegular />} onClick={onContinue} disabled={!jobNumber.trim()}>
+            <Button variant="outline" onClick={onContinue} disabled={!jobNumber.trim()}>
+              <ArrowRightIcon />
               Open multifamily LBP
             </Button>
           </div>
           {error && (
-            <MessageBar intent="error" style={{ marginTop: tokens.spacingVerticalM }}>
-              <MessageBarBody>{error}</MessageBarBody>
-            </MessageBar>
+            <Alert variant="destructive" className="mt-4">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
           {preview && (
-            <MessageBar intent="success" style={{ marginTop: tokens.spacingVerticalM }}>
-              <MessageBarBody>
+            <Alert className="mt-4">
+              <AlertDescription>
                 <strong>Job {preview.jobId}</strong>
                 {preview.jobStatus && ` · Status ${preview.jobStatus}`}
                 <br />
@@ -135,22 +118,20 @@ export function HomePage(): React.JSX.Element {
                     {[preview.facilityName, preview.facilityAddress].filter(Boolean).join(" · ")}
                   </>
                 )}
-              </MessageBarBody>
-            </MessageBar>
+              </AlertDescription>
+            </Alert>
           )}
-        </div>
+        </CardContent>
       </Card>
       {recentQuery.data && recentQuery.data.length > 0 && (
-        <div className={styles.recent}>
-          <Text weight="semibold" block style={{ marginBottom: tokens.spacingVerticalS }}>
-            Recent jobs
-          </Text>
+        <div className="mt-8 max-w-[520px]">
+          <p className="mb-2 font-semibold">Recent jobs</p>
           {recentQuery.data.map((j) => (
             <Button
               key={j.jobIdentifier}
-              appearance="subtle"
+              variant="ghost"
               onClick={() => void openJob(j.jobIdentifier)}
-              style={{ display: "block", marginBottom: tokens.spacingVerticalXS }}
+              className="mb-1 w-full justify-start"
             >
               {j.jobIdentifier}
               {j.facilityName ? ` · ${j.facilityName}` : ""}

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useIsAuthenticated } from "@azure/msal-react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { MessageBar, MessageBarBody, Spinner, Text } from "@fluentui/react-components";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Spinner } from "@/components/ui/spinner";
 import { isAuthRequiredError } from "@mf/auth/AuthRequiredError";
 import { savePostLoginReturnPath } from "@mf/auth/jobEntryPaths";
 import { ensureJob } from "@mf/api/jobs";
@@ -72,7 +73,7 @@ export function EntityLandingPage(): React.JSX.Element {
   }, [jobId, entitySlug, importFromSharePoint, isAuthenticated, nav, base]);
 
   if (!isValidEntitySlug(entitySlug)) {
-    return <Text>Unknown application.</Text>;
+    return <p>Unknown application.</p>;
   }
 
   if (authRequired) {
@@ -82,9 +83,9 @@ export function EntityLandingPage(): React.JSX.Element {
 
   if (error) {
     return (
-      <MessageBar intent="error">
-        <MessageBarBody>{error}</MessageBarBody>
-      </MessageBar>
+      <Alert variant="destructive">
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
     );
   }
 

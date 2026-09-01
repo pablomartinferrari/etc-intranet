@@ -1,25 +1,21 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { CheckIcon, RefreshCwIcon, XIcon } from "lucide-react";
+
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import {
-  Badge,
-  Button,
-  Input,
-  MessageBar,
-  MessageBarBody,
-  Spinner,
   Table,
   TableBody,
   TableCell,
+  TableHead,
   TableHeader,
-  TableHeaderCell,
   TableRow,
-  Text,
-  Title1,
-  makeStyles,
-  tokens,
-} from "@fluentui/react-components";
-import { ArrowSyncRegular, CheckmarkRegular, DismissRegular } from "@fluentui/react-icons";
+} from "@/components/ui/table";
 import { useEntity } from "@mf/context/EntityContext";
 import {
   fetchNormalizations,
@@ -29,76 +25,27 @@ import {
 } from "@mf/api/entity";
 import { DataTablePanel, useDataTableStyles } from "@mf/components/DataTablePanel";
 
-const useStyles = makeStyles({
-  toolbar: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: tokens.spacingHorizontalM,
-    marginBottom: tokens.spacingVerticalM,
-  },
-  actionGroup: {
-    display: "inline-flex",
-    flexWrap: "wrap",
-    gap: tokens.spacingHorizontalXS,
-  },
-  rowApproved: {
-    backgroundColor: tokens.colorPaletteGreenBackground1,
-  },
-  rowRejected: {
-    backgroundColor: tokens.colorNeutralBackground3,
-    opacity: 0.85,
-  },
-});
-
 function statusBadge(status: string): React.JSX.Element {
   switch (status) {
     case "rejected":
-      return (
-        <Badge appearance="filled" color="subtle">
-          Rejected
-        </Badge>
-      );
+      return <Badge variant="secondary">Rejected</Badge>;
     case "edited":
-      return (
-        <Badge appearance="filled" color="informative">
-          Edited
-        </Badge>
-      );
+      return <Badge variant="outline">Edited</Badge>;
     case "applied":
-      return (
-        <Badge appearance="filled" color="success">
-          Applied
-        </Badge>
-      );
+      return <Badge>Applied</Badge>;
     default:
-      return (
-        <Badge appearance="outline" color="warning">
-          Pending
-        </Badge>
-      );
+      return <Badge variant="outline">Pending</Badge>;
   }
 }
 
 function confidenceBadge(confidence: string): React.JSX.Element {
   if (confidence === "high") {
-    return (
-      <Badge appearance="filled" color="success">
-        High
-      </Badge>
-    );
+    return <Badge>High</Badge>;
   }
   if (confidence === "medium") {
-    return (
-      <Badge appearance="filled" color="warning">
-        Medium
-      </Badge>
-    );
+    return <Badge variant="secondary">Medium</Badge>;
   }
-  return (
-    <Badge appearance="outline" color="subtle">
-      {confidence}
-    </Badge>
-  );
+  return <Badge variant="outline">{confidence}</Badge>;
 }
 
 function fieldLabel(fieldName: string): string {
@@ -106,11 +53,7 @@ function fieldLabel(fieldName: string): string {
 }
 
 function fieldBadge(fieldName: string): React.JSX.Element {
-  return (
-    <Badge appearance="outline" color={fieldName === "substrate" ? "brand" : "informative"}>
-      {fieldLabel(fieldName)}
-    </Badge>
-  );
+  return <Badge variant="outline">{fieldLabel(fieldName)}</Badge>;
 }
 
 function effectiveValue(s: NormalizationSuggestion): string {
@@ -123,7 +66,6 @@ function hasUnsavedEdit(s: NormalizationSuggestion, pendingEdits: Record<string,
 }
 
 export function NormalizeReviewPage(): React.JSX.Element {
-  const styles = useStyles();
   const tableStyles = useDataTableStyles();
   const { jobId, entitySlug, refetchDashboard } = useEntity();
   const nav = useNavigate();
@@ -195,39 +137,37 @@ export function NormalizeReviewPage(): React.JSX.Element {
   };
 
   const rowClass = (status: string): string | undefined => {
-    if (status === "edited" || status === "applied") return styles.rowApproved;
-    if (status === "rejected") return styles.rowRejected;
+    if (status === "edited" || status === "applied") return "bg-green-50";
+    if (status === "rejected") return "bg-muted opacity-85";
     return tableStyles.zebra;
   };
 
   return (
     <div>
-      <Title1 block style={{ marginBottom: tokens.spacingVerticalS }}>
-        Review AI suggestions
-      </Title1>
-      <Text block style={{ marginBottom: tokens.spacingVerticalM, color: tokens.colorNeutralForeground2 }}>
+      <h1 className="mb-2 text-2xl font-semibold tracking-tight">Review AI suggestions</h1>
+      <p className="mb-4 text-muted-foreground">
         Approve a suggestion to save it to the grid immediately. Change a normalized value after it has been
         applied, then click Update to save again. Similar spellings (for example singular and plural) appear as
         one row in Original.
-      </Text>
+      </p>
 
       {autoAppliedCount > 0 && (
-        <MessageBar intent="success" style={{ marginBottom: tokens.spacingVerticalM }}>
-          <MessageBarBody>
+        <Alert className="mb-4">
+          <AlertDescription>
             {autoAppliedCount} exact match{autoAppliedCount === 1 ? "" : "es"} applied automatically. Edit and
             click Update if you want to change any of them.
-          </MessageBarBody>
-        </MessageBar>
+          </AlertDescription>
+        </Alert>
       )}
 
       {items.length > 0 && (
-        <div className={styles.toolbar}>
+        <div className="mb-4 flex flex-wrap gap-4">
           {hasPendingReview && (
-            <Button appearance="secondary" disabled={patchMut.isPending} onClick={approveHigh}>
+            <Button variant="secondary" disabled={patchMut.isPending} onClick={approveHigh}>
               Approve all high confidence
             </Button>
           )}
-          <Button appearance="primary" onClick={() => nav(`/jobs/${jobId}/${entitySlug}/grid/groups`)}>
+          <Button onClick={() => nav(`/jobs/${jobId}/${entitySlug}/grid/groups`)}>
             Continue to grouped readings
           </Button>
         </div>
@@ -236,20 +176,20 @@ export function NormalizeReviewPage(): React.JSX.Element {
       {isLoading ? (
         <Spinner label="Loading suggestions…" />
       ) : items.length === 0 ? (
-        <MessageBar intent="info">
-          <MessageBarBody>
+        <Alert>
+          <AlertDescription>
             No normalization results for this run. Run normalization from setup, or try a different scope.
-          </MessageBarBody>
-        </MessageBar>
+          </AlertDescription>
+        </Alert>
       ) : (
         <DataTablePanel>
           <Table className={tableStyles.table} aria-label="Normalization suggestions">
             <TableHeader className={tableStyles.stickyHead}>
               <TableRow>
                 {["Field", "Original", "Normalized value", "Rows", "Confidence", "Status", "Actions"].map((h) => (
-                  <TableHeaderCell key={h} className={tableStyles.headCell}>
+                  <TableHead key={h} className={tableStyles.headCell}>
                     {h}
-                  </TableHeaderCell>
+                  </TableHead>
                 ))}
               </TableRow>
             </TableHeader>
@@ -269,12 +209,11 @@ export function NormalizeReviewPage(): React.JSX.Element {
                     <TableCell className={tableStyles.bodyCell}>{formatOriginalDisplay(s.originalValue)}</TableCell>
                     <TableCell className={tableStyles.bodyCell}>
                       <Input
-                        size="small"
-                        appearance="filled-darker"
+                        className="h-7"
                         value={inputValue}
                         disabled={isRejected || patchMut.isPending}
-                        onChange={(_, data) =>
-                          setPendingEdits((prev) => ({ ...prev, [s.id]: data.value }))
+                        onChange={(e) =>
+                          setPendingEdits((prev) => ({ ...prev, [s.id]: e.target.value }))
                         }
                       />
                     </TableCell>
@@ -283,43 +222,41 @@ export function NormalizeReviewPage(): React.JSX.Element {
                     <TableCell className={tableStyles.bodyCell}>{statusBadge(s.status)}</TableCell>
                     <TableCell className={tableStyles.bodyCell}>
                       {showApprove || showUpdate ? (
-                        <div className={styles.actionGroup}>
+                        <div className="inline-flex flex-wrap gap-1">
                           {showApprove && (
                             <Button
-                              appearance="primary"
-                              size="small"
-                              icon={<CheckmarkRegular />}
+                              size="sm"
                               disabled={patchMut.isPending}
                               onClick={() => approveSuggestion(s)}
                             >
+                              <CheckIcon />
                               Approve
                             </Button>
                           )}
                           {showUpdate && (
                             <Button
-                              appearance="primary"
-                              size="small"
-                              icon={<ArrowSyncRegular />}
+                              size="sm"
                               disabled={patchMut.isPending}
                               onClick={() => updateSuggestion(s)}
                             >
+                              <RefreshCwIcon />
                               Update
                             </Button>
                           )}
                           <Button
-                            appearance="secondary"
-                            size="small"
-                            icon={<DismissRegular />}
+                            variant="secondary"
+                            size="sm"
                             disabled={isRejected || patchMut.isPending}
                             onClick={() => patchMut.mutate({ id: s.id, status: "rejected" })}
                           >
+                            <XIcon />
                             Reject
                           </Button>
                         </div>
                       ) : (
-                        <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+                        <span className="text-xs text-muted-foreground">
                           {isRejected ? "Rejected" : "Applied to grid"}
-                        </Text>
+                        </span>
                       )}
                     </TableCell>
                   </TableRow>

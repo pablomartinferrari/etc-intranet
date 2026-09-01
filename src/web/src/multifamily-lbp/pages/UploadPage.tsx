@@ -1,38 +1,20 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Button,
-  Link,
-  MessageBar,
-  MessageBarBody,
-  Spinner,
-  Text,
-  Title1,
-  makeStyles,
-  tokens,
-} from "@fluentui/react-components";
-import { ArrowDownloadRegular, DeleteRegular, OpenRegular } from "@fluentui/react-icons";
+import { DownloadIcon, ExternalLinkIcon, Trash2Icon } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { useEntity } from "@mf/context/EntityContext";
 import { clearWorkspace, fetchSourceFiles, importLegacy } from "@mf/api/entity";
 import { ClearWorkspaceDialog } from "@mf/components/ClearWorkspaceDialog";
 import { JobSourceFilesPanel } from "@mf/components/JobSourceFilesPanel";
 import { SHAREPOINT_UPLOAD_SITE_URL } from "@mf/config/sharepoint";
 
-const useStyles = makeStyles({
-  actions: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: tokens.spacingHorizontalM,
-    marginTop: tokens.spacingVerticalL,
-    marginBottom: tokens.spacingVerticalL,
-  },
-});
-
 type PageMessage = { intent: "error" | "warning" | "success" | "info"; text: string };
 
 export function UploadPage(): React.JSX.Element {
-  const styles = useStyles();
   const nav = useNavigate();
   const { jobId, entitySlug, refetchDashboard, dashboard } = useEntity();
   const base = `/jobs/${jobId}/${entitySlug}`;
@@ -99,43 +81,44 @@ export function UploadPage(): React.JSX.Element {
 
   return (
     <div>
-      <Title1 block style={{ marginBottom: tokens.spacingVerticalS }}>
-        Source files
-      </Title1>
-      <Text block style={{ marginBottom: tokens.spacingVerticalM, color: tokens.colorNeutralForeground2 }}>
+      <h1 className="mb-2 text-2xl font-semibold tracking-tight">Source files</h1>
+      <p className="mb-4 text-muted-foreground">
         Upload inspection workbooks in SharePoint (<strong>XRF-SourceFiles</strong>) using the{" "}
         <strong>Lead Inspection — Upload</strong> web part for job <strong>{jobId}</strong>. Then import them here
         for grid review, normalization, and reports.
-      </Text>
+      </p>
 
-      <div className={styles.actions}>
-        <Link href={SHAREPOINT_UPLOAD_SITE_URL} target="_blank" rel="noopener noreferrer">
-          <Button appearance="secondary" icon={<OpenRegular />}>
+      <div className="my-6 flex flex-wrap gap-4">
+        <Button variant="secondary" asChild>
+          <a href={SHAREPOINT_UPLOAD_SITE_URL} target="_blank" rel="noopener noreferrer">
+            <ExternalLinkIcon />
             Open SharePoint site
-          </Button>
-        </Link>
+          </a>
+        </Button>
         <Button
-          appearance="primary"
-          icon={<ArrowDownloadRegular />}
           disabled={importMut.isPending}
           onClick={() => {
             setMessage(null);
             importMut.mutate();
           }}
         >
-          {importMut.isPending ? <Spinner size="tiny" /> : "Import into workspace"}
+          {importMut.isPending ? (
+            <Spinner size="sm" />
+          ) : (
+            <>
+              <DownloadIcon />
+              Import into workspace
+            </>
+          )}
         </Button>
         {dashboard?.hasRows && (
-          <Button appearance="secondary" onClick={() => nav(`${base}/grid`)}>
+          <Button variant="secondary" onClick={() => nav(`${base}/grid`)}>
             Open data grid
           </Button>
         )}
         {dashboard?.hasRows && (
-          <Button
-            appearance="secondary"
-            icon={<DeleteRegular />}
-            onClick={() => setClearOpen(true)}
-          >
+          <Button variant="secondary" onClick={() => setClearOpen(true)}>
+            <Trash2Icon />
             Clear workspace data
           </Button>
         )}
@@ -149,9 +132,9 @@ export function UploadPage(): React.JSX.Element {
       />
 
       {message && (
-        <MessageBar intent={message.intent} style={{ marginBottom: tokens.spacingVerticalM }}>
-          <MessageBarBody>{message.text}</MessageBarBody>
-        </MessageBar>
+        <Alert variant={message.intent === "error" ? "destructive" : "default"} className="mb-4">
+          <AlertDescription>{message.text}</AlertDescription>
+        </Alert>
       )}
 
       <JobSourceFilesPanel

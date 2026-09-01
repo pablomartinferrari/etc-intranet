@@ -1,12 +1,12 @@
 # Company Intranet
 
-Starter intranet with **React** (Vite), **.NET 10 Web API**, and **PostgreSQL**, deployable to **Azure App Service** + **Azure Database for PostgreSQL**.
+Starter intranet with **React** (Vite), **shadcn/ui** (Tailwind CSS), **.NET 10 Web API**, and **PostgreSQL**, deployable to **Azure App Service** + **Azure Database for PostgreSQL**.
 
 ## Project layout
 
 | Path | Description |
 |------|-------------|
-| `src/web` | React SPA (Vite + TypeScript) |
+| `src/web` | React SPA (Vite + TypeScript + shadcn/ui + Tailwind) |
 | `src/api` | ASP.NET Core 10 API + EF Core |
 | `src/api/MultifamilyLbp` | Multifamily lead inspection API (jobs, uploads, normalization, reports) |
 | `src/web/src/multifamily-lbp` | Lead inspection React workflow (SharePoint-launched) |
@@ -18,6 +18,8 @@ Starter intranet with **React** (Vite), **.NET 10 Web API**, and **PostgreSQL**,
 | `infra/` | Azure Bicep templates |
 | `scripts/deploy.ps1` | Deploy infrastructure + API to Azure |
 | `docker-compose.yml` | Local PostgreSQL |
+
+The SPA uses **shadcn/ui** (Tailwind CSS + Radix, Nova style) rather than Fluent UI. Home stays the ETC portal (black logo header and application cards), not a sidebar dashboard shell.
 
 ## Prerequisites
 

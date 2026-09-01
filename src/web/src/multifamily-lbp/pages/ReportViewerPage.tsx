@@ -1,18 +1,12 @@
+import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Button,
-  MessageBar,
-  MessageBarBody,
-  Spinner,
-  Tab,
-  TabList,
-  Text,
-  Title1,
-  tokens,
-} from "@fluentui/react-components";
-import { ArrowDownloadRegular } from "@fluentui/react-icons";
-import { useState } from "react";
+import { DownloadIcon } from "lucide-react";
+
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEntity } from "@mf/context/EntityContext";
 import { downloadReportExcel, fetchReport, fetchLatestReport } from "@mf/api/entity";
 import {
@@ -45,7 +39,7 @@ export function ReportViewerPage(): React.JSX.Element {
   };
 
   if (isLoading) return <Spinner label="Loading report…" />;
-  if (!data) return <Text>No report found. Generate one from Reports.</Text>;
+  if (!data) return <p>No report found. Generate one from Reports.</p>;
 
   const rawResult = data.result as Record<string, unknown>;
   const result = reconcileReportResultForViewer(rawResult);
@@ -62,53 +56,46 @@ export function ReportViewerPage(): React.JSX.Element {
 
   return (
     <div>
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: tokens.spacingHorizontalM,
-          marginBottom: tokens.spacingVerticalM,
-        }}
-      >
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <Title1 block style={{ marginBottom: tokens.spacingVerticalS }}>
-            Report viewer
-          </Title1>
-          <Text block style={{ color: tokens.colorNeutralForeground2 }}>
+          <h1 className="mb-2 text-2xl font-semibold tracking-tight">Report viewer</h1>
+          <p className="text-muted-foreground">
             {dataTypeLabel(data.dataType)} · generated {new Date(data.generatedAt).toLocaleString()} · statistical
             sample {STATISTICAL_SAMPLE_SIZE}+ readings · uniform/non-uniform below {STATISTICAL_SAMPLE_SIZE}
-          </Text>
+          </p>
         </div>
-        <Button
-          appearance="primary"
-          icon={<ArrowDownloadRegular />}
-          disabled={exporting}
-          onClick={() => void handleExport()}
-        >
-          {exporting ? <Spinner size="tiny" /> : "Export to Excel"}
+        <Button disabled={exporting} onClick={() => void handleExport()}>
+          {exporting ? (
+            <Spinner size="sm" />
+          ) : (
+            <>
+              <DownloadIcon />
+              Export to Excel
+            </>
+          )}
         </Button>
       </div>
 
       {isLegacyReport && (
-        <MessageBar intent="warning" style={{ marginBottom: tokens.spacingVerticalM }}>
-          <MessageBarBody>
+        <Alert className="mb-4">
+          <AlertDescription>
             This report was generated with an older format. Tables are summarized for display. Generate a new
             report from Reports for correct Uniform / Non-uniform breakdown and Excel export.
-          </MessageBarBody>
-        </MessageBar>
+          </AlertDescription>
+        </Alert>
       )}
 
-      <TabList selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as string)}>
-        {REPORT_VIEWER_TABS.map((t) => (
-          <Tab key={t.key} value={t.key}>
-            {t.label}
-          </Tab>
-        ))}
-      </TabList>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          {REPORT_VIEWER_TABS.map((t) => (
+            <TabsTrigger key={t.key} value={t.key}>
+              {t.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
-      <div style={{ marginTop: tokens.spacingVerticalM }}>
+      <div className="mt-4">
         <ReportSectionGrid
           sectionKey={activeTab.key}
           data={result[activeTab.key]}
