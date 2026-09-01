@@ -1,63 +1,8 @@
+import { HomeIcon } from "lucide-react";
 import { Link as RouterLink } from "react-router-dom";
-import { Body1, Button, Title1, makeStyles, tokens } from "@fluentui/react-components";
-import { HomeRegular } from "@fluentui/react-icons";
-import { useMsal } from "@azure/msal-react";
-import etcLogo from "../images/etc-logo.png";
 
-const useStyles = makeStyles({
-  root: {
-    display: "flex",
-    flexDirection: "column",
-    minHeight: "100vh",
-    backgroundColor: tokens.colorNeutralBackground2,
-  },
-  brandBar: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-    gap: tokens.spacingHorizontalM,
-    padding: `${tokens.spacingVerticalM} ${tokens.spacingHorizontalXL}`,
-    backgroundColor: "#000000",
-  },
-  logo: {
-    display: "block",
-    height: "44px",
-    width: "auto",
-    maxWidth: "min(100%, 280px)",
-    objectFit: "contain",
-  },
-  signOutButton: {
-    color: "#ffffff",
-    borderTopColor: "rgba(255, 255, 255, 0.85)",
-    borderRightColor: "rgba(255, 255, 255, 0.85)",
-    borderBottomColor: "rgba(255, 255, 255, 0.85)",
-    borderLeftColor: "rgba(255, 255, 255, 0.85)",
-    ":hover": {
-      color: "#000000",
-      backgroundColor: "#ffffff",
-      borderTopColor: "#ffffff",
-      borderRightColor: "#ffffff",
-      borderBottomColor: "#ffffff",
-      borderLeftColor: "#ffffff",
-    },
-  },
-  appHeader: {
-    padding: `${tokens.spacingVerticalM} ${tokens.spacingHorizontalXL}`,
-    backgroundColor: tokens.colorNeutralBackground1,
-    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-    gap: tokens.spacingVerticalM,
-  },
-  brand: {
-    display: "flex",
-    alignItems: "center",
-    gap: tokens.spacingHorizontalM,
-  },
-});
+import { BrandBar, SignOutButton } from "@/components/brand-bar";
+import { Button } from "@/components/ui/button";
 
 export function CleatusChrome({
   title,
@@ -70,36 +15,23 @@ export function CleatusChrome({
   icon: React.ReactNode;
   children: React.ReactNode;
 }): React.JSX.Element {
-  const styles = useStyles();
-  const { instance } = useMsal();
-
   return (
-    <div className={styles.root}>
-      <header className={styles.brandBar}>
-        <RouterLink to="/" style={{ lineHeight: 0 }}>
-          <img alt="Environmental Testing & Consulting" className={styles.logo} src={etcLogo} />
-        </RouterLink>
-        <Button
-          appearance="outline"
-          className={styles.signOutButton}
-          onClick={() => void instance.logoutRedirect()}
-        >
-          Sign out
-        </Button>
-      </header>
-      <div className={styles.appHeader}>
-        <div className={styles.brand}>
-          {icon}
+    <div className="flex min-h-svh flex-col bg-muted/40">
+      <BrandBar actions={<SignOutButton outlineOnBlack />} />
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b bg-background px-6 py-4">
+        <div className="flex items-center gap-3">
+          <span className="text-foreground">{icon}</span>
           <div>
-            <Title1>{title}</Title1>
-            <Body1>{subtitle}</Body1>
+            <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+            <p className="text-sm text-muted-foreground">{subtitle}</p>
           </div>
         </div>
-        <RouterLink to="/" style={{ textDecoration: "none" }}>
-          <Button appearance="subtle" icon={<HomeRegular />}>
+        <Button variant="ghost" asChild>
+          <RouterLink to="/sales">
+            <HomeIcon />
             Applications
-          </Button>
-        </RouterLink>
+          </RouterLink>
+        </Button>
       </div>
       {children}
     </div>

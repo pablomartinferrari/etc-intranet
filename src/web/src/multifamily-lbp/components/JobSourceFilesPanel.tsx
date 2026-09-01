@@ -1,50 +1,19 @@
 import { useMemo } from "react";
+import { CheckIcon, CircleIcon } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
 import {
-  Badge,
-  Spinner,
   Table,
   TableBody,
   TableCell,
+  TableHead,
   TableHeader,
-  TableHeaderCell,
   TableRow,
-  Text,
-  makeStyles,
-  tokens,
-} from "@fluentui/react-components";
-import { CheckmarkRegular, CircleRegular } from "@fluentui/react-icons";
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import type { SharePointSourceFile } from "@mf/api/entity";
 import { DataTablePanel, useDataTableStyles } from "@mf/components/DataTablePanel";
-
-const useStyles = makeStyles({
-  panel: {
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
-    borderRadius: tokens.borderRadiusMedium,
-    padding: tokens.spacingVerticalL,
-    backgroundColor: tokens.colorNeutralBackground2,
-  },
-  statusGrid: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: tokens.spacingHorizontalM,
-    marginBottom: tokens.spacingVerticalM,
-  },
-  statusTile: {
-    flex: "1 1 180px",
-    minWidth: "160px",
-    padding: tokens.spacingVerticalM,
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: tokens.colorNeutralBackground1,
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
-  },
-  statusLabel: { color: tokens.colorNeutralForeground3, marginBottom: tokens.spacingVerticalXS },
-  fileName: {
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    maxWidth: "280px",
-  },
-});
 
 function normalizeAreaType(areaType: string): "Units" | "Common Areas" | null {
   const t = areaType.trim();
@@ -80,26 +49,19 @@ function AreaStatus({
   label: string;
   count: number;
 }): React.JSX.Element {
-  const styles = useStyles();
   const missing = count === 0;
   return (
-    <div className={styles.statusTile}>
-      <Text size={200} className={styles.statusLabel}>
-        {label}
-      </Text>
-      <Text weight="semibold" style={{ color: missing ? tokens.colorNeutralForeground3 : tokens.colorPaletteGreenForeground1 }}>
-        {missing ? (
-          <>
-            <CircleRegular style={{ marginRight: 6, verticalAlign: "middle" }} />
-            Not uploaded yet
-          </>
-        ) : (
-          <>
-            <CheckmarkRegular style={{ marginRight: 6, verticalAlign: "middle" }} />
-            {count} file{count === 1 ? "" : "s"}
-          </>
+    <div className="min-w-[160px] flex-1 basis-[180px] rounded-md border bg-card p-4">
+      <p className="mb-1 text-xs text-muted-foreground">{label}</p>
+      <p
+        className={cn(
+          "flex items-center gap-1.5 font-semibold",
+          missing ? "text-muted-foreground" : "text-green-600",
         )}
-      </Text>
+      >
+        {missing ? <CircleIcon className="size-4" /> : <CheckIcon className="size-4" />}
+        {missing ? "Not uploaded yet" : `${count} file${count === 1 ? "" : "s"}`}
+      </p>
     </div>
   );
 }
@@ -115,43 +77,38 @@ export function JobSourceFilesPanel({
   loading?: boolean;
   error?: string | null;
 }): React.JSX.Element {
-  const styles = useStyles();
   const tableStyles = useDataTableStyles();
   const grouped = useMemo(() => groupFiles(files), [files]);
 
   return (
-    <div className={styles.panel}>
-      <Text weight="semibold" block style={{ marginBottom: tokens.spacingVerticalXS }}>
-        Files on SharePoint for job {jobId}
-      </Text>
-      <Text block size={200} style={{ color: tokens.colorNeutralForeground2, marginBottom: tokens.spacingVerticalM }}>
+    <div className="rounded-md border bg-muted p-4">
+      <p className="mb-1 font-semibold">Files on SharePoint for job {jobId}</p>
+      <p className="mb-4 text-sm text-muted-foreground">
         Upload separate files for Units and Common Areas in SharePoint. This list matches the upload web part.
-      </Text>
+      </p>
 
       {loading ? (
         <Spinner label="Loading SharePoint files…" />
       ) : error ? (
-        <Text style={{ color: tokens.colorPaletteRedForeground1 }}>{error}</Text>
+        <p className="text-destructive">{error}</p>
       ) : (
         <>
-          <div className={styles.statusGrid}>
+          <div className="mb-4 flex flex-wrap gap-4">
             <AreaStatus label="Units" count={grouped.units.length} />
             <AreaStatus label="Common Areas" count={grouped.commonAreas.length} />
           </div>
 
           {files.length === 0 ? (
-            <Text block size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-              No files uploaded yet for this job on SharePoint.
-            </Text>
+            <p className="text-sm text-muted-foreground">No files uploaded yet for this job on SharePoint.</p>
           ) : (
             <DataTablePanel maxHeight="min(50vh, 400px)">
-              <Table className={tableStyles.table} size="small" aria-label="SharePoint source files">
+              <Table className={tableStyles.table} aria-label="SharePoint source files">
                 <TableHeader className={tableStyles.stickyHead}>
                   <TableRow>
                     {["File", "Type", "Uploaded", "Status"].map((h) => (
-                      <TableHeaderCell key={h} className={tableStyles.headCell}>
+                      <TableHead key={h} className={tableStyles.headCell}>
                         {h}
-                      </TableHeaderCell>
+                      </TableHead>
                     ))}
                   </TableRow>
                 </TableHeader>
@@ -159,14 +116,14 @@ export function JobSourceFilesPanel({
                   {files.map((file) => (
                     <TableRow key={file.id} className={tableStyles.zebra}>
                       <TableCell className={tableStyles.bodyCell}>
-                        <span className={styles.fileName} title={file.fileName}>
+                        <span className="block max-w-[280px] truncate" title={file.fileName}>
                           {file.fileName}
                         </span>
                       </TableCell>
                       <TableCell className={tableStyles.bodyCell}>{file.areaType}</TableCell>
                       <TableCell className={tableStyles.bodyCell}>{formatDate(file.createdAt)}</TableCell>
                       <TableCell className={tableStyles.bodyCell}>
-                        <Badge appearance="outline">{file.processedStatus || "Pending"}</Badge>
+                        <Badge variant="outline">{file.processedStatus || "Pending"}</Badge>
                       </TableCell>
                     </TableRow>
                   ))}

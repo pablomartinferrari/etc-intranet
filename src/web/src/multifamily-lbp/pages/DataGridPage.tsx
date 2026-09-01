@@ -1,76 +1,40 @@
 import { useMemo, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
-  Badge,
-  Button,
-  Dropdown,
-  Field,
-  Input,
-  MessageBar,
-  MessageBarBody,
-  Option,
-  Spinner,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import {
   Table,
   TableBody,
   TableCell,
+  TableHead,
   TableHeader,
-  TableHeaderCell,
   TableRow,
-  Text,
-  Title1,
-  makeStyles,
-  tokens,
-} from "@fluentui/react-components";
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { useEntity } from "@mf/context/EntityContext";
 import { fetchRows, patchRows, type InspectionRow } from "@mf/api/entity";
 import { DataTablePanel, useDataTableStyles } from "@mf/components/DataTablePanel";
-import { DATA_TYPE_FILTER_OPTIONS, RESULT_FILTER_OPTIONS, dropdownDisplayValue } from "@mf/config/reportOptions";
+import { DATA_TYPE_FILTER_OPTIONS, RESULT_FILTER_OPTIONS } from "@mf/config/reportOptions";
 import {
   displayComponentWithEdits,
   displaySubstrate,
 } from "@mf/utils/readingGroups";
 import { ReadingResultBadge } from "@mf/utils/readingResult";
 
-const useStyles = makeStyles({
-  toolbar: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "flex-end",
-    gap: tokens.spacingHorizontalM,
-    marginBottom: tokens.spacingVerticalM,
-    padding: tokens.spacingVerticalM,
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: tokens.colorNeutralBackground1,
-  },
-  toolbarField: { minWidth: "180px" },
-  rowEdited: {
-    backgroundColor: tokens.colorBrandBackground2,
-  },
-  rowWarning: {
-    backgroundColor: tokens.colorPaletteYellowBackground1,
-  },
-  rowError: {
-    backgroundColor: tokens.colorPaletteRedBackground1,
-  },
-  mono: {
-    fontFamily: tokens.fontFamilyMonospace,
-    fontSize: tokens.fontSizeBase200,
-  },
-  footer: {
-    marginTop: tokens.spacingVerticalS,
-    color: tokens.colorNeutralForeground3,
-  },
-  empty: {
-    padding: tokens.spacingVerticalXXL,
-    textAlign: "center",
-    color: tokens.colorNeutralForeground3,
-  },
-});
-
 export function DataGridPage(): React.JSX.Element {
-  const styles = useStyles();
   const tableStyles = useDataTableStyles();
   const { jobId, entitySlug, refetchDashboard, dashboard } = useEntity();
   const base = `/jobs/${jobId}/${entitySlug}`;
@@ -136,132 +100,134 @@ export function DataGridPage(): React.JSX.Element {
     displayComponentWithEdits(row, edits[row.id]);
 
   const rowClass = (row: InspectionRow): string | undefined => {
-    if (edits[row.id]) return styles.rowEdited;
-    if (row.validationStatus === "error") return styles.rowError;
-    if (row.validationStatus === "warning") return styles.rowWarning;
+    if (edits[row.id]) return "bg-muted";
+    if (row.validationStatus === "error") return "bg-red-50";
+    if (row.validationStatus === "warning") return "bg-amber-50";
     return tableStyles.zebra;
   };
 
   return (
     <div>
-      <Title1 block style={{ marginBottom: tokens.spacingVerticalS }}>
+      <h1 className="mb-2 text-2xl font-semibold tracking-tight">
         Data grid
         {totalRows != null && (
-          <Text
-            block
-            size={400}
-            weight="regular"
-            style={{ color: tokens.colorNeutralForeground2, marginTop: tokens.spacingVerticalXS }}
-          >
+          <span className="mt-1 block text-base font-normal text-muted-foreground">
             {hasFilters
               ? `Showing ${rows.length.toLocaleString()} of ${totalRows.toLocaleString()} rows`
               : `${totalRows.toLocaleString()} rows total`}
-          </Text>
+          </span>
         )}
-      </Title1>
-      <Text block style={{ marginBottom: tokens.spacingVerticalL, color: tokens.colorNeutralForeground2 }}>
+      </h1>
+      <p className="mb-6 text-muted-foreground">
         Edit locations and components inline. Component shows the normalized name when set, otherwise the imported
         value; edits are saved to the normalized field. Changes are highlighted until you save.{" "}
         <Link to={`${base}/normalize`}>Next: AI normalization</Link>
-      </Text>
+      </p>
 
-      <div className={styles.toolbar}>
-        <Field label="Data type" className={styles.toolbarField}>
-          <Dropdown
-            placeholder="All types"
-            value={dropdownDisplayValue(DATA_TYPE_FILTER_OPTIONS, dataType)}
-            selectedOptions={dataType ? [dataType] : []}
-            onOptionSelect={(_, d) => setDataType(d.optionValue ?? "")}
+      <div className="mb-4 flex flex-wrap items-end gap-4 rounded-md border bg-card p-4">
+        <div className="grid min-w-[180px] gap-1.5">
+          <Label>Data type</Label>
+          <Select value={dataType || "all"} onValueChange={(v) => setDataType(v === "all" ? "" : v)}>
+            <SelectTrigger className="min-w-[180px]">
+              <SelectValue placeholder="All types" />
+            </SelectTrigger>
+            <SelectContent>
+              {DATA_TYPE_FILTER_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value || "all"} value={opt.value || "all"}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid min-w-[180px] gap-1.5">
+          <Label>Result</Label>
+          <Select
+            value={resultFilter || "all-results"}
+            onValueChange={(v) => setResultFilter(v === "all-results" ? "" : v)}
           >
-            {DATA_TYPE_FILTER_OPTIONS.map((opt) => (
-              <Option key={opt.value || "all"} value={opt.value}>
-                {opt.label}
-              </Option>
-            ))}
-          </Dropdown>
-        </Field>
-        <Field label="Result" className={styles.toolbarField}>
-          <Dropdown
-            placeholder="All results"
-            value={dropdownDisplayValue(RESULT_FILTER_OPTIONS, resultFilter)}
-            selectedOptions={resultFilter ? [resultFilter] : []}
-            onOptionSelect={(_, d) => setResultFilter(d.optionValue ?? "")}
-          >
-            {RESULT_FILTER_OPTIONS.map((opt) => (
-              <Option key={opt.value || "all-results"} value={opt.value}>
-                {opt.label}
-              </Option>
-            ))}
-          </Dropdown>
-        </Field>
-        <Field label="Search" className={styles.toolbarField}>
-          <Input value={search} onChange={(_, d) => setSearch(d.value)} placeholder="Component, location…" />
-        </Field>
+            <SelectTrigger className="min-w-[180px]">
+              <SelectValue placeholder="All results" />
+            </SelectTrigger>
+            <SelectContent>
+              {RESULT_FILTER_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value || "all-results"} value={opt.value || "all-results"}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid min-w-[180px] gap-1.5">
+          <Label>Search</Label>
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Component, location…"
+          />
+        </div>
         <Button
-          appearance="primary"
           disabled={Object.keys(edits).length === 0 || saveMut.isPending}
           onClick={() => saveMut.mutate()}
         >
-          {saveMut.isPending ? <Spinner size="tiny" /> : "Save changes"}
+          {saveMut.isPending ? <Spinner size="sm" /> : "Save changes"}
         </Button>
         {Object.keys(edits).length > 0 && (
-          <Button appearance="secondary" onClick={() => setEdits({})}>
+          <Button variant="secondary" onClick={() => setEdits({})}>
             Discard edits
           </Button>
         )}
       </div>
 
       {saveMsg && (
-        <MessageBar intent="success" style={{ marginBottom: tokens.spacingVerticalM }}>
-          <MessageBarBody>{saveMsg}</MessageBarBody>
-        </MessageBar>
+        <Alert className="mb-4">
+          <AlertDescription>{saveMsg}</AlertDescription>
+        </Alert>
       )}
 
       {isLoading ? (
         <Spinner label="Loading rows…" />
       ) : rows.length === 0 ? (
-        <div className={styles.empty}>
-          <Text>No rows match your filters. Import from SharePoint or adjust filters.</Text>
+        <div className="py-12 text-center text-muted-foreground">
+          <p>No rows match your filters. Import from SharePoint or adjust filters.</p>
         </div>
       ) : (
         <DataTablePanel>
-          <Table className={tableStyles.table} size="small" aria-label="Inspection data grid">
+          <Table className={tableStyles.table} aria-label="Inspection data grid">
             <TableHeader className={tableStyles.stickyHead}>
               <TableRow>
                 {["Reading", "Type", "Location", "Component", "Substrate", "Pb (mg/cm²)", "Result"].map((h) => (
-                  <TableHeaderCell key={h} className={tableStyles.headCell}>
+                  <TableHead key={h} className={tableStyles.headCell}>
                     {h}
-                  </TableHeaderCell>
+                  </TableHead>
                 ))}
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.id} className={rowClass(row)}>
-                  <TableCell className={`${tableStyles.bodyCell} ${styles.mono}`}>{row.readingId}</TableCell>
+                  <TableCell className={cn(tableStyles.bodyCell, "font-mono text-xs")}>{row.readingId}</TableCell>
                   <TableCell className={tableStyles.bodyCell}>
-                    <Badge appearance="outline" color="informative">
-                      {row.dataType === "commonAreas" ? "Common" : "Units"}
-                    </Badge>
+                    <Badge variant="outline">{row.dataType === "commonAreas" ? "Common" : "Units"}</Badge>
                   </TableCell>
                   <TableCell className={tableStyles.bodyCell}>
                     <Input
-                      size="small"
-                      appearance="filled-darker"
+                      className="h-7"
                       value={display(row, "location")}
-                      onChange={(_, d) => update(row.id, "location", d.value)}
+                      onChange={(e) => update(row.id, "location", e.target.value)}
                     />
                   </TableCell>
                   <TableCell className={tableStyles.bodyCell}>
                     <Input
-                      size="small"
-                      appearance="filled-darker"
+                      className="h-7"
                       value={displayComponent(row)}
-                      onChange={(_, d) => update(row.id, "normalizedComponent", d.value)}
+                      onChange={(e) => update(row.id, "normalizedComponent", e.target.value)}
                     />
                   </TableCell>
                   <TableCell className={tableStyles.bodyCell}>{displaySubstrate(row)}</TableCell>
-                  <TableCell className={`${tableStyles.bodyCell} ${styles.mono}`}>{row.leadContent.toFixed(2)}</TableCell>
+                  <TableCell className={cn(tableStyles.bodyCell, "font-mono text-xs")}>
+                    {row.leadContent.toFixed(2)}
+                  </TableCell>
                   <TableCell className={tableStyles.bodyCell}>
                     <ReadingResultBadge row={row} />
                   </TableCell>
@@ -272,12 +238,12 @@ export function DataGridPage(): React.JSX.Element {
         </DataTablePanel>
       )}
 
-      <Text size={200} className={styles.footer}>
+      <p className="mt-2 text-xs text-muted-foreground">
         {hasFilters && totalRows != null
           ? `${rows.length.toLocaleString()} of ${totalRows.toLocaleString()} rows shown`
           : `${rows.length.toLocaleString()} row${rows.length === 1 ? "" : "s"}`}
         {totalRows != null && !hasFilters && ` · ${totalRows.toLocaleString()} total`}
-      </Text>
+      </p>
     </div>
   );
 }

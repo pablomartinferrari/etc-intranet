@@ -1,12 +1,12 @@
 # Company Intranet
 
-Starter intranet with **React** (Vite), **.NET 10 Web API**, and **PostgreSQL**, deployable to **Azure App Service** + **Azure Database for PostgreSQL**.
+Starter intranet with **React** (Vite), **shadcn/ui** (Tailwind CSS), **.NET 10 Web API**, and **PostgreSQL**, deployable to **Azure App Service** + **Azure Database for PostgreSQL**.
 
 ## Project layout
 
 | Path | Description |
 |------|-------------|
-| `src/web` | React SPA (Vite + TypeScript) |
+| `src/web` | React SPA (Vite + TypeScript + shadcn/ui + Tailwind) |
 | `src/api` | ASP.NET Core 10 API + EF Core |
 | `src/api/MultifamilyLbp` | Multifamily lead inspection API (jobs, uploads, normalization, reports) |
 | `src/web/src/multifamily-lbp` | Lead inspection React workflow (SharePoint-launched) |
@@ -18,6 +18,8 @@ Starter intranet with **React** (Vite), **.NET 10 Web API**, and **PostgreSQL**,
 | `infra/` | Azure Bicep templates |
 | `scripts/deploy.ps1` | Deploy infrastructure + API to Azure |
 | `docker-compose.yml` | Local PostgreSQL |
+
+The SPA uses **shadcn/ui** (Tailwind CSS + Radix, Nova style) rather than Fluent UI. Home stays the ETC portal (black logo header and application cards), not a sidebar dashboard shell.
 
 ## Prerequisites
 
@@ -118,12 +120,13 @@ Azure promotion: [docs/knowledge-base-azure.md](docs/knowledge-base-azure.md)
 
 ### CLEATUS opportunities and pipeline
 
-Home is unchanged except two new **Applications** cards: **Opportunities** and **Pipeline**. The welcome header, Sign in / Sign out, and existing lead-inspection / knowledge cards stay as they are.
+Signed-in Home shows three **Applications** cards, in this order: **Chat**, **Lead**, and **Sales**. Home copy stays plain (no CLEATUS, SAM.gov, or SLED). **Sales** opens a hub with **Bids** and **Pipeline**.
 
-Staff open those cards from Home (after Entra sign-in) to review CLEATUS-recommended SAM.gov/SLED bids and the live pursuit pipeline without opening CLEATUS first. Page-load fetch only; no webhooks; no API key in the repo. Win/loss/drop **reasons live in Postgres**, not in CLEATUS.
+Staff open Bids and Pipeline from `/sales` (after Entra sign-in) to review CLEATUS-recommended SAM.gov/SLED bids and the live pursuit pipeline without opening CLEATUS first. Page-load fetch only; no webhooks; no API key in the repo. Win/loss/drop **reasons live in Postgres**, not in CLEATUS.
 
 | Route | Purpose |
 |-------|---------|
+| `/sales` | Sales hub — Bids and Pipeline cards |
 | `/opportunities` | Recommended bids table + detail drawer |
 | `/pipeline` | Pursued / won / lost list, needs close-out, close-out form |
 

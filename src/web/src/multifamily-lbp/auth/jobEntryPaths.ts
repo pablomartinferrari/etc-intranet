@@ -8,6 +8,8 @@ export function isMultifamilyJobEntryPath(pathname: string): boolean {
 /** Signed-in app cards that should return here after Entra redirect. */
 export function isIntranetAppReturnPath(pathname: string): boolean {
   return (
+    pathname === "/sales" ||
+    pathname.startsWith("/sales/") ||
     pathname === "/opportunities" ||
     pathname.startsWith("/opportunities/") ||
     pathname === "/pipeline" ||

@@ -1,93 +1,40 @@
+import { FileSpreadsheetIcon, HomeIcon } from "lucide-react";
 import { Link as RouterLink } from "react-router-dom";
-import { Body1, Button, makeStyles, tokens, Title1 } from "@fluentui/react-components";
-import { DocumentDataRegular, HomeRegular } from "@fluentui/react-icons";
-import etcLogo from "../../images/etc-logo.png";
 
-const useStyles = makeStyles({
-  root: {
-    display: "flex",
-    flexDirection: "column",
-    minHeight: "100vh",
-    backgroundColor: tokens.colorNeutralBackground2,
-  },
-  brandBar: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-    gap: tokens.spacingHorizontalM,
-    padding: `${tokens.spacingVerticalM} ${tokens.spacingHorizontalXL}`,
-    backgroundColor: "#000000",
-    borderRadius: 0,
-  },
-  logo: {
-    display: "block",
-    height: "44px",
-    width: "auto",
-    maxWidth: "min(100%, 280px)",
-    objectFit: "contain",
-  },
-  appHeader: {
-    padding: `${tokens.spacingVerticalM} ${tokens.spacingHorizontalXL}`,
-    backgroundColor: tokens.colorNeutralBackground1,
-    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-    gap: tokens.spacingVerticalM,
-  },
-  brand: {
-    display: "flex",
-    alignItems: "center",
-    gap: tokens.spacingHorizontalM,
-  },
-  main: {
-    flex: 1,
-    padding: tokens.spacingVerticalXL,
-    maxWidth: "1200px",
-    width: "100%",
-    margin: "0 auto",
-    boxSizing: "border-box",
-  },
-  footer: {
-    padding: tokens.spacingVerticalM,
-    textAlign: "center",
-    color: tokens.colorNeutralForeground3,
-    fontSize: tokens.fontSizeBase200,
-  },
-});
+import { BrandBar } from "@/components/brand-bar";
+import { Button } from "@/components/ui/button";
 
 export function LeadInspectionChrome({
   children,
 }: {
   children: React.ReactNode;
 }): React.JSX.Element {
-  const styles = useStyles();
-
   return (
-    <div className={styles.root}>
-      <header className={styles.brandBar}>
-        <RouterLink to="/" style={{ lineHeight: 0 }}>
-          <img alt="Environmental Testing & Consulting" className={styles.logo} src={etcLogo} />
-        </RouterLink>
+    <div className="flex min-h-svh flex-col bg-muted/40">
+      <header>
+        <BrandBar />
       </header>
-      <div className={styles.appHeader}>
-        <div className={styles.brand}>
-          <DocumentDataRegular fontSize={28} />
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b bg-background px-6 py-4">
+        <div className="flex items-center gap-3">
+          <FileSpreadsheetIcon className="size-7" />
           <div>
-            <Title1>Lead Inspection Data Manager</Title1>
-            <Body1>Multifamily LBP — SharePoint import, grid, normalization, and reports</Body1>
+            <h1 className="text-2xl font-semibold tracking-tight">Lead Inspection Data Manager</h1>
+            <p className="text-sm text-muted-foreground">
+              Multifamily LBP — SharePoint import, grid, normalization, and reports
+            </p>
           </div>
         </div>
-        <RouterLink to="/lead-inspection" style={{ textDecoration: "none" }}>
-          <Button appearance="subtle" icon={<HomeRegular />}>
+        <Button variant="ghost" asChild>
+          <RouterLink to="/lead-inspection">
+            <HomeIcon />
             Job lookup
-          </Button>
-        </RouterLink>
+          </RouterLink>
+        </Button>
       </div>
-      <main className={styles.main}>{children}</main>
-      <footer className={styles.footer}>ETC intranet · Lead inspection workspace</footer>
+      <main className="mx-auto w-full max-w-[1200px] flex-1 p-6">{children}</main>
+      <footer className="p-4 text-center text-xs text-muted-foreground">
+        ETC intranet · Lead inspection workspace
+      </footer>
     </div>
   );
 }

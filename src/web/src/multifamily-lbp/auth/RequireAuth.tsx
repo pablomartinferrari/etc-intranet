@@ -1,7 +1,7 @@
 import { InteractionStatus } from "@azure/msal-browser";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { Navigate, useLocation } from "react-router-dom";
-import { Spinner } from "@fluentui/react-components";
+import { Spinner } from "@/components/ui/spinner";
 import {
   isIntranetAppReturnPath,
   isMultifamilyJobEntryPath,
@@ -19,7 +19,7 @@ export function RequireAuth({ children }: RequireAuthProps): React.JSX.Element {
   const { inProgress } = useMsal();
 
   if (inProgress !== InteractionStatus.None) {
-    return <Spinner size="large" label="Signing you in…" />;
+    return <Spinner size="lg" label="Signing you in…" />;
   }
 
   if (!isAuthenticated) {

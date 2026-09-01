@@ -1,4 +1,4 @@
-import { Badge } from "@fluentui/react-components";
+import { Badge } from "@/components/ui/badge";
 
 export const LEAD_POSITIVE_THRESHOLD = 1.0;
 
@@ -17,7 +17,7 @@ export function ReadingResultBadge({
 }): React.JSX.Element {
   const positive = isReadingPositive(row);
   return (
-    <Badge appearance="filled" color={positive ? "danger" : "success"}>
+    <Badge variant={positive ? "destructive" : "secondary"}>
       {positive ? "Positive" : "Negative"}
     </Badge>
   );
