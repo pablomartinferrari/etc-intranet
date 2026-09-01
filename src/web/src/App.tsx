@@ -14,8 +14,10 @@ import {
 } from "@fluentui/react-components";
 import {
   ArrowRight24Regular,
+  BuildingBank24Regular,
   ChatSparkle24Regular,
   ClipboardTaskListLtr24Regular,
+  DataTrending24Regular,
 } from "@fluentui/react-icons";
 import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
@@ -25,6 +27,10 @@ import { apiRequest, signInRequest } from "./authConfig";
 import etcLogo from "./images/etc-logo.png";
 import MultifamilyRoutes from "./multifamily-lbp/MultifamilyRoutes";
 import KnowledgeRoutes from "./knowledge-base/KnowledgeRoutes";
+import {
+  CleatusOpportunitiesRoute,
+  CleatusPipelineRoute,
+} from "./cleatus/CleatusRoutes";
 import { ApiAuthBridge } from "./multifamily-lbp/api/ApiAuthBridge";
 import {
   parseJobIdFromReturnPath,
@@ -80,6 +86,20 @@ const INTRANET_APPS = [
     description: "Organize project files, search your library, and chat with citations or web results.",
     Icon: ChatSparkle24Regular,
     accent: tokens.colorPaletteTealBorderActive,
+  },
+  {
+    to: "/opportunities",
+    title: "Opportunities",
+    description: "CLEATUS-recommended bids (SAM.gov/SLED).",
+    Icon: BuildingBank24Regular,
+    accent: tokens.colorPalettePurpleBorderActive,
+  },
+  {
+    to: "/pipeline",
+    title: "Pipeline",
+    description: "Pursued / won / lost, needs close-out.",
+    Icon: DataTrending24Regular,
+    accent: tokens.colorPaletteGreenBorderActive,
   },
 ] as const;
 
@@ -238,6 +258,8 @@ export default function App() {
             <Routes>
               <Route path="/" element={<IntranetHome />} />
               <Route path="/knowledge/*" element={<KnowledgeRoutes />} />
+              <Route path="/opportunities" element={<CleatusOpportunitiesRoute />} />
+              <Route path="/pipeline" element={<CleatusPipelineRoute />} />
               <Route path="/*" element={<MultifamilyRoutes />} />
             </Routes>
           </ApiAuthBridge>

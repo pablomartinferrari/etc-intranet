@@ -12,6 +12,8 @@ Starter intranet with **React** (Vite), **.NET 10 Web API**, and **PostgreSQL**,
 | `src/web/src/multifamily-lbp` | Lead inspection React workflow (SharePoint-launched) |
 | `src/api/KnowledgeBase` | Semantic search + RAG chat over company documents |
 | `src/web/src/knowledge-base` | Knowledge Base UI (search, chat, ingest) |
+| `src/api/Cleat` | CLEATUS API proxy (recommendations, pipeline, close-out) |
+| `src/web/src/cleatus` | Opportunities and Pipeline pages |
 | `../etc-kg` | Python ingestion pipeline (SharePoint, local upload, pgvector) |
 | `infra/` | Azure Bicep templates |
 | `scripts/deploy.ps1` | Deploy infrastructure + API to Azure |
@@ -114,6 +116,65 @@ API endpoints: `POST /api/kb/search`, `POST /api/kb/chat`, `POST /api/kb/ingest/
 
 Azure promotion: [docs/knowledge-base-azure.md](docs/knowledge-base-azure.md)
 
+### CLEATUS opportunities and pipeline
+
+Home is unchanged except two new **Applications** cards: **Opportunities** and **Pipeline**. The welcome header, Sign in / Sign out, and existing lead-inspection / knowledge cards stay as they are.
+
+Staff open those cards from Home (after Entra sign-in) to review CLEATUS-recommended SAM.gov/SLED bids and the live pursuit pipeline without opening CLEATUS first. Page-load fetch only; no webhooks; no API key in the repo. Win/loss/drop **reasons live in Postgres**, not in CLEATUS.
+
+| Route | Purpose |
+|-------|---------|
+| `/opportunities` | Recommended bids table + detail drawer |
+| `/pipeline` | Pursued / won / lost list, needs close-out, close-out form |
+
+The API compiles and runs **without** a CLEATUS key. Home works as before. Opportunities and Pipeline call CLEATUS on load and show “Add Cleat__ApiKey” (HTTP 503) until a key is configured. Close-out with a missing key saves the reason locally, returns 503, and does not pretend CLEATUS was updated.
+
+#### CLEATUS API key
+
+Mint a key in CLEATUS: **Settings → Integrations → API Keys**. Store it outside git.
+
+**Local (user secrets — preferred):**
+
+```powershell
+cd src/api
+dotnet user-secrets set "Cleat:ApiKey" "<your-cleatus-api-key>"
+```
+
+Equivalent environment variable: `Cleat__ApiKey`. Do not put a real key in `appsettings.json`, README examples, or source control.
+
+**Azure App Service setting:**
+
+```powershell
+az webapp config appsettings set `
+  --resource-group rg-intranet-dev `
+  --name "<web-app-name>" `
+  --settings Cleat__ApiKey="<your-cleatus-api-key>"
+```
+
+**Azure Key Vault** (same pattern as the PostgreSQL connection string). Create a secret named `Cleat--ApiKey` and wire it as an App Setting Key Vault reference:
+
+```powershell
+az keyvault secret set `
+  --vault-name "<key-vault-name>" `
+  --name "Cleat--ApiKey" `
+  --value "<your-cleatus-api-key>"
+
+az webapp config appsettings set `
+  --resource-group rg-intranet-dev `
+  --name "<web-app-name>" `
+  --settings Cleat__ApiKey="@Microsoft.KeyVault(SecretUri=https://<key-vault-name>.vault.azure.net/secrets/Cleat--ApiKey/)"
+```
+
+`Cleat:BaseUrl` defaults to `https://api.cleat.ai` and does not need to be set. Cleat routes use the same Entra authorization as other intranet APIs.
+
+A pursuit **needs close-out** when it is not won, lost, or archived, and any of:
+
+1. Opportunity response/deadline is in the past
+2. Phase is triage / preparing / submitted and last-activity is 21+ days old, **if** CLEATUS sends an updated-at / last-activity field
+3. If there is no last-activity field, use deadline-only, and flag **no deadline on file** so those rows still appear
+
+Close-out PATCHes CLEATUS with `column_id` **Won** / **Lost**, or `archived: true` for no longer pursuing. There is no `phase` field on that PATCH.
+
 ## Build for production
 
 ```powershell
@@ -191,6 +252,10 @@ Roughly **$20–35/month** (B1 App Service + B1ms PostgreSQL, no App Insights/Lo
 | `GET /api/status` | Service + database status (requires Entra token) |
 | `GET /api/messages` | Sample messages from PostgreSQL (requires Entra token) |
 | `GET /api/me` | Signed-in user claims from Entra token |
+| `GET /api/cleat/recommendations` | CLEATUS recommended bids (optional `minScore`, default 80). Missing `Cleat__ApiKey` returns **503** `{ error: "cleat_api_key_missing" }`. Requires Entra. |
+| `GET /api/cleat/opportunities/{id}` | Opportunity detail from CLEATUS. Same missing-key 503. Requires Entra. |
+| `GET /api/cleat/pipeline` | Pipeline dashboard (active / won / archived) plus local close-out reasons. Same missing-key 503. Requires Entra. |
+| `POST /api/cleat/pursuits/{id}/close-out` | Save win/loss/drop reason in `PursuitCloseouts`, then PATCH CLEATUS (`column_id` Won/Lost or `archived`). Failed CLEATUS write keeps the local reason and returns 503/502 with `cleatusUpdated: false`. Requires Entra. |
 
 ## SharePoint SSO with Entra ID
 
