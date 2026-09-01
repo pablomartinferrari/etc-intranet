@@ -27,7 +27,7 @@ export function CleatusChrome({
           </div>
         </div>
         <Button variant="ghost" asChild>
-          <RouterLink to="/">
+          <RouterLink to="/sales">
             <HomeIcon />
             Applications
           </RouterLink>

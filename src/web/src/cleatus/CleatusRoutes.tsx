@@ -9,7 +9,7 @@ export function CleatusOpportunitiesRoute(): React.JSX.Element {
   return (
     <RequireAuth>
       <CleatusChrome
-        title="Opportunities"
+        title="Bids"
         subtitle="CLEATUS-recommended SAM.gov and SLED bids"
         icon={<Building2Icon className="size-7" />}
       >

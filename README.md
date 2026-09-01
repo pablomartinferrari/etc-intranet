@@ -120,12 +120,13 @@ Azure promotion: [docs/knowledge-base-azure.md](docs/knowledge-base-azure.md)
 
 ### CLEATUS opportunities and pipeline
 
-Home is unchanged except two new **Applications** cards: **Opportunities** and **Pipeline**. The welcome header, Sign in / Sign out, and existing lead-inspection / knowledge cards stay as they are.
+Signed-in Home shows three **Applications** cards, in this order: **Chat**, **Lead**, and **Sales**. Home copy stays plain (no CLEATUS, SAM.gov, or SLED). **Sales** opens a hub with **Bids** and **Pipeline**.
 
-Staff open those cards from Home (after Entra sign-in) to review CLEATUS-recommended SAM.gov/SLED bids and the live pursuit pipeline without opening CLEATUS first. Page-load fetch only; no webhooks; no API key in the repo. Win/loss/drop **reasons live in Postgres**, not in CLEATUS.
+Staff open Bids and Pipeline from `/sales` (after Entra sign-in) to review CLEATUS-recommended SAM.gov/SLED bids and the live pursuit pipeline without opening CLEATUS first. Page-load fetch only; no webhooks; no API key in the repo. Win/loss/drop **reasons live in Postgres**, not in CLEATUS.
 
 | Route | Purpose |
 |-------|---------|
+| `/sales` | Sales hub — Bids and Pipeline cards |
 | `/opportunities` | Recommended bids table + detail drawer |
 | `/pipeline` | Pursued / won / lost list, needs close-out, close-out form |
 

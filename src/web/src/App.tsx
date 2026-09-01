@@ -1,14 +1,8 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
-import { BrowserRouter, Link as RouterLink, Route, Routes, useNavigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  Building2Icon,
-  ChevronRightIcon,
-  ClipboardListIcon,
-  SparklesIcon,
-  TrendingUpIcon,
-} from "lucide-react";
+import { BriefcaseIcon, ClipboardListIcon, SparklesIcon } from "lucide-react";
 
 import { apiRequest, signInRequest } from "./authConfig";
 import MultifamilyRoutes from "./multifamily-lbp/MultifamilyRoutes";
@@ -17,6 +11,7 @@ import {
   CleatusOpportunitiesRoute,
   CleatusPipelineRoute,
 } from "./cleatus/CleatusRoutes";
+import { SalesHubRoute } from "./sales/SalesHubPage";
 import { ApiAuthBridge } from "./multifamily-lbp/api/ApiAuthBridge";
 import {
   parseJobIdFromReturnPath,
@@ -24,10 +19,10 @@ import {
   POST_LOGIN_NAV_KEY,
 } from "./multifamily-lbp/auth/jobEntryPaths";
 import { BrandBar, SignOutButton } from "@/components/brand-bar";
+import { IntranetAppGrid, type IntranetApp } from "@/components/intranet-app-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 
 type MeResponse = {
   name: string | null;
@@ -63,40 +58,27 @@ function PostLoginRedirect(): null {
   return null;
 }
 
-const INTRANET_APPS: {
-  to: string;
-  title: string;
-  description: string;
-  Icon: ComponentType<{ className?: string }>;
-  accent: string;
-}[] = [
-  {
-    to: "/lead-inspection",
-    title: "Lead inspection data manager",
-    description: "Upload XRF readings, review the grid, normalize components, and generate reports.",
-    Icon: ClipboardListIcon,
-    accent: "border-blue-500",
-  },
+const INTRANET_APPS: IntranetApp[] = [
   {
     to: "/knowledge",
-    title: "Knowledge assistant",
-    description: "Organize project files, search your library, and chat with citations or web results.",
+    title: "Chat",
+    description: "ChatGPT for every ETC employee.",
     Icon: SparklesIcon,
     accent: "border-teal-500",
   },
   {
-    to: "/opportunities",
-    title: "Opportunities",
-    description: "CLEATUS-recommended bids (SAM.gov/SLED).",
-    Icon: Building2Icon,
-    accent: "border-violet-500",
+    to: "/lead-inspection",
+    title: "Lead",
+    description: "XRF readings, grids, and reports.",
+    Icon: ClipboardListIcon,
+    accent: "border-blue-500",
   },
   {
-    to: "/pipeline",
-    title: "Pipeline",
-    description: "Pursued / won / lost, needs close-out.",
-    Icon: TrendingUpIcon,
-    accent: "border-green-500",
+    to: "/sales",
+    title: "Sales",
+    description: "Bids and the pursuit pipeline.",
+    Icon: BriefcaseIcon,
+    accent: "border-violet-500",
   },
 ];
 
@@ -216,33 +198,7 @@ function IntranetHome() {
       {isSignedIn && (
         <section className="flex flex-col gap-4">
           <h2 className="px-1 text-base font-semibold text-muted-foreground">Applications</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {INTRANET_APPS.map((app) => (
-              <RouterLink
-                key={app.to}
-                to={app.to}
-                className={cn(
-                  "flex items-center gap-4 rounded-xl border bg-card p-5 text-inherit no-underline shadow-sm",
-                  "transition duration-150 ease-out hover:-translate-y-0.5 hover:border-border hover:shadow-md",
-                  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                )}
-              >
-                <div
-                  className={cn(
-                    "flex size-12 shrink-0 items-center justify-center rounded-lg border bg-muted",
-                    app.accent,
-                  )}
-                >
-                  <app.Icon className="size-6" />
-                </div>
-                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <p className="text-base leading-tight font-semibold">{app.title}</p>
-                  <p className="text-xs leading-snug text-muted-foreground">{app.description}</p>
-                </div>
-                <ChevronRightIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden />
-              </RouterLink>
-            ))}
-          </div>
+          <IntranetAppGrid apps={INTRANET_APPS} />
         </section>
       )}
     </main>
@@ -259,6 +215,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<IntranetHome />} />
               <Route path="/knowledge/*" element={<KnowledgeRoutes />} />
+              <Route path="/sales" element={<SalesHubRoute />} />
               <Route path="/opportunities" element={<CleatusOpportunitiesRoute />} />
               <Route path="/pipeline" element={<CleatusPipelineRoute />} />
               <Route path="/*" element={<MultifamilyRoutes />} />
