@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/utils";
 import { askHelp, type HelpAskResponse } from "./api";
 import { SUGGESTED_HELP_QUESTIONS } from "./intranetMap";
 
@@ -24,23 +25,32 @@ type Exchange = {
 
 export function HelpAgentHost() {
   const { accounts } = useMsal();
+  const location = useLocation();
   const [open, setOpen] = useState(false);
 
   if (accounts.length === 0) {
     return null;
   }
 
+  const onChat = location.pathname.startsWith("/knowledge");
+
   return (
     <>
       <Button
         type="button"
-        className="fixed right-5 bottom-5 z-40 shadow-lg"
+        className={cn(
+          "fixed z-40 shadow-lg",
+          "size-11 px-0 sm:h-9 sm:w-auto sm:px-2.5",
+          onChat
+            ? "right-3 bottom-[max(6rem,calc(env(safe-area-inset-bottom)+5.25rem))] md:right-5 md:bottom-5"
+            : "right-4 bottom-[max(1.25rem,env(safe-area-inset-bottom))] md:right-5 md:bottom-5",
+        )}
         size="lg"
         onClick={() => setOpen(true)}
         aria-label="Open intranet help"
       >
         <CircleHelpIcon />
-        Help
+        <span className="hidden sm:inline">Help</span>
       </Button>
       <HelpAgentPanel open={open} onOpenChange={setOpen} />
     </>
@@ -98,7 +108,7 @@ export function HelpAgentPanel({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="sm:max-w-md" side="right">
+      <SheetContent className="h-full w-full sm:max-w-md" side="right">
         <SheetHeader>
           <SheetTitle>Intranet help</SheetTitle>
           <SheetDescription>

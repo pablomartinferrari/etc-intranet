@@ -14,11 +14,11 @@ export function LeadInspectionChrome({
       <header>
         <BrandBar />
       </header>
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b bg-background px-6 py-4">
-        <div className="flex items-center gap-3">
-          <FileSpreadsheetIcon className="size-7" />
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Lead Inspection Data Manager</h1>
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b bg-background px-4 py-3 md:px-6 md:py-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <FileSpreadsheetIcon className="size-7 shrink-0" />
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">Lead Inspection Data Manager</h1>
             <p className="text-sm text-muted-foreground">
               Multifamily LBP — SharePoint import, grid, normalization, and reports
             </p>
@@ -31,7 +31,7 @@ export function LeadInspectionChrome({
           </RouterLink>
         </Button>
       </div>
-      <main className="mx-auto w-full max-w-[1200px] flex-1 p-6">{children}</main>
+      <main className="mx-auto w-full max-w-[1200px] flex-1 p-4 pb-24 md:p-6">{children}</main>
       <footer className="p-4 text-center text-xs text-muted-foreground">
         ETC intranet · Lead inspection workspace
       </footer>

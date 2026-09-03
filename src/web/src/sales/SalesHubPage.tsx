@@ -29,13 +29,13 @@ function SalesHubPage() {
   return (
     <div className="flex min-h-svh flex-col bg-muted/40">
       <BrandBar actions={<SignOutButton outlineOnBlack />} />
-      <div className="flex flex-col gap-3 border-b bg-background px-6 py-4">
+      <div className="flex flex-col gap-3 border-b bg-background px-4 py-3 md:px-6 md:py-4">
         <PageBreadcrumb items={[{ label: "Home", to: "/" }, { label: "Sales" }]} />
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <BriefcaseIcon className="size-7" />
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Sales</h1>
+              <h1 className="text-xl font-semibold tracking-tight md:text-2xl">Sales</h1>
               <p className="text-sm text-muted-foreground">Bids and the pursuit pipeline.</p>
             </div>
           </div>
@@ -47,7 +47,7 @@ function SalesHubPage() {
           </Button>
         </div>
       </div>
-      <main className="mx-auto flex w-full max-w-[960px] flex-1 flex-col gap-4 p-6">
+      <main className="mx-auto flex w-full max-w-[960px] flex-1 flex-col gap-4 p-4 pb-24 md:p-6">
         <PageExplainer title="Sales">
           <p>
             This is the sales home. Pick Bids (recommended government opportunities

@@ -145,7 +145,7 @@ function IntranetHome() {
   }, [isSignedIn]);
 
   return (
-    <main className="mx-auto flex min-h-svh max-w-[960px] flex-col gap-8 bg-muted/40 px-6 py-7 pb-16">
+    <main className="mx-auto flex min-h-svh max-w-[960px] flex-col gap-8 bg-muted/40 px-4 py-5 pb-24 md:px-6 md:py-7 md:pb-16">
       <header className="flex flex-col gap-7">
         <BrandBar
           rounded
@@ -169,7 +169,7 @@ function IntranetHome() {
 
         {!isSignedIn ? (
           <div className="flex flex-col gap-2 px-1 pt-2">
-            <h1 className="text-3xl font-semibold tracking-tight">ETC intranet</h1>
+            <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">ETC intranet</h1>
             <p className="max-w-xl text-base text-muted-foreground">
               {pendingJobId
                 ? `Sign in to continue to job ${pendingJobId} in the lead inspection workspace.`
@@ -181,7 +181,7 @@ function IntranetHome() {
             <p className="text-xs font-semibold tracking-[0.06em] text-muted-foreground uppercase">
               Environmental Testing & Consulting
             </p>
-            <h1 className="text-3xl font-semibold tracking-tight">Welcome back, {firstName}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Welcome back, {firstName}</h1>
             {displayEmail && (
               <p className="text-xs text-muted-foreground">{displayEmail}</p>
             )}

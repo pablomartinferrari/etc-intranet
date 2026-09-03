@@ -21,7 +21,7 @@ export function ChatMarkdown({ content, className }: ChatMarkdownProps) {
         {children}
       </a>
     ),
-    p: ({ children }) => <p className="mb-3 mt-0">{children}</p>,
+    p: ({ children }) => <p className="mb-3 mt-0 break-words">{children}</p>,
     ul: ({ children }) => <ul className="mb-3 mt-0 list-disc pl-5">{children}</ul>,
     ol: ({ children }) => <ol className="mb-3 mt-0 list-decimal pl-5">{children}</ol>,
     li: ({ children }) => <li className="mb-1">{children}</li>,
@@ -36,8 +36,17 @@ export function ChatMarkdown({ content, className }: ChatMarkdownProps) {
       </blockquote>
     ),
     pre: ({ children }) => (
-      <pre className="mb-3 mt-0 overflow-x-auto rounded-md bg-muted p-3">{children}</pre>
+      <pre className="mb-3 mt-0 max-w-full overflow-x-auto rounded-md bg-muted p-3">{children}</pre>
     ),
+    table: ({ children }) => (
+      <div className="mb-3 max-w-full overflow-x-auto">
+        <table className="w-full min-w-[20rem] border-collapse text-left text-sm">{children}</table>
+      </div>
+    ),
+    th: ({ children }) => (
+      <th className="border-b px-2 py-1 align-top font-semibold whitespace-nowrap">{children}</th>
+    ),
+    td: ({ children }) => <td className="border-b px-2 py-1 align-top break-words">{children}</td>,
     code: ({ className: codeClassName, children, ...props }) => {
       const isBlock = codeClassName?.includes("language-");
       return (
@@ -56,7 +65,7 @@ export function ChatMarkdown({ content, className }: ChatMarkdownProps) {
   };
 
   return (
-    <div className={cn("text-sm leading-6 [&>:first-child]:mt-0 [&>:last-child]:mb-0", className)}>
+    <div className={cn("min-w-0 overflow-x-auto text-sm leading-6 break-words [&>:first-child]:mt-0 [&>:last-child]:mb-0", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
       </ReactMarkdown>

@@ -112,7 +112,7 @@ export function PipelinePage() {
   }
 
   return (
-    <main className="mx-auto grid w-full max-w-[1100px] gap-4 px-5 py-8 pb-14">
+    <main className="mx-auto grid w-full max-w-[1100px] gap-4 px-4 py-6 pb-24 md:px-5 md:py-8 md:pb-14">
       <PageExplainer title="Pipeline">
         <p>
           Pursuits from CLEATUS (triage / preparing / submitted / won / lost /
@@ -254,7 +254,7 @@ export function PipelinePage() {
                 </Button>
               )}
               <Select value={phaseFilter} onValueChange={setPhaseFilter}>
-                <SelectTrigger className="w-[200px]" aria-label="Filter pursuits by phase">
+                <SelectTrigger className="w-full sm:w-[200px]" aria-label="Filter pursuits by phase">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

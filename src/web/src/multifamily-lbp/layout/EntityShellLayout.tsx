@@ -65,8 +65,8 @@ function ShellInner(): React.JSX.Element {
       {isLoading ? (
         <Spinner label="Loading…" />
       ) : (
-        <div className="flex flex-1 gap-6">
-          <nav className="flex w-[200px] shrink-0 flex-col gap-1">
+        <div className="flex min-w-0 flex-1 flex-col gap-4 md:flex-row md:gap-6">
+          <nav className="flex w-full shrink-0 gap-1 overflow-x-auto pb-1 md:w-[200px] md:flex-col md:overflow-visible md:pb-0">
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
@@ -74,7 +74,7 @@ function ShellInner(): React.JSX.Element {
                 end={item.to === base}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-2 rounded-md px-3 py-2 text-sm no-underline hover:bg-muted",
+                    "flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm no-underline hover:bg-muted",
                     isActive && "bg-muted font-semibold",
                   )
                 }
