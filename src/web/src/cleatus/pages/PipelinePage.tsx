@@ -30,6 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { PageExplainer } from "../../sales/PageExplainer";
 import {
   CleatApiError,
@@ -106,6 +107,10 @@ export function PipelinePage() {
     });
   }, [items, phaseFilter]);
 
+  function togglePhaseFilter(next: string) {
+    setPhaseFilter((current) => (current === next ? "all" : next));
+  }
+
   return (
     <main className="mx-auto grid w-full max-w-[1100px] gap-4 px-5 py-8 pb-14">
       <PageExplainer title="Pipeline">
@@ -152,14 +157,55 @@ export function PipelinePage() {
       )}
 
       {dashboard && (
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-7">
-          <CountTile label="Triage" value={dashboard.counts.triage} />
-          <CountTile label="Preparing" value={dashboard.counts.preparing} />
-          <CountTile label="Submitted" value={dashboard.counts.submitted} />
-          <CountTile label="Won" value={dashboard.counts.won} />
-          <CountTile label="Lost" value={dashboard.counts.lost} />
-          <CountTile label="Archived" value={dashboard.counts.archived} />
-          <CountTile label="Total" value={dashboard.counts.total} />
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 xl:grid-cols-8">
+          <CountTile
+            label="Triage"
+            value={dashboard.counts.triage}
+            selected={phaseFilter === "triage"}
+            onSelect={() => togglePhaseFilter("triage")}
+          />
+          <CountTile
+            label="Preparing"
+            value={dashboard.counts.preparing}
+            selected={phaseFilter === "preparing"}
+            onSelect={() => togglePhaseFilter("preparing")}
+          />
+          <CountTile
+            label="Submitted"
+            value={dashboard.counts.submitted}
+            selected={phaseFilter === "submitted"}
+            onSelect={() => togglePhaseFilter("submitted")}
+          />
+          <CountTile
+            label="Won"
+            value={dashboard.counts.won}
+            selected={phaseFilter === "won"}
+            onSelect={() => togglePhaseFilter("won")}
+          />
+          <CountTile
+            label="Lost"
+            value={dashboard.counts.lost}
+            selected={phaseFilter === "lost"}
+            onSelect={() => togglePhaseFilter("lost")}
+          />
+          <CountTile
+            label="Archived"
+            value={dashboard.counts.archived}
+            selected={phaseFilter === "archived"}
+            onSelect={() => togglePhaseFilter("archived")}
+          />
+          <CountTile
+            label="Needs close-out"
+            value={needs.length}
+            selected={phaseFilter === "needs"}
+            onSelect={() => togglePhaseFilter("needs")}
+          />
+          <CountTile
+            label="Total"
+            value={dashboard.counts.total}
+            selected={phaseFilter === "all"}
+            onSelect={() => setPhaseFilter("all")}
+          />
         </div>
       )}
 
@@ -201,21 +247,28 @@ export function PipelinePage() {
         <section className="grid gap-2.5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <strong>All pursuits</strong>
-            <Select value={phaseFilter} onValueChange={setPhaseFilter}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All phases</SelectItem>
-                <SelectItem value="needs">Needs close-out</SelectItem>
-                <SelectItem value="triage">Triage</SelectItem>
-                <SelectItem value="preparing">Preparing</SelectItem>
-                <SelectItem value="submitted">Submitted</SelectItem>
-                <SelectItem value="won">Won</SelectItem>
-                <SelectItem value="lost">Lost</SelectItem>
-                <SelectItem value="archived">Archived</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex flex-wrap items-center gap-2">
+              {phaseFilter !== "all" && (
+                <Button type="button" variant="outline" size="sm" onClick={() => setPhaseFilter("all")}>
+                  Show all
+                </Button>
+              )}
+              <Select value={phaseFilter} onValueChange={setPhaseFilter}>
+                <SelectTrigger className="w-[200px]" aria-label="Filter pursuits by phase">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All phases</SelectItem>
+                  <SelectItem value="needs">Needs close-out</SelectItem>
+                  <SelectItem value="triage">Triage</SelectItem>
+                  <SelectItem value="preparing">Preparing</SelectItem>
+                  <SelectItem value="submitted">Submitted</SelectItem>
+                  <SelectItem value="won">Won</SelectItem>
+                  <SelectItem value="lost">Lost</SelectItem>
+                  <SelectItem value="archived">Archived</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           {filtered.length === 0 ? (
             <Alert>
@@ -496,12 +549,33 @@ function CloseoutDrawer({
   );
 }
 
-function CountTile({ label, value }: { label: string; value: number }) {
+function CountTile({
+  label,
+  value,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  value: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   return (
-    <div className="grid gap-1 rounded-lg bg-card p-3 shadow-sm">
+    <button
+      type="button"
+      aria-pressed={selected}
+      aria-label={`${label}: ${value}. ${selected ? "Clear filter" : `Filter list to ${label}`}`}
+      onClick={onSelect}
+      className={cn(
+        "grid gap-1 rounded-lg bg-card p-3 text-left shadow-sm transition",
+        "hover:-translate-y-px hover:shadow-md",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+        selected && "ring-2 ring-ring ring-offset-2 ring-offset-background",
+      )}
+    >
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="font-semibold">{value}</span>
-    </div>
+    </button>
   );
 }
 

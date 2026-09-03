@@ -174,12 +174,13 @@ Signed-in Home shows three **Applications** cards, in this order: **Chat**, **Le
 
 Staff open Bids and Pipeline from `/sales` (after Entra sign-in) to review CLEATUS-recommended SAM.gov/SLED bids and the live pursuit pipeline without opening CLEATUS first. Page-load fetch only; no webhooks; no API key in the repo. Win/loss/drop **reasons live in Postgres**, not in CLEATUS.
 
-Sales, Bids, and Pipeline each have a short explainer (what the page is and which data lives in CLEATUS vs intranet Postgres) and a **Request a change** control. Notes are structured with the Knowledge Base Ollama model when it is up, otherwise saved as written. Pablo reviews them at `/sales/requests`.
+Sales, Bids, and Pipeline each have a short explainer (what the page is and which data lives in CLEATUS vs intranet Postgres). **Request a change** lives on Home so staff can file notes for Chat, Lead, Sales, or General. Notes are structured with the Knowledge Base Ollama model when it is up, otherwise saved as written. After a successful save, the API texts Pablo when Twilio SMS is configured. Review the queue at `/requests` (also `/sales/requests`).
 
 | Route | Purpose |
 |-------|---------|
-| `/sales` | Sales hub — Bids and Pipeline cards, plus Requests |
-| `/sales/requests` | Feature notes from Sales/Bids/Pipeline (status: new / planned / done) |
+| `/sales` | Sales hub — Bids and Pipeline cards, plus a Requests link |
+| `/requests` | Feature notes from Home (Chat / Lead / Sales / General) and older Sales/Bids/Pipeline tickets |
+| `/sales/requests` | Same queue as `/requests` |
 | `/opportunities` | Recommended bids table + detail drawer |
 | `/pipeline` | Pursued / won / lost list, needs close-out, close-out form |
 
@@ -222,6 +223,49 @@ az webapp config appsettings set `
 ```
 
 `Cleat:BaseUrl` defaults to `https://api.cleat.ai` and does not need to be set. Cleat routes use the same Entra authorization as other intranet APIs.
+
+#### Feature request SMS (Twilio)
+
+After a feature request is saved to Postgres, the API sends Pablo a short SMS (title, area, who submitted, reminder to open Requests). A missing or failed SMS provider never blocks capture: the ticket still saves and the API returns success.
+
+Leave the settings empty locally if you do not want texts. Do not put a real number, SID, or token in `appsettings.json` or source control.
+
+**Local (user secrets — preferred):**
+
+```powershell
+cd src/api
+dotnet user-secrets set "FeatureRequests:Sms:ToPhoneNumber" "+15555550100"
+dotnet user-secrets set "FeatureRequests:Sms:FromPhoneNumber" "+15555550101"
+dotnet user-secrets set "FeatureRequests:Sms:AccountSid" "<twilio-account-sid>"
+dotnet user-secrets set "FeatureRequests:Sms:AuthToken" "<twilio-auth-token>"
+```
+
+Equivalent environment / App Setting names (`__` nesting):
+
+| Setting | Purpose |
+|---------|---------|
+| `FeatureRequests__Sms__Enabled` | Optional. Default `true`. Set `false` to skip SMS even when credentials are present. |
+| `FeatureRequests__Sms__ToPhoneNumber` | Destination in E.164 (Pablo's phone). |
+| `FeatureRequests__Sms__FromPhoneNumber` | Twilio from-number in E.164. |
+| `FeatureRequests__Sms__AccountSid` | Twilio Account SID. |
+| `FeatureRequests__Sms__AuthToken` | Twilio Auth Token. |
+
+SMS is sent only when **Enabled** is true (or omitted) **and** To, From, AccountSid, and AuthToken are all set. Otherwise the send is skipped and logged at debug.
+
+**Azure App Service settings:**
+
+```powershell
+az webapp config appsettings set `
+  --resource-group rg-intranet-dev `
+  --name "<web-app-name>" `
+  --settings `
+    FeatureRequests__Sms__ToPhoneNumber="<e164-destination>" `
+    FeatureRequests__Sms__FromPhoneNumber="<e164-twilio-from>" `
+    FeatureRequests__Sms__AccountSid="<twilio-account-sid>" `
+    FeatureRequests__Sms__AuthToken="<twilio-auth-token>"
+```
+
+**Azure Key Vault** (same pattern as `Cleat__ApiKey`). Create secrets such as `FeatureRequests--Sms--AuthToken` and wire Key Vault references on the App Settings above.
 
 A pursuit **needs close-out** when it is not won, lost, or archived, and any of:
 
@@ -312,7 +356,7 @@ Roughly **$20–35/month** (B1 App Service + B1ms PostgreSQL, no App Insights/Lo
 | `GET /api/cleat/opportunities/{id}` | Opportunity detail from CLEATUS. Same missing-key 503. Requires Entra. |
 | `GET /api/cleat/pipeline` | Pipeline dashboard (active / won / archived) plus local close-out reasons. Same missing-key 503. Requires Entra. |
 | `POST /api/cleat/pursuits/{id}/close-out` | Save win/loss/drop reason in `PursuitCloseouts`, then PATCH CLEATUS (`column_id` Won/Lost or `archived`). Failed CLEATUS write keeps the local reason and returns 503/502 with `cleatusUpdated: false`. Requires Entra. |
-| `POST /api/feature-requests` | Capture a Sales/Bids/Pipeline change request. Structures via Knowledge Base Ollama when available; otherwise a deterministic fallback. Always persists to `FeatureRequests`. Requires Entra. |
+| `POST /api/feature-requests` | Capture a change request from Home (Chat / Lead / Sales / General). Structures via Knowledge Base Ollama when available; otherwise a deterministic fallback. Always persists to `FeatureRequests`. After a successful save, texts Pablo via Twilio when `FeatureRequests__Sms__*` is configured; SMS failure is logged and does not fail the request. Requires Entra. |
 | `GET /api/feature-requests` | List feature requests, newest first. Requires Entra. |
 | `PATCH /api/feature-requests/{id}` | Set status to `new`, `planned`, or `done`. Requires Entra. |
 

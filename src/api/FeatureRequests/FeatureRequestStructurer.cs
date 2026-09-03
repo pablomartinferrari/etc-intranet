@@ -9,9 +9,18 @@ public static class FeatureRequestStructurer
 
     public static readonly IReadOnlyDictionary<string, string> PageContexts = new Dictionary<string, string>(StringComparer.Ordinal)
     {
+        ["chat"] =
+            "Chat at /knowledge. Employee ChatGPT-style knowledge chat over company documents. " +
+            "Do not invent CLEATUS, sales, or lead-inspection APIs for this area.",
+        ["lead"] =
+            "Lead inspection at /lead-inspection. XRF readings, grids, SharePoint import, and reports. " +
+            "Job deep links live under /jobs/{jobId}/multifamily-lbp. Do not invent CLEATUS APIs for this area.",
         ["sales"] =
             "Sales hub at /sales. Staff pick Bids (/opportunities, CLEATUS recommendations) or Pipeline (/pipeline, pursuits plus close-out). " +
             "This page has no CLEATUS list. Feature notes persist via POST /api/feature-requests into IntranetDb.FeatureRequests.",
+        ["general"] =
+            "Intranet-wide or unspecified area. Home at /. Apps: Chat (/knowledge), Lead (/lead-inspection), Sales (/sales). " +
+            "Feature notes persist via POST /api/feature-requests into IntranetDb.FeatureRequests.",
         ["opportunities"] =
             "Bids at /opportunities. Live CLEATUS list from GET /api/cleat/recommendations?minScore=80 (default). " +
             "Detail from GET /api/cleat/opportunities/{id}. Rows are not stored in IntranetDb. " +

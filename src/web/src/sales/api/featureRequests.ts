@@ -1,7 +1,34 @@
 import { getApiAuthHeaders } from "../../multifamily-lbp/api/client";
 
-export type FeatureRequestPage = "sales" | "opportunities" | "pipeline";
+/** Home capture areas plus legacy Sales page values kept for existing tickets. */
+export type FeatureRequestPage =
+  | "chat"
+  | "lead"
+  | "sales"
+  | "general"
+  | "opportunities"
+  | "pipeline";
 export type FeatureRequestStatus = "new" | "planned" | "done";
+
+export const FEATURE_REQUEST_AREAS: { value: FeatureRequestPage; label: string }[] = [
+  { value: "chat", label: "Chat" },
+  { value: "lead", label: "Lead" },
+  { value: "sales", label: "Sales" },
+  { value: "general", label: "General" },
+];
+
+export const FEATURE_REQUEST_PAGE_LABEL: Record<FeatureRequestPage, string> = {
+  chat: "Chat",
+  lead: "Lead",
+  sales: "Sales",
+  general: "General",
+  opportunities: "Bids",
+  pipeline: "Pipeline",
+};
+
+export function featureRequestPageLabel(page: string): string {
+  return FEATURE_REQUEST_PAGE_LABEL[page as FeatureRequestPage] ?? page;
+}
 
 export type FeatureRequest = {
   id: number;

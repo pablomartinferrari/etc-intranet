@@ -33,17 +33,12 @@ import { RequireAuth } from "../multifamily-lbp/auth/RequireAuth";
 import { PageExplainer } from "./PageExplainer";
 import { CapturedTicket } from "./RequestChangeSheet";
 import {
+  featureRequestPageLabel,
   listFeatureRequests,
   updateFeatureRequestStatus,
   type FeatureRequest,
   type FeatureRequestStatus,
 } from "./api/featureRequests";
-
-const PAGE_LABEL: Record<FeatureRequest["page"], string> = {
-  sales: "Sales",
-  opportunities: "Bids",
-  pipeline: "Pipeline",
-};
 
 export function FeatureRequestsRoute(): React.JSX.Element {
   return (
@@ -96,21 +91,29 @@ function FeatureRequestsPage() {
           <InboxIcon className="size-7" />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Requests</h1>
-            <p className="text-sm text-muted-foreground">Feature notes from Sales, Bids, and Pipeline.</p>
+            <p className="text-sm text-muted-foreground">
+              Feature notes from Chat, Lead, Sales, and General.
+            </p>
           </div>
         </div>
-        <Button variant="ghost" asChild>
-          <RouterLink to="/sales">
-            <HomeIcon />
-            Sales
-          </RouterLink>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="ghost" asChild>
+            <RouterLink to="/">
+              <HomeIcon />
+              Home
+            </RouterLink>
+          </Button>
+          <Button variant="ghost" asChild>
+            <RouterLink to="/sales">Sales</RouterLink>
+          </Button>
+        </div>
       </div>
       <main className="mx-auto grid w-full max-w-[1100px] flex-1 gap-4 px-5 py-8 pb-14">
         <PageExplainer title="Requests">
           <p>
-            Notes staff left from Sales, Bids, or Pipeline. Each row is stored in intranet
-            Postgres. Mark a request planned or done when you pick it up.
+            Notes staff left from Home for any intranet app. Each row is stored in
+            intranet Postgres, including older Sales / Bids / Pipeline tickets. Mark a
+            request planned or done when you pick it up.
           </p>
         </PageExplainer>
 
@@ -134,8 +137,7 @@ function FeatureRequestsPage() {
           <Alert>
             <AlertTitle>No requests yet</AlertTitle>
             <AlertDescription>
-              Use Request a change on Sales, Bids, or Pipeline. Missing the assistant still
-              saves the raw note.
+              Use Request a change on Home. Missing the assistant still saves the raw note.
             </AlertDescription>
           </Alert>
         )}
@@ -146,7 +148,7 @@ function FeatureRequestsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
-                  <TableHead>Page</TableHead>
+                  <TableHead>Area</TableHead>
                   <TableHead>Title</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Person</TableHead>
@@ -162,7 +164,7 @@ function FeatureRequestsPage() {
                     <TableCell className="whitespace-nowrap">
                       {formatDate(row.createdAt)}
                     </TableCell>
-                    <TableCell>{PAGE_LABEL[row.page]}</TableCell>
+                    <TableCell>{featureRequestPageLabel(row.page)}</TableCell>
                     <TableCell className="max-w-[28rem] truncate font-medium">{row.title}</TableCell>
                     <TableCell>
                       <StatusBadge status={row.status} />
@@ -183,7 +185,8 @@ function FeatureRequestsPage() {
               <SheetHeader>
                 <SheetTitle>{selected.title}</SheetTitle>
                 <SheetDescription>
-                  {PAGE_LABEL[selected.page]} · {formatDate(selected.createdAt)} · {selected.createdBy}
+                  {featureRequestPageLabel(selected.page)} · {formatDate(selected.createdAt)} ·{" "}
+                  {selected.createdBy}
                 </SheetDescription>
               </SheetHeader>
               <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4">

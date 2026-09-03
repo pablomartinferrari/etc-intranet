@@ -1,13 +1,19 @@
 using Intranet.Api.Data;
 using Intranet.Api.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Intranet.Api.FeatureRequests;
 
 public sealed class FeatureRequestService(
     IntranetDbContext db,
-    IFeatureRequestLlm llm)
+    IFeatureRequestLlm llm,
+    IFeatureRequestSmsClient? sms = null,
+    ILogger<FeatureRequestService>? logger = null)
 {
+    private readonly ILogger<FeatureRequestService> _logger =
+        logger ?? NullLogger<FeatureRequestService>.Instance;
+
     public async Task<FeatureRequestDto> CreateAsync(
         string page,
         string rawText,
@@ -16,7 +22,8 @@ public sealed class FeatureRequestService(
     {
         if (!FeatureRequestPages.IsValid(page))
         {
-            throw new ArgumentException("Page must be sales, opportunities, or pipeline.");
+            throw new ArgumentException(
+                "Area must be chat, lead, sales, general, opportunities, or pipeline.");
         }
 
         var note = rawText.Trim();
@@ -49,7 +56,9 @@ public sealed class FeatureRequestService(
 
         db.FeatureRequests.Add(entity);
         await db.SaveChangesAsync(cancellationToken);
-        return ToDto(entity);
+        var dto = ToDto(entity);
+        await TryNotifyAsync(dto, cancellationToken);
+        return dto;
     }
 
     public async Task<IReadOnlyList<FeatureRequestDto>> ListAsync(CancellationToken cancellationToken)
@@ -81,6 +90,27 @@ public sealed class FeatureRequestService(
         entity.Status = status;
         await db.SaveChangesAsync(cancellationToken);
         return ToDto(entity);
+    }
+
+    private async Task TryNotifyAsync(FeatureRequestDto ticket, CancellationToken cancellationToken)
+    {
+        if (sms is not { IsConfigured: true } client)
+        {
+            _logger.LogDebug("Feature request SMS skipped; FeatureRequests__Sms is not configured.");
+            return;
+        }
+
+        try
+        {
+            await client.SendAsync(FeatureRequestSmsMessage.Format(ticket), cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Feature request SMS failed; ticket {Id} was still saved.",
+                ticket.Id);
+        }
     }
 
     private async Task<StructuredTicket> StructureAsync(

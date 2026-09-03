@@ -95,6 +95,54 @@ public class FeatureRequestServiceTests
         Assert.Empty(db.FeatureRequests);
     }
 
+    [Theory]
+    [InlineData("chat")]
+    [InlineData("lead")]
+    [InlineData("general")]
+    public async Task CreateAcceptsIntranetWideAreas(string page)
+    {
+        await using var db = CreateDb();
+        var service = new FeatureRequestService(db, new NullLlm());
+
+        var created = await service.CreateAsync(
+            page,
+            "The home cards are hard to scan on a phone.",
+            "alex@etc.example",
+            CancellationToken.None);
+
+        Assert.Equal(page, created.Page);
+        Assert.Equal("fallback", created.StructuredBy);
+        Assert.Equal(page, Assert.Single(db.FeatureRequests).Page);
+        Assert.False(string.IsNullOrWhiteSpace(created.DataInvolved));
+        Assert.Contains(page, FeatureRequestStructurer.UserPrompt(page, "note"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CreateRejectsUnknownAreaWithoutWriting()
+    {
+        await using var db = CreateDb();
+        var service = new FeatureRequestService(db, new NullLlm());
+
+        var error = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.CreateAsync("facilities", "Please add a parking map.", "alex@etc.example", CancellationToken.None));
+
+        Assert.Contains("chat", error.Message, StringComparison.Ordinal);
+        Assert.Contains("general", error.Message, StringComparison.Ordinal);
+        Assert.Empty(db.FeatureRequests);
+    }
+
+    [Fact]
+    public void FallbackKeepsLegacySalesPagesValid()
+    {
+        foreach (var page in new[] { "sales", "opportunities", "pipeline" })
+        {
+            var ticket = FeatureRequestStructurer.FromFallback(page, "Keep existing tickets working.");
+            Assert.Equal("fallback", ticket.StructuredBy);
+            Assert.False(string.IsNullOrWhiteSpace(ticket.DataInvolved));
+            Assert.True(FeatureRequestPages.IsValid(page));
+        }
+    }
+
     [Fact]
     public async Task ListIsNewestFirstAndStatusCanChange()
     {
@@ -127,6 +175,125 @@ public class FeatureRequestServiceTests
         Assert.Equal("fallback", ticket.StructuredBy);
     }
 
+    [Fact]
+    public async Task CreateSendsSmsWhenConfigured()
+    {
+        await using var db = CreateDb();
+        var sms = new RecordingSms(configured: true);
+        var service = new FeatureRequestService(db, new NullLlm(), sms);
+
+        var created = await service.CreateAsync(
+            "chat",
+            "Make the Chat export button easier to find.",
+            "alex.rivera@etc.example",
+            CancellationToken.None);
+
+        var body = Assert.Single(sms.Messages);
+        Assert.Contains($"#{created.Id}", body, StringComparison.Ordinal);
+        Assert.Contains("Chat", body, StringComparison.Ordinal);
+        Assert.Contains("Make the Chat export button easier to find.", body, StringComparison.Ordinal);
+        Assert.Contains("alex.rivera@etc.example", body, StringComparison.Ordinal);
+        Assert.Contains("Requests", body, StringComparison.Ordinal);
+        Assert.True(body.Length <= FeatureRequestSmsMessage.MaxLength);
+        Assert.Single(db.FeatureRequests);
+    }
+
+    [Fact]
+    public async Task CreateSucceedsWhenSmsThrows()
+    {
+        await using var db = CreateDb();
+        var service = new FeatureRequestService(db, new NullLlm(), new ThrowingSms());
+
+        var created = await service.CreateAsync(
+            "lead",
+            "The XRF grid loses sort order after refresh.",
+            "pablo@etc.example",
+            CancellationToken.None);
+
+        Assert.Equal("lead", created.Page);
+        Assert.Equal("new", created.Status);
+        Assert.Single(db.FeatureRequests);
+    }
+
+    [Fact]
+    public async Task CreateSkipsSmsWhenNotConfigured()
+    {
+        await using var db = CreateDb();
+        var sms = new RecordingSms(configured: false);
+        var service = new FeatureRequestService(db, new NullLlm(), sms);
+
+        await service.CreateAsync(
+            "general",
+            "The Home cards wrap poorly on a phone.",
+            "alex@etc.example",
+            CancellationToken.None);
+
+        Assert.Empty(sms.Messages);
+        Assert.Single(db.FeatureRequests);
+    }
+
+    [Fact]
+    public async Task CreateDoesNotSendSmsWhenValidationFails()
+    {
+        await using var db = CreateDb();
+        var sms = new RecordingSms(configured: true);
+        var service = new FeatureRequestService(db, new NullLlm(), sms);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.CreateAsync("sales", "   ", "alex@etc.example", CancellationToken.None));
+
+        Assert.Empty(sms.Messages);
+        Assert.Empty(db.FeatureRequests);
+    }
+
+    [Fact]
+    public void SmsMessageIsShortAndUsesAreaLabel()
+    {
+        var body = FeatureRequestSmsMessage.Format(new FeatureRequestDto
+        {
+            Id = 42,
+            Page = "opportunities",
+            CreatedBy = "alex@etc.example",
+            CreatedAt = DateTimeOffset.UtcNow,
+            RawText = new string('x', 500),
+            Title = "NAICS filter on Bids",
+            Problem = "too long to put in SMS",
+            DesiredBehavior = "filter",
+            DataInvolved = "GET /api/cleat/recommendations",
+            AcceptanceCriteria = "lots of structured json that must not appear",
+            Status = "new",
+            StructuredBy = "llm",
+        });
+
+        Assert.Contains("Bids", body, StringComparison.Ordinal);
+        Assert.Contains("#42", body, StringComparison.Ordinal);
+        Assert.Contains("NAICS filter on Bids", body, StringComparison.Ordinal);
+        Assert.Contains("alex@etc.example", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("too long to put in SMS", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("/api/cleat/recommendations", body, StringComparison.Ordinal);
+        Assert.True(body.Length <= FeatureRequestSmsMessage.MaxLength);
+    }
+
+    [Fact]
+    public void SmsOptionsRequireDestinationAndTwilioCredentials()
+    {
+        var empty = new FeatureRequestSmsOptions();
+        Assert.False(empty.IsConfigured);
+
+        var ready = new FeatureRequestSmsOptions
+        {
+            Enabled = true,
+            ToPhoneNumber = "+15555550100",
+            FromPhoneNumber = "+15555550101",
+            AccountSid = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            AuthToken = "placeholder-token",
+        };
+        Assert.True(ready.IsConfigured);
+
+        ready.Enabled = false;
+        Assert.False(ready.IsConfigured);
+    }
+
     private static IntranetDbContext CreateDb()
     {
         var options = new DbContextOptionsBuilder<IntranetDbContext>()
@@ -150,5 +317,26 @@ public class FeatureRequestServiceTests
             LastUserPrompt = userPrompt;
             return Task.FromResult(reply);
         }
+    }
+
+    private sealed class RecordingSms(bool configured) : IFeatureRequestSmsClient
+    {
+        public bool IsConfigured { get; } = configured;
+
+        public List<string> Messages { get; } = [];
+
+        public Task SendAsync(string body, CancellationToken cancellationToken)
+        {
+            Messages.Add(body);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingSms : IFeatureRequestSmsClient
+    {
+        public bool IsConfigured => true;
+
+        public Task SendAsync(string body, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Twilio is down.");
     }
 }
