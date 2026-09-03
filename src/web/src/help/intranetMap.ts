@@ -13,6 +13,7 @@ export type HelpAskResponse = {
   source: "map" | "llm";
   provider?: string | null;
   model?: string | null;
+  unavailableReason?: "no_model" | "error" | "parse_failed" | "offline" | null;
 };
 
 type CatalogPlace = {
@@ -222,21 +223,49 @@ export function matchHelpLocally(question: string): HelpAskResponse {
   };
 }
 
-export function helpAnswerSourceLabel(result: HelpAskResponse): string {
+export type HelpAnswerSourceKind = "local" | "hosted" | "map";
+
+export function helpAnswerSourceKind(result: HelpAskResponse): HelpAnswerSourceKind {
   if (result.source !== "llm") {
-    return "Answered from the intranet map.";
+    return "map";
+  }
+  return result.provider === "ollama" ? "local" : "hosted";
+}
+
+export function helpAnswerSourceLabel(result: HelpAskResponse): string {
+  if (result.source === "llm") {
+    const model = result.model?.trim();
+    const provider = result.provider?.trim();
+    if (provider === "ollama") {
+      return model ? `Answered by ${model} (local).` : "Answered by the local model.";
+    }
+    if (provider === "openai" || provider === "azure-openai") {
+      return model ? `Answered by ${model} (hosted).` : "Answered by the hosted model.";
+    }
+    if (model) {
+      return `Answered by ${model}.`;
+    }
+    return "Answered with AI from the intranet map.";
   }
 
-  const model = result.model?.trim();
-  const provider = result.provider?.trim();
-  if (provider === "ollama") {
-    return model ? `Answered by ${model} (local).` : "Answered by the local model.";
+  if (result.unavailableReason === "no_model") {
+    return "Map only — Ollama is off and KnowledgeBase__Fallback__ApiKey is not set.";
   }
-  if (provider === "openai" || provider === "azure-openai") {
-    return model ? `Answered by ${model} (hosted).` : "Answered by the hosted model.";
+  if (result.unavailableReason === "offline") {
+    return "Answered from the local intranet map (Help API unreachable).";
   }
-  if (model) {
-    return `Answered by ${model}.`;
+  if (result.unavailableReason === "parse_failed") {
+    return "Answered from the intranet map (AI reply could not be used).";
   }
-  return "Answered with AI from the intranet map.";
+  if (result.unavailableReason === "error") {
+    return "Answered from the intranet map (AI did not complete).";
+  }
+  return "Answered from the intranet map.";
+}
+
+export function helpMapOnlyNote(result: HelpAskResponse): string | null {
+  if (result.source === "map" && result.unavailableReason === "no_model") {
+    return "Answers are map-only until KnowledgeBase__Fallback__ApiKey is set (the same App Setting Chat uses), or the GPU VM / Ollama is running.";
+  }
+  return null;
 }

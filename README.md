@@ -164,6 +164,8 @@ Chat / search APIs: `POST /api/kb/search`, `POST /api/kb/chat`, `POST /api/kb/in
 
 Chat prefers the local Ollama model. If that host is unreachable (the Azure GPU VM is usually deallocated), generation fails over to a hosted OpenAI-compatible endpoint so employees still get an answer. Retrieval still uses the knowledge base; only generation changes. Fallback answers show a small “hosted model” note in the Chat UI.
 
+The floating **Help** panel uses this **same** router and the **same** `KnowledgeBase__Fallback__ApiKey`. There is no separate Help API key. With the key set (or Ollama up), Help `source` is `llm` for normal questions. If the key is missing and the GPU VM is deallocated, Help still answers from the intranet map and the UI says it is map-only — it should not look like broken AI.
+
 The fallback stays **off** until an API key is present. Do not put a real key in `appsettings.json`, README examples, or source control.
 
 **Local (user secrets — preferred):**
@@ -208,7 +210,7 @@ az webapp config appsettings set `
   --settings KnowledgeBase__Fallback__ApiKey="@Microsoft.KeyVault(SecretUri=https://<key-vault-name>.vault.azure.net/secrets/KnowledgeBase--Fallback--ApiKey/)"
 ```
 
-If Ollama is down and no fallback key is configured, Chat returns a readable “temporarily unavailable” message instead of hanging or coming back blank.
+If Ollama is down and no fallback key is configured, Chat returns a readable “temporarily unavailable” message instead of hanging or coming back blank. Help continues to answer from the intranet map and explains that AI is map-only until `KnowledgeBase__Fallback__ApiKey` is set.
 
 Azure promotion: [docs/knowledge-base-azure.md](docs/knowledge-base-azure.md)
 

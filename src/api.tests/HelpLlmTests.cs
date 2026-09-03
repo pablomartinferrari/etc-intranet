@@ -2,6 +2,7 @@ using Intranet.Api.Help;
 using Intranet.Api.KnowledgeBase.Options;
 using Intranet.Api.KnowledgeBase.Services;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace Intranet.Api.Tests;
@@ -12,7 +13,7 @@ public class HelpLlmTests
     public async Task UsesHostedRouterWhenOllamaIsDown()
     {
         var hosted = new ScriptedChatClient("openai", "gpt-4o-mini", """{ "answer": "ok", "placeIds": [] }""");
-        var llm = new HelpLlm(CreateRouter(hosted, ollamaHealthy: false), NullLogger<HelpLlm>.Instance);
+        var llm = CreateLlm(CreateRouter(hosted, ollamaHealthy: false));
 
         var turn = await llm.ChatAsync("sys", "user", CancellationToken.None);
 
@@ -22,21 +23,41 @@ public class HelpLlmTests
         Assert.True(turn.IsFallback);
         Assert.Contains("ok", turn.Content, StringComparison.Ordinal);
         Assert.Equal(1, hosted.CallCount);
+        Assert.True(llm.IsHostedFallbackConfigured);
     }
 
     [Fact]
     public async Task ReturnsNullWhenNoModelIsConfigured()
     {
         var hosted = new ScriptedChatClient("openai", "gpt-4o-mini", "unused");
-        var llm = new HelpLlm(
-            CreateRouter(hosted, ollamaHealthy: false, fallbackKey: null),
-            NullLogger<HelpLlm>.Instance);
+        var llm = CreateLlm(CreateRouter(hosted, ollamaHealthy: false, fallbackKey: null));
 
         var turn = await llm.ChatAsync("sys", "user", CancellationToken.None);
 
         Assert.Null(turn);
         Assert.Equal(0, hosted.CallCount);
+        Assert.False(llm.IsHostedFallbackConfigured);
     }
+
+    [Fact]
+    public void CallTimeoutExceedsHostedHttpTimeoutSoFallbackIsNotCancelled()
+    {
+        var fallback = new KnowledgeBaseFallbackOptions { TimeoutSeconds = 30 };
+        var timeout = HelpLlm.ResolveTimeout(fallback);
+
+        Assert.True(timeout > TimeSpan.FromSeconds(fallback.TimeoutSeconds));
+        Assert.Equal(TimeSpan.FromSeconds(40), timeout);
+        Assert.True(timeout > TimeSpan.FromSeconds(25));
+    }
+
+    private static HelpLlm CreateLlm(ChatCompletionRouter router, int timeoutSeconds = 30) =>
+        new(
+            router,
+            Options.Create(new KnowledgeBaseOptions
+            {
+                Fallback = new KnowledgeBaseFallbackOptions { TimeoutSeconds = timeoutSeconds },
+            }),
+            NullLogger<HelpLlm>.Instance);
 
     private static ChatCompletionRouter CreateRouter(
         IChatCompletionClient hosted,

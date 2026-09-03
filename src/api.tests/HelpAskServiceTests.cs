@@ -29,6 +29,7 @@ public class HelpAskServiceTests
         Assert.Equal(HelpAskService.SourceMap, result.Source);
         Assert.Null(result.Provider);
         Assert.Null(result.Model);
+        Assert.Equal(HelpAskService.UnavailableNoModel, result.UnavailableReason);
         Assert.Contains(result.Links, link => link.Path == path && link.Label == label);
         Assert.False(string.IsNullOrWhiteSpace(result.Answer));
     }
@@ -104,6 +105,7 @@ public class HelpAskServiceTests
         Assert.Equal(HelpAskService.SourceLlm, result.Source);
         Assert.Equal("openai", result.Provider);
         Assert.Equal("gpt-4o-mini", result.Model);
+        Assert.Null(result.UnavailableReason);
         Assert.Equal("Open the Chat card on Home, then New project and New chat.", result.Answer);
         Assert.Equal("/knowledge", Assert.Single(result.Links).Path);
         Assert.Contains("intranet map", llm.LastUserPrompt, StringComparison.OrdinalIgnoreCase);
@@ -151,6 +153,7 @@ public class HelpAskServiceTests
 
         Assert.Equal(HelpAskService.SourceMap, result.Source);
         Assert.Null(result.Provider);
+        Assert.Equal(HelpAskService.UnavailableParseFailed, result.UnavailableReason);
         Assert.Contains(result.Links, link => link.Path == "/opportunities");
         Assert.Contains("Bids", result.Answer, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("cafeteria", result.Answer, StringComparison.OrdinalIgnoreCase);
@@ -166,6 +169,7 @@ public class HelpAskServiceTests
             .AskAsync("Where are bids?", CancellationToken.None);
 
         Assert.Equal(HelpAskService.SourceMap, result.Source);
+        Assert.Equal(HelpAskService.UnavailableParseFailed, result.UnavailableReason);
         Assert.Contains(result.Links, link => link.Path == "/opportunities");
         Assert.DoesNotContain("/knowledge", result.Links.Select(l => l.Path));
     }
@@ -201,6 +205,18 @@ public class HelpAskServiceTests
             .AskAsync("Where are bids?", CancellationToken.None);
 
         Assert.Equal(HelpAskService.SourceMap, result.Source);
+        Assert.Equal(HelpAskService.UnavailableNoModel, result.UnavailableReason);
+        Assert.Contains(result.Links, link => link.Path == "/opportunities");
+    }
+
+    [Fact]
+    public async Task LlmErrorWhenFallbackConfiguredDoesNotLookLikeMissingKey()
+    {
+        var result = await CreateService(new ScriptedLlm(null, isHostedFallbackConfigured: true))
+            .AskAsync("Where are bids?", CancellationToken.None);
+
+        Assert.Equal(HelpAskService.SourceMap, result.Source);
+        Assert.Equal(HelpAskService.UnavailableError, result.UnavailableReason);
         Assert.Contains(result.Links, link => link.Path == "/opportunities");
     }
 
@@ -260,12 +276,15 @@ public class HelpAskServiceTests
 
     private sealed class NullLlm : IHelpLlm
     {
+        public bool IsHostedFallbackConfigured => false;
+
         public Task<HelpLlmTurn?> ChatAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken) =>
             Task.FromResult<HelpLlmTurn?>(null);
     }
 
-    private sealed class ScriptedLlm(string? reply) : IHelpLlm
+    private sealed class ScriptedLlm(string? reply, bool isHostedFallbackConfigured = true) : IHelpLlm
     {
+        public bool IsHostedFallbackConfigured { get; } = isHostedFallbackConfigured;
         public string LastUserPrompt { get; private set; } = string.Empty;
         public int CallCount { get; private set; }
 

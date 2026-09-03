@@ -9,7 +9,8 @@ public sealed record HelpAskResponse(
     IReadOnlyList<HelpLinkDto> Links,
     string Source,
     string? Provider = null,
-    string? Model = null);
+    string? Model = null,
+    string? UnavailableReason = null);
 
 /// <summary>
 /// One successful chat-completion turn used by Help. <see cref="Content"/> is the

@@ -7,6 +7,6 @@ export async function askHelp(question: string): Promise<HelpAskResponse> {
   try {
     return await apiPost<HelpAskResponse>("/help/ask", { question });
   } catch {
-    return matchHelpLocally(question);
+    return { ...matchHelpLocally(question), unavailableReason: "offline" };
   }
 }

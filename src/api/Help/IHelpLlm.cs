@@ -6,6 +6,12 @@ namespace Intranet.Api.Help;
 /// </summary>
 public interface IHelpLlm
 {
+    /// <summary>
+    /// True when <c>KnowledgeBase__Fallback__ApiKey</c> is present and hosted
+    /// fallback is enabled. Ollama may still serve Help when this is false.
+    /// </summary>
+    bool IsHostedFallbackConfigured { get; }
+
     Task<HelpLlmTurn?> ChatAsync(
         string systemPrompt,
         string userPrompt,

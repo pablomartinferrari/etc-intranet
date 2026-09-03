@@ -7,6 +7,9 @@ public sealed class HelpAskService(IHelpLlm llm, ILogger<HelpAskService> logger)
 {
     public const string SourceMap = "map";
     public const string SourceLlm = "llm";
+    public const string UnavailableNoModel = "no_model";
+    public const string UnavailableError = "error";
+    public const string UnavailableParseFailed = "parse_failed";
 
     internal const string SystemPrompt =
         """
@@ -54,10 +57,17 @@ public sealed class HelpAskService(IHelpLlm llm, ILogger<HelpAskService> logger)
             }
 
             logger.LogInformation("Help LLM JSON could not be parsed; using map retrieval for the question.");
+            var mappedAfterParse = IntranetMap.Match(trimmed);
+            return new HelpAskResponse(
+                mappedAfterParse.Answer,
+                mappedAfterParse.Links,
+                SourceMap,
+                UnavailableReason: UnavailableParseFailed);
         }
 
         var mapped = IntranetMap.Match(trimmed);
-        return new HelpAskResponse(mapped.Answer, mapped.Links, SourceMap);
+        var reason = llm.IsHostedFallbackConfigured ? UnavailableError : UnavailableNoModel;
+        return new HelpAskResponse(mapped.Answer, mapped.Links, SourceMap, UnavailableReason: reason);
     }
 
     private async Task<HelpLlmTurn?> TryLlmAsync(string question, CancellationToken cancellationToken)
