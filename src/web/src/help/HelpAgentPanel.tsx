@@ -90,10 +90,10 @@ export function HelpAgentPanel({
   }
 
   function goTo(path: string) {
-    onOpenChange(false);
     if (location.pathname !== path) {
       navigate(path);
     }
+    onOpenChange(false);
   }
 
   return (
