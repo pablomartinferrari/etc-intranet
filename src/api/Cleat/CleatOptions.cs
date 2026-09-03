@@ -4,7 +4,11 @@ public sealed class CleatOptions
 {
     public const string SectionName = "Cleat";
 
-    /// <summary>CLEATUS REST API origin. Default matches the live OpenAPI servers[0].</summary>
+    /// <summary>
+    /// CLEATUS REST API origin. OpenAPI lists <c>https://api.cleat.ai</c> with paths
+    /// <c>/v1/...</c>, but the live host serves those routes under <c>/api/v1/...</c>.
+    /// <see cref="ResolvedBaseUrl"/> appends <c>/api</c> when the origin is the default host.
+    /// </summary>
     public string BaseUrl { get; set; } = "https://api.cleat.ai";
 
     /// <summary>
@@ -20,5 +24,28 @@ public sealed class CleatOptions
     /// </summary>
     public string? ApiKey { get; set; }
 
-    public bool HasApiKey => !string.IsNullOrWhiteSpace(ApiKey);
+    public string? TrimmedApiKey => string.IsNullOrWhiteSpace(ApiKey) ? null : ApiKey.Trim();
+
+    public bool HasApiKey => TrimmedApiKey is not null;
+
+    /// <summary>
+    /// HttpClient base address. Default origin <c>https://api.cleat.ai</c> is mapped to
+    /// <c>https://api.cleat.ai/api</c> so relative <c>v1/...</c> paths hit the live API.
+    /// </summary>
+    public string ResolvedBaseUrl
+    {
+        get
+        {
+            var origin = string.IsNullOrWhiteSpace(BaseUrl)
+                ? "https://api.cleat.ai"
+                : BaseUrl.Trim().TrimEnd('/');
+            if (origin.Equals("https://api.cleat.ai", StringComparison.OrdinalIgnoreCase)
+                || origin.Equals("http://api.cleat.ai", StringComparison.OrdinalIgnoreCase))
+            {
+                origin += "/api";
+            }
+
+            return origin;
+        }
+    }
 }

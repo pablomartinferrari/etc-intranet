@@ -31,9 +31,7 @@ builder.Services.Configure<CleatOptions>(builder.Configuration.GetSection(CleatO
 builder.Services.AddHttpClient<CleatClient>((sp, client) =>
 {
     var options = sp.GetRequiredService<IOptions<CleatOptions>>().Value;
-    var origin = string.IsNullOrWhiteSpace(options.BaseUrl)
-        ? "https://api.cleat.ai"
-        : options.BaseUrl.TrimEnd('/');
+    var origin = options.ResolvedBaseUrl.TrimEnd('/');
     client.BaseAddress = new Uri(origin + "/");
     client.Timeout = TimeSpan.FromSeconds(30);
 });

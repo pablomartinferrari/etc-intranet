@@ -55,6 +55,16 @@ public class CleatClientTests
     }
 
     [Fact]
+    public void DefaultCleatHostResolvesUnderApiPrefix()
+    {
+        var options = new CleatOptions { BaseUrl = "https://api.cleat.ai" };
+        Assert.Equal("https://api.cleat.ai/api", options.ResolvedBaseUrl);
+
+        options.BaseUrl = "https://api.cleat.ai/api";
+        Assert.Equal("https://api.cleat.ai/api", options.ResolvedBaseUrl);
+    }
+
+    [Fact]
     public void RejectsUnsafeOpportunityIds()
     {
         Assert.False(CleatClient.IsValidOpportunityId("../secret"));
