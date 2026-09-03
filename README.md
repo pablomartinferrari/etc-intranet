@@ -270,9 +270,20 @@ az webapp config appsettings set `
 
 `Cleat:BaseUrl` defaults to `https://api.cleat.ai` and does not need to be set. Cleat routes use the same Entra authorization as other intranet APIs.
 
+#### Feature request approval workflow
+
+Any signed-in employee can submit a request. Approvers (emails in `FeatureRequests__ApproverEmails`) approve or reject. After work ships, the original requester or an approver can confirm/close it.
+
+Statuses: `new` → `approved` | `rejected`; `approved` → `shipped` | `rejected` | `closed`; `shipped` → `closed`. Legacy rows map `planned` → `approved` and `done` → `shipped`.
+
+| Setting | Purpose |
+|---------|---------|
+| `FeatureRequests__ApproverEmails` | Comma or semicolon separated approver emails (trimmed, lowercased). Required in Production to approve/reject. In Development an empty list allows any signed-in user. |
+| `FeatureRequests__PublicBaseUrl` | Absolute intranet origin used in approval emails. Default `https://intranet.2etc.com`. |
+
 #### Feature request SMS (Twilio)
 
-After a feature request is saved to Postgres, the API sends Pablo a short SMS (title, area, who submitted, reminder to open Requests). A missing or failed SMS provider never blocks capture: the ticket still saves and the API returns success.
+After a feature request is saved to Postgres, the API sends Pablo a short SMS (title, area, who submitted, reminder to open Requests). When a request is **approved**, a second SMS is sent if SMS is configured (`approved — ready to build`). A missing or failed SMS provider never blocks capture or the status change: the ticket still saves and the API returns success.
 
 Leave the settings empty locally if you do not want texts. Do not put a real number, SID, or token in `appsettings.json` or source control.
 
@@ -312,6 +323,29 @@ az webapp config appsettings set `
 ```
 
 **Azure Key Vault** (same pattern as `Cleat__ApiKey`). Create secrets such as `FeatureRequests--Sms--AuthToken` and wire Key Vault references on the App Settings above.
+
+#### Feature request approval email
+
+On create, the API also emails the approver list (id, title, area, requester, link to `/requests`). Email failure never blocks ticket create.
+
+**Graph (preferred)** reuses the existing Azure AD client-credential stack (`AzureAd__TenantId`, `AzureAd__ClientId`, `AzureAd__ClientSecret`). Grant the Entra app **Mail.Send** (application) with admin consent. `FromAddress` must be a mailbox the app can send as.
+
+```powershell
+cd src/api
+dotnet user-secrets set "FeatureRequests:ApproverEmails" "approver@etc.example;second@etc.example"
+dotnet user-secrets set "FeatureRequests:Email:FromAddress" "intranet@etc.example"
+```
+
+| Setting | Purpose |
+|---------|---------|
+| `FeatureRequests__Email__Enabled` | Optional. Default `true`. Set `false` to skip email even when credentials are present. |
+| `FeatureRequests__Email__Provider` | `Graph` (default) or `Smtp`. |
+| `FeatureRequests__Email__FromAddress` | From mailbox / Graph user UPN. |
+| `FeatureRequests__Email__Smtp__Host` | SMTP host when Provider is `Smtp`. |
+| `FeatureRequests__Email__Smtp__Port` | SMTP port. Default `587`. |
+| `FeatureRequests__Email__Smtp__Username` | SMTP username. |
+| `FeatureRequests__Email__Smtp__Password` | SMTP password. Store in Key Vault in Azure. |
+| `FeatureRequests__Email__Smtp__UseSsl` | Default `true`. |
 
 A pursuit **needs close-out** when it is not won, lost, or archived, and any of:
 

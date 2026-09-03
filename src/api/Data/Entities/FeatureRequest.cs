@@ -30,4 +30,12 @@ public class FeatureRequest
     public required string Status { get; set; }
 
     public required string StructuredBy { get; set; }
+
+    public string? ReviewedBy { get; set; }
+
+    public DateTimeOffset? ReviewedAt { get; set; }
+
+    public string? ClosedBy { get; set; }
+
+    public DateTimeOffset? ClosedAt { get; set; }
 }

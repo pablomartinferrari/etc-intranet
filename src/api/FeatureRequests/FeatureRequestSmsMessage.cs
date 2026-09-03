@@ -14,6 +14,14 @@ public static class FeatureRequestSmsMessage
         return Truncate(text, MaxLength);
     }
 
+    public static string FormatApproved(FeatureRequestDto ticket)
+    {
+        var area = FeatureRequestPages.DisplayName(ticket.Page, ticket.AreaLabel);
+        var title = FirstMeaningful(ticket.Title, ticket.RawText);
+        var text = $"ETC request #{ticket.Id} approved — ready to build. {title} ({area}).";
+        return Truncate(text, MaxLength);
+    }
+
     private static string FirstMeaningful(string title, string rawText)
     {
         if (!string.IsNullOrWhiteSpace(title))

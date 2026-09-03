@@ -7,13 +7,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -33,10 +26,14 @@ import { RequireAuth } from "../multifamily-lbp/auth/RequireAuth";
 import { PageExplainer } from "./PageExplainer";
 import { CapturedTicket, RequestChangeSheet } from "./RequestChangeSheet";
 import {
+  FEATURE_REQUEST_STATUS_LABEL,
   featureRequestAreaLabel,
+  getFeatureRequestMeta,
   listFeatureRequests,
+  normalizeFeatureRequestStatus,
   updateFeatureRequestStatus,
   type FeatureRequest,
+  type FeatureRequestMeta,
   type FeatureRequestStatus,
 } from "./api/featureRequests";
 
@@ -50,17 +47,21 @@ export function FeatureRequestsRoute(): React.JSX.Element {
 
 function FeatureRequestsPage() {
   const [items, setItems] = useState<FeatureRequest[]>([]);
+  const [meta, setMeta] = useState<FeatureRequestMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<FeatureRequest | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusBusy, setStatusBusy] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      setItems(await listFeatureRequests());
+      const [rows, nextMeta] = await Promise.all([listFeatureRequests(), getFeatureRequestMeta()]);
+      setItems(rows);
+      setMeta(nextMeta);
     } catch (err) {
       setItems([]);
       setError(err instanceof Error ? err.message : "Could not load requests.");
@@ -75,12 +76,15 @@ function FeatureRequestsPage() {
 
   async function changeStatus(id: number, status: FeatureRequestStatus) {
     setStatusError(null);
+    setStatusBusy(true);
     try {
       const updated = await updateFeatureRequestStatus(id, status);
       setItems((current) => current.map((row) => (row.id === id ? updated : row)));
       setSelected((current) => (current?.id === id ? updated : current));
     } catch (err) {
       setStatusError(err instanceof Error ? err.message : "Could not update status.");
+    } finally {
+      setStatusBusy(false);
     }
   }
 
@@ -100,7 +104,7 @@ function FeatureRequestsPage() {
             <div className="min-w-0">
               <h1 className="text-xl font-semibold tracking-tight md:text-2xl">Feature Requests</h1>
               <p className="text-sm text-muted-foreground">
-                Suggest intranet improvements and review the queue.
+                Submit intranet improvements for approval, then track them through ship and confirm.
               </p>
             </div>
           </div>
@@ -111,12 +115,12 @@ function FeatureRequestsPage() {
         </div>
       </div>
       <main className="mx-auto grid w-full max-w-[1100px] flex-1 gap-4 px-4 py-6 pb-24 md:px-5 md:py-8 md:pb-14">
-        <PageExplainer title="Feature Requests">
+        <PageExplainer title="How approval works">
           <p>
-            Notes staff left from Home for any intranet topic — Chat, Lead, Sales, General,
-            or another area you name. Each row is stored in intranet Postgres, including
-            older Sales / Bids / Pipeline tickets. Mark a request planned or done when you
-            pick it up.
+            Anyone signed in can submit a request. Approvers review new items (Approve or Reject).
+            After a request is approved and the work is deployed, mark it shipped. The original
+            requester or an approver can then confirm and close it — or close it without fanfare
+            (won&apos;t do / duplicate).
           </p>
         </PageExplainer>
 
@@ -140,8 +144,8 @@ function FeatureRequestsPage() {
           <Alert>
             <AlertTitle>No requests yet</AlertTitle>
             <AlertDescription>
-              Use Add feature request to suggest an intranet improvement. Missing the
-              assistant still saves the raw note.
+              Use Add feature request to suggest an intranet improvement. New tickets start as
+              awaiting approval.
             </AlertDescription>
           </Alert>
         )}
@@ -163,7 +167,10 @@ function FeatureRequestsPage() {
                   <TableRow
                     key={row.id}
                     className="cursor-pointer"
-                    onClick={() => setSelected(row)}
+                    onClick={() => {
+                      setStatusError(null);
+                      setSelected(row);
+                    }}
                   >
                     <TableCell className="whitespace-nowrap">
                       {formatDate(row.createdAt)}
@@ -171,7 +178,7 @@ function FeatureRequestsPage() {
                     <TableCell>{featureRequestAreaLabel(row)}</TableCell>
                     <TableCell className="max-w-[28rem] truncate font-medium">{row.title}</TableCell>
                     <TableCell>
-                      <StatusBadge status={row.status} />
+                      <StatusBadge status={normalizeFeatureRequestStatus(row.status)} />
                     </TableCell>
                     <TableCell className="max-w-[16rem] truncate">{row.createdBy}</TableCell>
                   </TableRow>
@@ -204,24 +211,30 @@ function FeatureRequestsPage() {
                   <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                     Status
                   </p>
-                  <Select
-                    value={selected.status}
-                    onValueChange={(value) => {
-                      if (value === "new" || value === "planned" || value === "done") {
-                        void changeStatus(selected.id, value);
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="w-full max-w-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="new">New</SelectItem>
-                      <SelectItem value="planned">Planned</SelectItem>
-                      <SelectItem value="done">Done</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <StatusBadge status={normalizeFeatureRequestStatus(selected.status)} />
                 </div>
+                <RequestActions
+                  request={selected}
+                  meta={meta}
+                  busy={statusBusy}
+                  onChange={(status) => void changeStatus(selected.id, status)}
+                />
+                {(selected.reviewedBy || selected.closedBy) && (
+                  <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+                    {selected.reviewedBy && (
+                      <p>
+                        Reviewed by {selected.reviewedBy}
+                        {selected.reviewedAt ? ` · ${formatDate(selected.reviewedAt)}` : ""}
+                      </p>
+                    )}
+                    {selected.closedBy && (
+                      <p>
+                        Closed by {selected.closedBy}
+                        {selected.closedAt ? ` · ${formatDate(selected.closedAt)}` : ""}
+                      </p>
+                    )}
+                  </div>
+                )}
                 <CapturedTicket request={selected} />
               </div>
             </>
@@ -232,14 +245,114 @@ function FeatureRequestsPage() {
   );
 }
 
+function RequestActions({
+  request,
+  meta,
+  busy,
+  onChange,
+}: {
+  request: FeatureRequest;
+  meta: FeatureRequestMeta | null;
+  busy: boolean;
+  onChange: (status: FeatureRequestStatus) => void;
+}) {
+  const status = normalizeFeatureRequestStatus(request.status);
+  const canApprove = request.viewerCanApprove ?? meta?.viewerCanApprove ?? false;
+  const canClose = request.viewerCanClose ?? false;
+
+  if (status === "new") {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            disabled={busy || !canApprove}
+            onClick={() => onChange("approved")}
+          >
+            Approve
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy || !canApprove}
+            onClick={() => onChange("rejected")}
+          >
+            Reject
+          </Button>
+        </div>
+        {!canApprove && (
+          <p className="text-sm text-muted-foreground">
+            Only configured approvers can approve or reject.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (status === "approved") {
+    return (
+      <div className="flex flex-col gap-2">
+        <Button type="button" disabled={busy} onClick={() => onChange("shipped")}>
+          Mark shipped
+        </Button>
+        <p className="text-sm text-muted-foreground">
+          Use this after the change is deployed.
+        </p>
+      </div>
+    );
+  }
+
+  if (status === "shipped") {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            disabled={busy || !canClose}
+            onClick={() => onChange("closed")}
+          >
+            Confirm &amp; close
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy || !canClose}
+            onClick={() => onChange("closed")}
+          >
+            Close
+          </Button>
+        </div>
+        {!canClose && (
+          <p className="text-sm text-muted-foreground">
+            Only the original requester or an approver can confirm or close this.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (status === "rejected") {
+    return <p className="text-sm text-muted-foreground">This request was rejected.</p>;
+  }
+
+  return <p className="text-sm text-muted-foreground">This request is closed.</p>;
+}
+
 function StatusBadge({ status }: { status: FeatureRequestStatus }) {
-  if (status === "done") {
-    return <Badge variant="secondary">Done</Badge>;
+  const label = FEATURE_REQUEST_STATUS_LABEL[status] ?? status;
+  if (status === "rejected") {
+    return <Badge variant="destructive">{label}</Badge>;
   }
-  if (status === "planned") {
-    return <Badge variant="outline">Planned</Badge>;
+  if (status === "approved") {
+    return <Badge variant="outline">{label}</Badge>;
   }
-  return <Badge>New</Badge>;
+  if (status === "shipped") {
+    return <Badge variant="secondary">{label}</Badge>;
+  }
+  if (status === "closed") {
+    return <Badge variant="outline">{label}</Badge>;
+  }
+  return <Badge>{label}</Badge>;
 }
 
 function formatDate(value: string) {

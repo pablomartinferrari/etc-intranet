@@ -101,10 +101,10 @@ export function RequestChangeSheet({
     <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent className="w-full sm:max-w-lg" side="right">
         <SheetHeader>
-          <SheetTitle>{saved ? "Request captured" : "New request"}</SheetTitle>
+          <SheetTitle>{saved ? "Submitted for approval" : "New request"}</SheetTitle>
           <SheetDescription>
             {saved
-              ? "Saved in the intranet database. It is on the Feature Requests queue."
+              ? "Submitted for approval. It is on the Feature Requests queue."
               : "Pick an area, then describe the change in plain language. We will turn it into a short ticket."}
           </SheetDescription>
         </SheetHeader>

@@ -57,13 +57,53 @@ public static class FeatureRequestPages
 public static class FeatureRequestStatuses
 {
     public const string New = "new";
+    public const string Approved = "approved";
+    public const string Rejected = "rejected";
+    public const string Shipped = "shipped";
+    public const string Closed = "closed";
+
+    /// <summary>Legacy status stored before the approval workflow. Maps to <see cref="Approved"/>.</summary>
     public const string Planned = "planned";
+
+    /// <summary>Legacy status stored before the approval workflow. Maps to <see cref="Shipped"/>.</summary>
     public const string Done = "done";
 
-    public static readonly string[] Allowed = [New, Planned, Done];
+    public static readonly string[] Allowed = [New, Approved, Rejected, Shipped, Closed];
 
-    public static bool IsValid(string? status) =>
-        status is not null && Allowed.Contains(status, StringComparer.Ordinal);
+    public static string Normalize(string? status) => status switch
+    {
+        Planned => Approved,
+        Done => Shipped,
+        _ => status ?? string.Empty,
+    };
+
+    public static bool IsValid(string? status)
+    {
+        var normalized = Normalize(status);
+        return Allowed.Contains(normalized, StringComparer.Ordinal);
+    }
+
+    public static bool IsTerminal(string? status)
+    {
+        var normalized = Normalize(status);
+        return normalized is Rejected or Closed;
+    }
+
+    public static bool CanTransition(string? from, string? to)
+    {
+        var current = Normalize(from);
+        var next = Normalize(to);
+        return (current, next) switch
+        {
+            (New, Approved) => true,
+            (New, Rejected) => true,
+            (Approved, Shipped) => true,
+            (Approved, Rejected) => true,
+            (Approved, Closed) => true,
+            (Shipped, Closed) => true,
+            _ => false,
+        };
+    }
 }
 
 public sealed class CreateFeatureRequestBody
@@ -110,6 +150,27 @@ public sealed class FeatureRequestDto
     public required string Status { get; set; }
 
     public required string StructuredBy { get; set; }
+
+    public string? ReviewedBy { get; set; }
+
+    public DateTimeOffset? ReviewedAt { get; set; }
+
+    public string? ClosedBy { get; set; }
+
+    public DateTimeOffset? ClosedAt { get; set; }
+
+    public bool ViewerCanApprove { get; set; }
+
+    public bool ViewerCanClose { get; set; }
+}
+
+public sealed class FeatureRequestMetaDto
+{
+    public bool ApproverEmailsConfigured { get; set; }
+
+    public bool ViewerCanApprove { get; set; }
+
+    public int ApproverCount { get; set; }
 }
 
 public sealed class StructuredTicket

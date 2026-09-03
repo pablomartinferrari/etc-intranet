@@ -9,7 +9,8 @@ export type FeatureRequestPage =
   | "other"
   | "opportunities"
   | "pipeline";
-export type FeatureRequestStatus = "new" | "planned" | "done";
+
+export type FeatureRequestStatus = "new" | "approved" | "rejected" | "shipped" | "closed";
 
 export const FEATURE_REQUEST_AREAS: { value: FeatureRequestPage; label: string }[] = [
   { value: "chat", label: "Chat" },
@@ -29,6 +30,14 @@ export const FEATURE_REQUEST_PAGE_LABEL: Record<FeatureRequestPage, string> = {
   pipeline: "Pipeline",
 };
 
+export const FEATURE_REQUEST_STATUS_LABEL: Record<FeatureRequestStatus, string> = {
+  new: "Awaiting approval",
+  approved: "Approved",
+  rejected: "Rejected",
+  shipped: "Shipped",
+  closed: "Closed",
+};
+
 export function featureRequestPageLabel(page: string): string {
   return FEATURE_REQUEST_PAGE_LABEL[page as FeatureRequestPage] ?? page;
 }
@@ -44,6 +53,16 @@ export function featureRequestAreaLabel(request: {
   return featureRequestPageLabel(request.page);
 }
 
+export function normalizeFeatureRequestStatus(status: string): FeatureRequestStatus {
+  if (status === "planned") {
+    return "approved";
+  }
+  if (status === "done") {
+    return "shipped";
+  }
+  return status as FeatureRequestStatus;
+}
+
 export type FeatureRequest = {
   id: number;
   page: FeatureRequestPage;
@@ -56,17 +75,31 @@ export type FeatureRequest = {
   desiredBehavior: string;
   dataInvolved: string;
   acceptanceCriteria: string;
-  status: FeatureRequestStatus;
+  status: FeatureRequestStatus | "planned" | "done";
   structuredBy: "llm" | "fallback";
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  closedBy?: string | null;
+  closedAt?: string | null;
+  viewerCanApprove?: boolean;
+  viewerCanClose?: boolean;
+};
+
+export type FeatureRequestMeta = {
+  approverEmailsConfigured: boolean;
+  viewerCanApprove: boolean;
+  approverCount: number;
 };
 
 export class FeatureRequestApiError extends Error {
   status: number;
+  errorCode?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, errorCode?: string) {
     super(message);
     this.name = "FeatureRequestApiError";
     this.status = status;
+    this.errorCode = errorCode;
   }
 }
 
@@ -88,6 +121,10 @@ export async function createFeatureRequest(
 export async function listFeatureRequests(): Promise<FeatureRequest[]> {
   const result = await request<{ items: FeatureRequest[] }>("/api/feature-requests");
   return result.items ?? [];
+}
+
+export async function getFeatureRequestMeta(): Promise<FeatureRequestMeta> {
+  return request<FeatureRequestMeta>("/api/feature-requests/meta");
 }
 
 export async function updateFeatureRequestStatus(
@@ -116,7 +153,11 @@ async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
       typeof body === "object" && body && "message" in body && typeof body.message === "string"
         ? body.message
         : `Request failed (${response.status})`;
-    throw new FeatureRequestApiError(response.status, message);
+    const errorCode =
+      typeof body === "object" && body && "error" in body && typeof body.error === "string"
+        ? body.error
+        : undefined;
+    throw new FeatureRequestApiError(response.status, message, errorCode);
   }
   return body as T;
 }
