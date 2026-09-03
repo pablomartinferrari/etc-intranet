@@ -30,6 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { PageExplainer } from "../../sales/PageExplainer";
 import {
   CleatApiError,
@@ -57,12 +58,25 @@ const WON_REASONS = [
   { value: "other", label: "Other" },
 ];
 
+const PHASE_CARDS = [
+  { key: "needs", label: "Needs close-out" },
+  { key: "triage", label: "Triage" },
+  { key: "preparing", label: "Preparing" },
+  { key: "submitted", label: "Submitted" },
+  { key: "won", label: "Won" },
+  { key: "lost", label: "Lost" },
+  { key: "archived", label: "Archived" },
+  { key: "all", label: "Total" },
+] as const;
+
+type PhaseFilter = (typeof PHASE_CARDS)[number]["key"];
+
 export function PipelinePage() {
   const [dashboard, setDashboard] = useState<PipelineDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<CleatApiError | Error | null>(null);
   const [selected, setSelected] = useState<PipelineItem | null>(null);
-  const [phaseFilter, setPhaseFilter] = useState<string>("all");
+  const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>("all");
   const [showNeedsCloseOut, setShowNeedsCloseOut] = useState(true);
 
   async function load() {
@@ -97,6 +111,9 @@ export function PipelinePage() {
         return item.pursuit.archived;
       }
       if (phaseFilter !== "all") {
+        if (item.pursuit.archived) {
+          return false;
+        }
         const stage = (item.pursuit.phase ?? item.pursuit.columnTitle ?? "").toLowerCase();
         if (stage !== phaseFilter) {
           return false;
@@ -105,6 +122,19 @@ export function PipelinePage() {
       return true;
     });
   }, [items, phaseFilter]);
+
+  function applyCardFilter(key: PhaseFilter) {
+    if (key === "all") {
+      setPhaseFilter("all");
+      return;
+    }
+    setPhaseFilter((current) => (current === key ? "all" : key));
+  }
+
+  const filterLabel =
+    phaseFilter === "all"
+      ? "All pursuits"
+      : (PHASE_CARDS.find((card) => card.key === phaseFilter)?.label ?? phaseFilter);
 
   return (
     <main className="mx-auto grid w-full max-w-[1100px] gap-4 px-5 py-8 pb-14">
@@ -152,14 +182,16 @@ export function PipelinePage() {
       )}
 
       {dashboard && (
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-7">
-          <CountTile label="Triage" value={dashboard.counts.triage} />
-          <CountTile label="Preparing" value={dashboard.counts.preparing} />
-          <CountTile label="Submitted" value={dashboard.counts.submitted} />
-          <CountTile label="Won" value={dashboard.counts.won} />
-          <CountTile label="Lost" value={dashboard.counts.lost} />
-          <CountTile label="Archived" value={dashboard.counts.archived} />
-          <CountTile label="Total" value={dashboard.counts.total} />
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 xl:grid-cols-8">
+          {PHASE_CARDS.map((card) => (
+            <CountTile
+              key={card.key}
+              label={card.label}
+              value={cardValue(card.key, dashboard, needs.length)}
+              active={phaseFilter === card.key}
+              onClick={() => applyCardFilter(card.key)}
+            />
+          ))}
         </div>
       )}
 
@@ -200,22 +232,32 @@ export function PipelinePage() {
       {dashboard && (
         <section className="grid gap-2.5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <strong>All pursuits</strong>
-            <Select value={phaseFilter} onValueChange={setPhaseFilter}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All phases</SelectItem>
-                <SelectItem value="needs">Needs close-out</SelectItem>
-                <SelectItem value="triage">Triage</SelectItem>
-                <SelectItem value="preparing">Preparing</SelectItem>
-                <SelectItem value="submitted">Submitted</SelectItem>
-                <SelectItem value="won">Won</SelectItem>
-                <SelectItem value="lost">Lost</SelectItem>
-                <SelectItem value="archived">Archived</SelectItem>
-              </SelectContent>
-            </Select>
+            <strong>{filterLabel}</strong>
+            <div className="flex flex-wrap items-center gap-2">
+              {phaseFilter !== "all" && (
+                <Button type="button" variant="outline" onClick={() => setPhaseFilter("all")}>
+                  Show all
+                </Button>
+              )}
+              <Select
+                value={phaseFilter}
+                onValueChange={(value) => setPhaseFilter(value as PhaseFilter)}
+              >
+                <SelectTrigger className="w-[200px]" aria-label="Filter pursuits">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All phases</SelectItem>
+                  <SelectItem value="needs">Needs close-out</SelectItem>
+                  <SelectItem value="triage">Triage</SelectItem>
+                  <SelectItem value="preparing">Preparing</SelectItem>
+                  <SelectItem value="submitted">Submitted</SelectItem>
+                  <SelectItem value="won">Won</SelectItem>
+                  <SelectItem value="lost">Lost</SelectItem>
+                  <SelectItem value="archived">Archived</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           {filtered.length === 0 ? (
             <Alert>
@@ -496,12 +538,46 @@ function CloseoutDrawer({
   );
 }
 
-function CountTile({ label, value }: { label: string; value: number }) {
+function cardValue(
+  key: PhaseFilter,
+  dashboard: PipelineDashboard,
+  needsCount: number,
+): number {
+  if (key === "all") {
+    return dashboard.counts.total;
+  }
+  if (key === "needs") {
+    return needsCount;
+  }
+  return dashboard.counts[key];
+}
+
+function CountTile({
+  label,
+  value,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
-    <div className="grid gap-1 rounded-lg bg-card p-3 shadow-sm">
+    <button
+      type="button"
+      aria-pressed={active}
+      aria-label={`${active ? "Clear" : "Show"} ${label} pursuits`}
+      onClick={onClick}
+      className={cn(
+        "grid gap-1 rounded-lg bg-card p-3 text-left shadow-sm transition-colors outline-none",
+        "hover:bg-muted/70 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+        active && "bg-muted ring-2 ring-ring",
+      )}
+    >
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="font-semibold">{value}</span>
-    </div>
+    </button>
   );
 }
 

@@ -1,9 +1,18 @@
-import { useEffect, useState } from "react";
-import { ExternalLinkIcon } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ExternalLinkIcon, SearchIcon } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -29,6 +38,16 @@ import {
 
 const DEFAULT_MIN_SCORE = 80;
 
+const DEADLINE_FILTERS = [
+  { value: "all", label: "All deadlines" },
+  { value: "overdue", label: "Overdue" },
+  { value: "7days", label: "Due in 7 days" },
+  { value: "30days", label: "Due in 30 days" },
+  { value: "none", label: "No deadline" },
+] as const;
+
+type DeadlineFilter = (typeof DEADLINE_FILTERS)[number]["value"];
+
 export function OpportunitiesPage() {
   const [items, setItems] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +55,10 @@ export function OpportunitiesPage() {
   const [selected, setSelected] = useState<Opportunity | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("all");
+  const [agencyFilter, setAgencyFilter] = useState("all");
+  const [setAsideFilter, setSetAsideFilter] = useState("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +88,39 @@ export function OpportunitiesPage() {
       cancelled = true;
     };
   }, []);
+
+  const agencies = useMemo(() => uniqueSorted(items.map((item) => item.agency)), [items]);
+  const setAsides = useMemo(() => uniqueSorted(items.map((item) => item.setAside)), [items]);
+
+  const filtered = useMemo(
+    () =>
+      items.filter((item) => {
+        if (!matchesSearch(item, search)) {
+          return false;
+        }
+        if (agencyFilter !== "all" && (item.agency ?? "") !== agencyFilter) {
+          return false;
+        }
+        if (setAsideFilter !== "all" && (item.setAside ?? "") !== setAsideFilter) {
+          return false;
+        }
+        return matchesDeadline(item.deadlineDate, deadlineFilter);
+      }),
+    [agencyFilter, deadlineFilter, items, search, setAsideFilter],
+  );
+
+  const hasActiveFilters =
+    search.trim() !== "" ||
+    deadlineFilter !== "all" ||
+    agencyFilter !== "all" ||
+    setAsideFilter !== "all";
+
+  function clearFilters() {
+    setSearch("");
+    setDeadlineFilter("all");
+    setAgencyFilter("all");
+    setSetAsideFilter("all");
+  }
 
   async function openDetail(row: Opportunity) {
     setSelected(row);
@@ -134,65 +190,161 @@ export function OpportunitiesPage() {
       )}
 
       {!loading && items.length > 0 && (
-        <div className="overflow-x-auto rounded-lg bg-card p-2 shadow-sm">
-          <Table aria-label="Recommended opportunities">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Title</TableHead>
-                <TableHead>Agency</TableHead>
-                <TableHead>Score</TableHead>
-                <TableHead>Deadline</TableHead>
-                <TableHead>NAICS / set-aside</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow
-                  key={item.id}
-                  className="cursor-pointer"
-                  onClick={() => void openDetail(item)}
-                >
-                  <TableCell>
-                    <div className="grid gap-0.5">
-                      <span>{item.title ?? "Untitled opportunity"}</span>
-                      {item.solicitationNumber && (
-                        <span className="text-xs text-muted-foreground">
-                          {item.solicitationNumber}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>{item.agency ?? "—"}</TableCell>
-                  <TableCell>
-                    {item.score == null ? (
-                      "—"
-                    ) : (
-                      <Badge variant="secondary">{Math.round(item.score)}</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="grid gap-0.5">
-                      <span>{formatDate(item.deadlineDate)}</span>
-                      {item.postedDate && (
-                        <span className="text-xs text-muted-foreground">
-                          Posted {formatDate(item.postedDate)}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="grid gap-0.5">
-                      <span>{item.naics ?? "—"}</span>
-                      {item.setAside && (
-                        <span className="text-xs text-muted-foreground">{item.setAside}</span>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <section className="grid gap-2.5">
+          <div className="flex flex-wrap items-end gap-2.5">
+            <div className="grid min-w-[220px] flex-1 gap-1.5">
+              <Label htmlFor="bids-search">Search</Label>
+              <div className="relative">
+                <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="bids-search"
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Title, agency, or notice ID"
+                  className="pl-8"
+                />
+              </div>
+            </div>
+            {agencies.length > 0 && (
+              <div className="grid gap-1.5">
+                <Label htmlFor="bids-agency">Agency</Label>
+                <Select value={agencyFilter} onValueChange={setAgencyFilter}>
+                  <SelectTrigger id="bids-agency" className="w-[200px]">
+                    <SelectValue placeholder="All agencies" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All agencies</SelectItem>
+                    {agencies.map((agency) => (
+                      <SelectItem key={agency} value={agency}>
+                        {agency}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="grid gap-1.5">
+              <Label htmlFor="bids-deadline">Deadline</Label>
+              <Select
+                value={deadlineFilter}
+                onValueChange={(value) => setDeadlineFilter(value as DeadlineFilter)}
+              >
+                <SelectTrigger id="bids-deadline" className="w-[180px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DEADLINE_FILTERS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {setAsides.length > 0 && (
+              <div className="grid gap-1.5">
+                <Label htmlFor="bids-set-aside">Set-aside</Label>
+                <Select value={setAsideFilter} onValueChange={setSetAsideFilter}>
+                  <SelectTrigger id="bids-set-aside" className="w-[180px]">
+                    <SelectValue placeholder="All set-asides" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All set-asides</SelectItem>
+                    {setAsides.map((setAside) => (
+                      <SelectItem key={setAside} value={setAside}>
+                        {setAside}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!hasActiveFilters}
+              onClick={clearFilters}
+            >
+              Clear filters
+            </Button>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {hasActiveFilters
+              ? `Showing ${filtered.length} of ${items.length} opportunities`
+              : `${items.length} opportunities`}
+          </p>
+
+          {filtered.length === 0 ? (
+            <Alert>
+              <AlertTitle>No matching opportunities</AlertTitle>
+              <AlertDescription>
+                Nothing matches the current filters. Clear filters to see all{" "}
+                {items.length} recommendations.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <div className="overflow-x-auto rounded-lg bg-card p-2 shadow-sm">
+              <Table aria-label="Recommended opportunities">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Title</TableHead>
+                    <TableHead>Agency</TableHead>
+                    <TableHead>Score</TableHead>
+                    <TableHead>Deadline</TableHead>
+                    <TableHead>NAICS / set-aside</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((item) => (
+                    <TableRow
+                      key={item.id}
+                      className="cursor-pointer"
+                      onClick={() => void openDetail(item)}
+                    >
+                      <TableCell>
+                        <div className="grid gap-0.5">
+                          <span>{item.title ?? "Untitled opportunity"}</span>
+                          {item.solicitationNumber && (
+                            <span className="text-xs text-muted-foreground">
+                              {item.solicitationNumber}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>{item.agency ?? "—"}</TableCell>
+                      <TableCell>
+                        {item.score == null ? (
+                          "—"
+                        ) : (
+                          <Badge variant="secondary">{Math.round(item.score)}</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="grid gap-0.5">
+                          <span>{formatDate(item.deadlineDate)}</span>
+                          {item.postedDate && (
+                            <span className="text-xs text-muted-foreground">
+                              Posted {formatDate(item.postedDate)}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="grid gap-0.5">
+                          <span>{item.naics ?? "—"}</span>
+                          {item.setAside && (
+                            <span className="text-xs text-muted-foreground">{item.setAside}</span>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </section>
       )}
 
       <Sheet
@@ -305,4 +457,67 @@ function formatDate(value: string | null | undefined): string {
 
 function formatScore(score: number | null): string | null {
   return score == null ? null : String(Math.round(score));
+}
+
+function uniqueSorted(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value && value.trim())))].sort(
+    (a, b) => a.localeCompare(b),
+  );
+}
+
+function matchesSearch(item: Opportunity, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) {
+    return true;
+  }
+
+  const haystack = [
+    item.title,
+    item.agency,
+    item.solicitationNumber,
+    item.naics,
+    item.setAside,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(needle);
+}
+
+function matchesDeadline(deadline: string | null | undefined, filter: DeadlineFilter): boolean {
+  if (filter === "all") {
+    return true;
+  }
+
+  const parsed = parseDate(deadline);
+  if (filter === "none") {
+    return parsed == null;
+  }
+  if (parsed == null) {
+    return false;
+  }
+
+  const today = startOfDay(new Date());
+  const deadlineDay = startOfDay(parsed);
+  if (filter === "overdue") {
+    return deadlineDay.getTime() < today.getTime();
+  }
+
+  const days = filter === "7days" ? 7 : 30;
+  const until = startOfDay(new Date(today));
+  until.setDate(until.getDate() + days);
+  return deadlineDay.getTime() >= today.getTime() && deadlineDay.getTime() <= until.getTime();
+}
+
+function parseDate(value: string | null | undefined): Date | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function startOfDay(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
 }
