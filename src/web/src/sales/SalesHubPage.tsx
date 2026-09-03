@@ -52,7 +52,8 @@ function SalesHubPage() {
           <p>
             This is the sales home. Pick Bids (recommended government opportunities
             from CLEATUS) or Pipeline (deals ETC is pursuing, plus close-out).
-            Request a change from Home so it can cover Chat, Lead, Sales, or General.
+            Add a request from Feature Requests on Home so it can cover Chat, Lead,
+            Sales, General, or another topic.
           </p>
         </PageExplainer>
         <IntranetAppGrid apps={SALES_APPS} />

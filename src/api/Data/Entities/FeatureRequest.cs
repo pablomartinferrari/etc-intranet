@@ -6,6 +6,11 @@ public class FeatureRequest
 
     public required string Page { get; set; }
 
+    /// <summary>
+    /// Free-form topic when <see cref="Page"/> is <c>other</c>. Null for preset areas.
+    /// </summary>
+    public string? AreaLabel { get; set; }
+
     public required string CreatedBy { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }

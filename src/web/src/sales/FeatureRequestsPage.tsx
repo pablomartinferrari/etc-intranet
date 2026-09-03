@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { InboxIcon } from "lucide-react";
+import { InboxIcon, PlusIcon } from "lucide-react";
 
 import { BrandBar, SignOutButton } from "@/components/brand-bar";
 import { PageBreadcrumb } from "@/components/page-breadcrumb";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -30,9 +31,9 @@ import {
 } from "@/components/ui/table";
 import { RequireAuth } from "../multifamily-lbp/auth/RequireAuth";
 import { PageExplainer } from "./PageExplainer";
-import { CapturedTicket } from "./RequestChangeSheet";
+import { CapturedTicket, RequestChangeSheet } from "./RequestChangeSheet";
 import {
-  featureRequestPageLabel,
+  featureRequestAreaLabel,
   listFeatureRequests,
   updateFeatureRequestStatus,
   type FeatureRequest,
@@ -53,6 +54,7 @@ function FeatureRequestsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<FeatureRequest | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [captureOpen, setCaptureOpen] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -82,27 +84,39 @@ function FeatureRequestsPage() {
     }
   }
 
+  function onSaved(created: FeatureRequest) {
+    setItems((current) => [created, ...current.filter((row) => row.id !== created.id)]);
+    setError(null);
+  }
+
   return (
     <div className="flex min-h-svh flex-col bg-muted/40">
       <BrandBar actions={<SignOutButton outlineOnBlack />} />
       <div className="flex flex-col gap-3 border-b bg-background px-6 py-4">
-        <PageBreadcrumb items={[{ label: "Home", to: "/" }, { label: "Requests" }]} />
-        <div className="flex items-center gap-3">
-          <InboxIcon className="size-7" />
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Requests</h1>
-            <p className="text-sm text-muted-foreground">
-              Feature notes from Chat, Lead, Sales, and General.
-            </p>
+        <PageBreadcrumb items={[{ label: "Home", to: "/" }, { label: "Feature Requests" }]} />
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <InboxIcon className="size-7" />
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">Feature Requests</h1>
+              <p className="text-sm text-muted-foreground">
+                Suggest intranet improvements and review the queue.
+              </p>
+            </div>
           </div>
+          <Button type="button" onClick={() => setCaptureOpen(true)}>
+            <PlusIcon />
+            Add feature request
+          </Button>
         </div>
       </div>
       <main className="mx-auto grid w-full max-w-[1100px] flex-1 gap-4 px-5 py-8 pb-14">
-        <PageExplainer title="Requests">
+        <PageExplainer title="Feature Requests">
           <p>
-            Notes staff left from Home for any intranet app. Each row is stored in
-            intranet Postgres, including older Sales / Bids / Pipeline tickets. Mark a
-            request planned or done when you pick it up.
+            Notes staff left from Home for any intranet topic — Chat, Lead, Sales, General,
+            or another area you name. Each row is stored in intranet Postgres, including
+            older Sales / Bids / Pipeline tickets. Mark a request planned or done when you
+            pick it up.
           </p>
         </PageExplainer>
 
@@ -126,7 +140,8 @@ function FeatureRequestsPage() {
           <Alert>
             <AlertTitle>No requests yet</AlertTitle>
             <AlertDescription>
-              Use Request a change on Home. Missing the assistant still saves the raw note.
+              Use Add feature request to suggest an intranet improvement. Missing the
+              assistant still saves the raw note.
             </AlertDescription>
           </Alert>
         )}
@@ -153,7 +168,7 @@ function FeatureRequestsPage() {
                     <TableCell className="whitespace-nowrap">
                       {formatDate(row.createdAt)}
                     </TableCell>
-                    <TableCell>{featureRequestPageLabel(row.page)}</TableCell>
+                    <TableCell>{featureRequestAreaLabel(row)}</TableCell>
                     <TableCell className="max-w-[28rem] truncate font-medium">{row.title}</TableCell>
                     <TableCell>
                       <StatusBadge status={row.status} />
@@ -167,6 +182,12 @@ function FeatureRequestsPage() {
         )}
       </main>
 
+      <RequestChangeSheet
+        open={captureOpen}
+        onOpenChange={setCaptureOpen}
+        onSaved={onSaved}
+      />
+
       <Sheet open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
         <SheetContent className="sm:max-w-lg" side="right">
           {selected && (
@@ -174,7 +195,7 @@ function FeatureRequestsPage() {
               <SheetHeader>
                 <SheetTitle>{selected.title}</SheetTitle>
                 <SheetDescription>
-                  {featureRequestPageLabel(selected.page)} · {formatDate(selected.createdAt)} ·{" "}
+                  {featureRequestAreaLabel(selected)} · {formatDate(selected.createdAt)} ·{" "}
                   {selected.createdBy}
                 </SheetDescription>
               </SheetHeader>

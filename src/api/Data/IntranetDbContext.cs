@@ -1,4 +1,5 @@
 using Intranet.Api.Data.Entities;
+using Intranet.Api.FeatureRequests;
 using Microsoft.EntityFrameworkCore;
 
 namespace Intranet.Api.Data;
@@ -37,6 +38,7 @@ public class IntranetDbContext(DbContextOptions<IntranetDbContext> options) : Db
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Page).HasMaxLength(32);
+            entity.Property(e => e.AreaLabel).HasMaxLength(FeatureRequestPages.AreaLabelMaxLength);
             entity.Property(e => e.CreatedBy).HasMaxLength(320);
             entity.Property(e => e.RawText).HasMaxLength(8000);
             entity.Property(e => e.Title).HasMaxLength(200);

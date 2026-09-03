@@ -18,12 +18,13 @@ public sealed class FeatureRequestService(
         string page,
         string rawText,
         string createdBy,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? areaLabel = null)
     {
         if (!FeatureRequestPages.IsValid(page))
         {
             throw new ArgumentException(
-                "Area must be chat, lead, sales, general, opportunities, or pipeline.");
+                "Area must be chat, lead, sales, general, other, opportunities, or pipeline.");
         }
 
         var note = rawText.Trim();
@@ -37,11 +38,13 @@ public sealed class FeatureRequestService(
             throw new ArgumentException("Keep the note under 8,000 characters.");
         }
 
-        var ticket = await StructureAsync(page, note, cancellationToken);
+        var resolvedAreaLabel = ResolveAreaLabel(page, areaLabel);
+        var ticket = await StructureAsync(page, note, resolvedAreaLabel, cancellationToken);
         var now = DateTimeOffset.UtcNow;
         var entity = new FeatureRequest
         {
             Page = page,
+            AreaLabel = resolvedAreaLabel,
             CreatedBy = Clip(string.IsNullOrWhiteSpace(createdBy) ? "unknown" : createdBy.Trim(), 320),
             CreatedAt = now,
             RawText = note,
@@ -116,14 +119,37 @@ public sealed class FeatureRequestService(
     private async Task<StructuredTicket> StructureAsync(
         string page,
         string rawText,
+        string? areaLabel,
         CancellationToken cancellationToken)
     {
         var reply = await llm.ChatAsync(
             FeatureRequestStructurer.SystemPrompt,
-            FeatureRequestStructurer.UserPrompt(page, rawText),
+            FeatureRequestStructurer.UserPrompt(page, rawText, areaLabel),
             cancellationToken);
         return FeatureRequestStructurer.TryParseLlmJson(reply)
-            ?? FeatureRequestStructurer.FromFallback(page, rawText);
+            ?? FeatureRequestStructurer.FromFallback(page, rawText, areaLabel);
+    }
+
+    internal static string? ResolveAreaLabel(string page, string? areaLabel)
+    {
+        if (!FeatureRequestPages.IsOther(page))
+        {
+            return null;
+        }
+
+        var label = areaLabel?.Trim();
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            throw new ArgumentException("Name the area or topic this request is about.");
+        }
+
+        if (label.Length > FeatureRequestPages.AreaLabelMaxLength)
+        {
+            throw new ArgumentException(
+                $"Keep the area name under {FeatureRequestPages.AreaLabelMaxLength} characters.");
+        }
+
+        return label;
     }
 
     private static string Clip(string value, int max) =>
@@ -133,6 +159,7 @@ public sealed class FeatureRequestService(
     {
         Id = entity.Id,
         Page = entity.Page,
+        AreaLabel = entity.AreaLabel,
         CreatedBy = entity.CreatedBy,
         CreatedAt = entity.CreatedAt,
         RawText = entity.RawText,

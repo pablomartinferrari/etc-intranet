@@ -6,11 +6,14 @@ public static class FeatureRequestPages
     public const string Lead = "lead";
     public const string Sales = "sales";
     public const string General = "general";
+    public const string Other = "other";
     public const string Opportunities = "opportunities";
     public const string Pipeline = "pipeline";
 
+    public const int AreaLabelMaxLength = 120;
+
     /// <summary>
-    /// Intranet areas staff can file against from Home, plus legacy Sales page values
+    /// Intranet areas staff can file against, plus legacy Sales page values
     /// that must stay valid for existing FeatureRequests rows.
     /// </summary>
     public static readonly string[] Allowed =
@@ -19,6 +22,7 @@ public static class FeatureRequestPages
         Lead,
         Sales,
         General,
+        Other,
         Opportunities,
         Pipeline,
     ];
@@ -26,16 +30,28 @@ public static class FeatureRequestPages
     public static bool IsValid(string? page) =>
         page is not null && Allowed.Contains(page, StringComparer.Ordinal);
 
-    public static string DisplayName(string page) => page switch
+    public static bool IsOther(string? page) =>
+        string.Equals(page, Other, StringComparison.Ordinal);
+
+    public static string DisplayName(string page, string? areaLabel = null)
     {
-        Chat => "Chat",
-        Lead => "Lead",
-        Sales => "Sales",
-        General => "General",
-        Opportunities => "Bids",
-        Pipeline => "Pipeline",
-        _ => page,
-    };
+        if (IsOther(page) && !string.IsNullOrWhiteSpace(areaLabel))
+        {
+            return areaLabel.Trim();
+        }
+
+        return page switch
+        {
+            Chat => "Chat",
+            Lead => "Lead",
+            Sales => "Sales",
+            General => "General",
+            Other => "Other",
+            Opportunities => "Bids",
+            Pipeline => "Pipeline",
+            _ => page,
+        };
+    }
 }
 
 public static class FeatureRequestStatuses
@@ -54,6 +70,11 @@ public sealed class CreateFeatureRequestBody
 {
     public string? Page { get; set; }
 
+    /// <summary>
+    /// Required when <see cref="Page"/> is <c>other</c>. Ignored for preset areas.
+    /// </summary>
+    public string? AreaLabel { get; set; }
+
     public string? RawText { get; set; }
 }
 
@@ -67,6 +88,8 @@ public sealed class FeatureRequestDto
     public int Id { get; set; }
 
     public required string Page { get; set; }
+
+    public string? AreaLabel { get; set; }
 
     public required string CreatedBy { get; set; }
 
