@@ -35,12 +35,19 @@ export type ChatAttachment = {
   format: string;
 };
 
+export type ChatGeneration = {
+  provider: string;
+  model: string;
+  isFallback: boolean;
+};
+
 export type ChatResponse = {
   sessionId: string;
   answer: string;
   citations: Citation[];
   sourcesUsed: string;
   attachments: ChatAttachment[];
+  generation?: ChatGeneration | null;
 };
 
 export type ChatMessage = {
@@ -50,6 +57,7 @@ export type ChatMessage = {
   citations?: Citation[];
   attachments?: ChatAttachment[];
   createdAt: string;
+  generation?: ChatGeneration | null;
 };
 
 export type ChatSession = {

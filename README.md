@@ -116,6 +116,56 @@ Local stack uses a **separate Postgres** (pgvector) in the sibling [`etc-kg`](..
 
 API endpoints: `POST /api/kb/search`, `POST /api/kb/chat`, `POST /api/kb/ingest/upload`, `GET /api/kb/documents`
 
+#### Hosted chat fallback (when the GPU VM / Ollama is down)
+
+Chat prefers the local Ollama model. If that host is unreachable (the Azure GPU VM is usually deallocated), generation fails over to a hosted OpenAI-compatible endpoint so employees still get an answer. Retrieval still uses the knowledge base; only generation changes. Fallback answers show a small “hosted model” note in the Chat UI.
+
+The fallback stays **off** until an API key is present. Do not put a real key in `appsettings.json`, README examples, or source control.
+
+**Local (user secrets — preferred):**
+
+```powershell
+cd src/api
+dotnet user-secrets set "KnowledgeBase:Fallback:ApiKey" "<your-openai-or-azure-openai-key>"
+```
+
+Equivalent environment variable: `KnowledgeBase__Fallback__ApiKey`.
+
+Optional settings (defaults work with api.openai.com):
+
+| Setting | Default | Notes |
+|---------|---------|--------|
+| `KnowledgeBase__Fallback__Enabled` | `true` | Set `false` to disable even if a key is present |
+| `KnowledgeBase__Fallback__BaseUrl` | `https://api.openai.com/v1` | Azure OpenAI: `https://{resource}.openai.azure.com` or a full `/openai/deployments/{name}` URL |
+| `KnowledgeBase__Fallback__Model` | `gpt-4o-mini` | OpenAI model name, or Azure deployment name when the URL has no deployment segment |
+| `KnowledgeBase__Fallback__TimeoutSeconds` | `30` | Hosted request timeout |
+| `KnowledgeBase__Fallback__ApiVersion` | `2024-10-21` | Azure OpenAI only |
+
+**Azure App Service setting:**
+
+```powershell
+az webapp config appsettings set `
+  --resource-group rg-intranet-dev `
+  --name "<web-app-name>" `
+  --settings KnowledgeBase__Fallback__ApiKey="<your-openai-or-azure-openai-key>"
+```
+
+**Azure Key Vault** (same pattern as `Cleat__ApiKey`). Create a secret named `KnowledgeBase--Fallback--ApiKey` and wire it as an App Setting Key Vault reference:
+
+```powershell
+az keyvault secret set `
+  --vault-name "<key-vault-name>" `
+  --name "KnowledgeBase--Fallback--ApiKey" `
+  --value "<your-openai-or-azure-openai-key>"
+
+az webapp config appsettings set `
+  --resource-group rg-intranet-dev `
+  --name "<web-app-name>" `
+  --settings KnowledgeBase__Fallback__ApiKey="@Microsoft.KeyVault(SecretUri=https://<key-vault-name>.vault.azure.net/secrets/KnowledgeBase--Fallback--ApiKey/)"
+```
+
+If Ollama is down and no fallback key is configured, Chat returns a readable “temporarily unavailable” message instead of hanging or coming back blank.
+
 Azure promotion: [docs/knowledge-base-azure.md](docs/knowledge-base-azure.md)
 
 ### CLEATUS opportunities and pipeline

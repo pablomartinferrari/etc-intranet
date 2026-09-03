@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 
 namespace Intranet.Api.KnowledgeBase.Services;
 
-public sealed class OllamaClient
+public sealed class OllamaClient : IChatCompletionClient
 {
     private readonly HttpClient _http;
     private readonly KnowledgeBaseOptions _options;
@@ -17,6 +17,17 @@ public sealed class OllamaClient
         _options = options.Value;
         _logger = logger;
     }
+
+    public string ProviderName => "ollama";
+
+    public string ModelName =>
+        string.IsNullOrWhiteSpace(_options.ChatModel) ? "llama3.1:8b" : _options.ChatModel.Trim();
+
+    public Task<string> CompleteAsync(
+        string systemPrompt,
+        string userPrompt,
+        CancellationToken cancellationToken = default) =>
+        ChatAsync(systemPrompt, userPrompt, cancellationToken);
 
     public async Task<float[]> EmbedAsync(string text, CancellationToken cancellationToken = default)
     {
@@ -66,7 +77,7 @@ public sealed class OllamaClient
             url,
             new
             {
-                model = _options.ChatModel,
+                model = ModelName,
                 stream = false,
                 messages = new[]
                 {
@@ -81,7 +92,7 @@ public sealed class OllamaClient
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
             _logger.LogError("Ollama chat failed: {Status} {Body}", response.StatusCode, body);
             throw new InvalidOperationException(
-                $"Ollama chat failed ({response.StatusCode}). Is model '{_options.ChatModel}' pulled?");
+                $"Ollama chat failed ({response.StatusCode}). Is model '{ModelName}' pulled?");
         }
 
         var payload = await response.Content.ReadFromJsonAsync<OllamaChatResponse>(cancellationToken);

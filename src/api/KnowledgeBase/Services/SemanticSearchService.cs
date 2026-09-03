@@ -10,17 +10,20 @@ public sealed class SemanticSearchService
 {
     private readonly KnowledgeBaseOptions _options;
     private readonly OllamaClient _ollama;
+    private readonly IOllamaHealthProbe _health;
     private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger<SemanticSearchService> _logger;
 
     public SemanticSearchService(
         IOptions<KnowledgeBaseOptions> options,
         OllamaClient ollama,
+        IOllamaHealthProbe health,
         NpgsqlDataSource dataSource,
         ILogger<SemanticSearchService> logger)
     {
         _options = options.Value;
         _ollama = ollama;
+        _health = health;
         _dataSource = dataSource;
         _logger = logger;
     }
@@ -82,7 +85,24 @@ public sealed class SemanticSearchService
             Guid? projectId = null,
             CancellationToken cancellationToken = default)
     {
-        var vector = await _ollama.EmbedAsync(query, cancellationToken);
+        if (!await _health.IsAvailableAsync(cancellationToken))
+        {
+            _logger.LogInformation("Ollama is down; retrieving chat context with keyword search only.");
+            return await RetrieveChunksByKeywordAsync(query, topK, documentId, projectId, cancellationToken);
+        }
+
+        float[] vector;
+        try
+        {
+            vector = await _ollama.EmbedAsync(query, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Ollama embed failed; retrieving chat context with keyword search only.");
+            _health.Invalidate();
+            return await RetrieveChunksByKeywordAsync(query, topK, documentId, projectId, cancellationToken);
+        }
+
         await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
 
         var sql = """
@@ -192,6 +212,58 @@ public sealed class SemanticSearchService
                 reader.GetString(4),
                 reader.GetDouble(5),
                 reader.IsDBNull(6) ? string.Empty : reader.GetString(6)));
+        }
+
+        return results;
+    }
+
+    private async Task<IReadOnlyList<(Guid ChunkId, Guid DocumentId, string Title, string? SourceUri, string Text, double Score)>>
+        RetrieveChunksByKeywordAsync(
+            string query,
+            int topK,
+            Guid? documentId,
+            Guid? projectId,
+            CancellationToken cancellationToken)
+    {
+        await using var conn = await _dataSource.OpenConnectionAsync(cancellationToken);
+        var sql = """
+            SELECT c.id, d.id, d.title, d.source_uri, c.text,
+                   COALESCE(ts_rank(c.search_vector, plainto_tsquery('english', @queryText)), 0) AS keyword_score
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            """ + (projectId.HasValue
+                ? " JOIN kb_project_documents pd ON pd.document_id = d.id AND pd.project_id = @projectId "
+                : "") + """
+            WHERE d.ingest_status = 'completed'
+            """ + (documentId.HasValue ? " AND d.id = @documentId" : "") + """
+            ORDER BY keyword_score DESC
+            LIMIT @topK
+            """;
+
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("queryText", query);
+        cmd.Parameters.AddWithValue("topK", topK);
+        if (documentId.HasValue)
+        {
+            cmd.Parameters.AddWithValue("documentId", documentId.Value);
+        }
+
+        if (projectId.HasValue)
+        {
+            cmd.Parameters.AddWithValue("projectId", projectId.Value);
+        }
+
+        var results = new List<(Guid, Guid, string, string?, string, double)>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            results.Add((
+                reader.GetGuid(0),
+                reader.GetGuid(1),
+                reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3),
+                reader.GetString(4),
+                reader.GetDouble(5)));
         }
 
         return results;

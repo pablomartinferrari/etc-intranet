@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Intranet.Api.KnowledgeBase.Data;
 using Intranet.Api.KnowledgeBase.Models;
 using Intranet.Api.KnowledgeBase.Services;
@@ -15,12 +14,18 @@ public sealed class KnowledgeChatController : ControllerBase
     private readonly RagService _rag;
     private readonly ChatExportService _export;
     private readonly KnowledgeDbContext _db;
+    private readonly ILogger<KnowledgeChatController> _logger;
 
-    public KnowledgeChatController(RagService rag, ChatExportService export, KnowledgeDbContext db)
+    public KnowledgeChatController(
+        RagService rag,
+        ChatExportService export,
+        KnowledgeDbContext db,
+        ILogger<KnowledgeChatController> logger)
     {
         _rag = rag;
         _export = export;
         _db = db;
+        _logger = logger;
     }
 
     /// <summary>Feature flags only (no secrets). Anonymous so devs can verify WebSearch config without a token.</summary>
@@ -134,12 +139,7 @@ public sealed class KnowledgeChatController : ControllerBase
 
         var result = messages.Select(m =>
         {
-            IReadOnlyList<CitationDto>? citations = null;
-            if (!string.IsNullOrWhiteSpace(m.CitationsJson))
-            {
-                citations = JsonSerializer.Deserialize<List<CitationDto>>(m.CitationsJson);
-            }
-
+            var (citations, generation) = RagService.ParseMessagePayload(m.CitationsJson);
             attachmentsByMessage.TryGetValue(m.Id, out var attachments);
 
             return new ChatMessageDto(
@@ -148,7 +148,8 @@ public sealed class KnowledgeChatController : ControllerBase
                 m.Content,
                 citations,
                 attachments is { Count: > 0 } ? attachments : null,
-                m.CreatedAt);
+                m.CreatedAt,
+                generation);
         }).ToList();
 
         return Ok(result);
@@ -187,8 +188,19 @@ public sealed class KnowledgeChatController : ControllerBase
 
         var userOid = RequireUserOid();
 
-        var response = await _rag.ChatAsync(request, userOid, cancellationToken);
-        return Ok(response);
+        try
+        {
+            var response = await _rag.ChatAsync(request, userOid, cancellationToken);
+            return Ok(response);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "KB chat request failed.");
+            var message = ex is ChatUnavailableException
+                ? ex.Message
+                : ChatUnavailableException.UserMessage;
+            return Ok(new ChatResponseDto(Guid.Empty, message, [], "none", []));
+        }
     }
 
     private string? RequireUserOid() =>
