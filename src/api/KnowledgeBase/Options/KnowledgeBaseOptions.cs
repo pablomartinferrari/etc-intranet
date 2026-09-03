@@ -27,6 +27,24 @@ public sealed class KnowledgeBaseOptions
     /// <summary>Hosted embeddings for SharePoint agent-source ingest (GPU optional).</summary>
     public KnowledgeBaseEmbeddingsOptions Embeddings { get; set; } = new();
 
+    /// <summary>
+    /// True when hosted embeddings can run — own key/url or inherited from Fallback.
+    /// Safe to expose; never includes secret values.
+    /// </summary>
+    public bool IsEmbeddingsConfigured
+    {
+        get
+        {
+            var key = Embeddings.TrimmedApiKey ?? Fallback.TrimmedApiKey;
+            var baseUrl = string.IsNullOrWhiteSpace(Embeddings.BaseUrl)
+                ? Fallback.BaseUrl
+                : Embeddings.BaseUrl;
+            return Embeddings.Enabled
+                && key is not null
+                && !string.IsNullOrWhiteSpace(baseUrl);
+        }
+    }
+
     /// <summary>Self-serve SharePoint folder probe / ingest limits.</summary>
     public AgentSourceOptions AgentSources { get; set; } = new();
 }
