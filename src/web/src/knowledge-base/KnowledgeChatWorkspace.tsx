@@ -316,6 +316,18 @@ export default function KnowledgeChatWorkspace() {
   };
 
   useEffect(() => {
+    const media = window.matchMedia("(min-width: 768px)");
+    const onChange = () => {
+      if (media.matches) {
+        setProjectsSheetOpen(false);
+        setPanelSheetOpen(false);
+      }
+    };
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
     setSessionId(undefined);
     setMessages([]);
     setInput("");
@@ -559,9 +571,9 @@ export default function KnowledgeChatWorkspace() {
                   Some files still indexing — answers use completed files only
                 </span>
               )}
-              <div className="mx-auto flex w-full max-w-[800px] flex-col gap-2.5 rounded-xl border bg-muted p-3">
+              <div className="mx-auto flex w-full max-w-[800px] items-end gap-2 rounded-xl border bg-muted p-2.5 md:p-3">
                 <Textarea
-                  className="min-h-14 w-full resize-none md:min-h-[72px]"
+                  className="min-h-11 min-w-0 flex-1 resize-none md:min-h-[72px]"
                   rows={2}
                   placeholder={
                     canChat
@@ -579,7 +591,7 @@ export default function KnowledgeChatWorkspace() {
                   }}
                 />
                 <Button
-                  className="h-11 self-end md:h-8"
+                  className="h-11 shrink-0 md:h-8"
                   disabled={!canChat || !input.trim() || chatMutation.isPending}
                   onClick={sendMessage}
                 >
