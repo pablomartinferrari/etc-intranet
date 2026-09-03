@@ -10,10 +10,11 @@ public sealed class HelpAskService(IHelpLlm llm, ILogger<HelpAskService> logger)
 
     internal const string SystemPrompt =
         """
-        You are a short guide for the ETC intranet. Answer only from the intranet map.
-        Never invent apps, routes, or vendors. Keep answers to 2-4 sentences.
+        You are a short guide for the ETC intranet. Answer the staff question using ONLY the intranet map JSON.
+        Never invent apps, routes, vendors, or features that are not in the map.
         Prefer telling the person which Home card or Sales card to open.
         If the question is not about this intranet, say you only help with finding intranet apps.
+        Keep answers to 2-4 sentences. Answer the actual question — do not paste a generic overview when a specific place matches.
         Reply with JSON only — no markdown fences:
         { "answer": "...", "placeIds": ["chat"] }
         placeIds must be ids from the map. Use [] if none apply.
@@ -32,18 +33,34 @@ public sealed class HelpAskService(IHelpLlm llm, ILogger<HelpAskService> logger)
             throw new ArgumentException($"Keep the question under {IntranetMap.QuestionMaxLength} characters.");
         }
 
-        var mapped = IntranetMap.Match(trimmed);
-        var llmContent = await TryLlmAsync(trimmed, cancellationToken);
-        if (llmContent is not null
-            && TryParseLlm(llmContent, mapped, out var polished))
+        var llmTurn = await TryLlmAsync(trimmed, cancellationToken);
+        if (llmTurn is not null)
         {
-            return polished;
+            var parsed = TryParseLlm(llmTurn.Content);
+            if (parsed is not null)
+            {
+                var links = LinksFromIds(parsed.Value.PlaceIds);
+                if (links.Count == 0)
+                {
+                    links = IntranetMap.Match(trimmed).Links;
+                }
+
+                return new HelpAskResponse(
+                    parsed.Value.Answer,
+                    links,
+                    SourceLlm,
+                    llmTurn.Provider,
+                    llmTurn.Model);
+            }
+
+            logger.LogInformation("Help LLM JSON could not be parsed; using map retrieval for the question.");
         }
 
+        var mapped = IntranetMap.Match(trimmed);
         return new HelpAskResponse(mapped.Answer, mapped.Links, SourceMap);
     }
 
-    private async Task<string?> TryLlmAsync(string question, CancellationToken cancellationToken)
+    private async Task<HelpLlmTurn?> TryLlmAsync(string question, CancellationToken cancellationToken)
     {
         try
         {
@@ -63,16 +80,16 @@ public sealed class HelpAskService(IHelpLlm llm, ILogger<HelpAskService> logger)
         }
     }
 
-    internal static bool TryParseLlm(
-        string content,
-        HelpMapAnswer mapped,
-        out HelpAskResponse response)
+    /// <summary>
+    /// Parse model JSON. Returns null on failure — never a map default — so callers
+    /// cannot accidentally treat a parse miss as an LLM answer.
+    /// </summary>
+    internal static ParsedHelpLlm? TryParseLlm(string content)
     {
-        response = new HelpAskResponse(mapped.Answer, mapped.Links, SourceMap);
         var json = UnwrapJson(content);
         if (string.IsNullOrWhiteSpace(json))
         {
-            return false;
+            return null;
         }
 
         try
@@ -80,41 +97,31 @@ public sealed class HelpAskService(IHelpLlm llm, ILogger<HelpAskService> logger)
             using var doc = JsonDocument.Parse(json);
             if (doc.RootElement.ValueKind != JsonValueKind.Object)
             {
-                return false;
+                return null;
             }
 
             var answer = ReadString(doc.RootElement, "answer");
             if (string.IsNullOrWhiteSpace(answer))
             {
-                return false;
+                return null;
             }
 
-            var placeIds = ReadPlaceIds(doc.RootElement);
-            var links = placeIds.Count > 0
-                ? LinksFromIds(placeIds)
-                : mapped.Links;
-            if (links.Count == 0)
-            {
-                links = mapped.Links;
-            }
-
-            response = new HelpAskResponse(answer.Trim(), links, SourceLlm);
-            return true;
+            return new ParsedHelpLlm(answer.Trim(), ReadPlaceIds(doc.RootElement));
         }
         catch (JsonException)
         {
-            return false;
+            return null;
         }
     }
 
-    private static IReadOnlyList<HelpLinkDto> LinksFromIds(IReadOnlyList<string> placeIds)
+    internal static IReadOnlyList<HelpLinkDto> LinksFromIds(IReadOnlyList<string> placeIds)
     {
         var links = new List<HelpLinkDto>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var id in placeIds)
         {
             var place = IntranetMap.PlaceById(id);
-            if (place is null || !seen.Add(place.Path))
+            if (place is null || string.IsNullOrWhiteSpace(place.Path) || !seen.Add(place.Path))
             {
                 continue;
             }
