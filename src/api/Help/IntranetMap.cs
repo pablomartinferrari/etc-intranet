@@ -17,7 +17,7 @@ public static class IntranetMap
             "home",
             "Home",
             "/",
-            "Intranet landing page with Chat, Lead, and Sales application cards.",
+            "Intranet landing page with Chat, Lead, Sales, and Feature Requests application cards.",
             "Open the ETC logo or Applications to return to Home.",
             ["home", "intranet", "applications", "apps", "start", "landing", "welcome"]),
         new(
@@ -57,10 +57,10 @@ public static class IntranetMap
             ["pipeline", "pursuit", "pursuits", "closeout", "close-out", "won", "lost", "archived"]),
         new(
             "requests",
-            "Requests",
-            "/sales/requests",
-            "Queue of feature notes captured with Request a change. Review and mark them planned or done.",
-            "From Sales, click Requests. To file a new note, use Request a change on Sales, Bids, or Pipeline.",
+            "Feature Requests",
+            "/requests",
+            "Queue of intranet feature requests. Capture new notes and mark them planned or done.",
+            "From Home, open the Feature Requests card. Use Add feature request to suggest an improvement, including topics that are not Chat, Lead, or Sales.",
             ["requests", "request", "feature", "ticket", "inbox", "change", "feedback"]),
     ];
 
@@ -79,8 +79,8 @@ public static class IntranetMap
         new(
             "request-feature",
             ["request a feature", "request a change", "feature request", "submit a request", "how do i request", "file a request"],
-            "Use Request a change on Sales, Bids, or Pipeline. That saves a short ticket. Review the queue at Sales → Requests.",
-            ["requests", "sales"]),
+            "Open the Feature Requests card on Home. Use Add feature request to suggest an intranet improvement — Chat, Lead, Sales, General, or another topic. Review the queue on that same page.",
+            ["requests"]),
         new(
             "pipeline-vs-bids",
             ["pipeline vs bids", "bids vs pipeline", "pipeline versus bids", "bids versus pipeline", "difference between pipeline", "difference between bids", "what's pipeline vs", "whats pipeline vs", "pipeline or bids"],
@@ -104,7 +104,7 @@ public static class IntranetMap
         new(
             "what-home",
             ["what is home", "where is home", "applications", "back to home"],
-            "Home is the intranet landing page. After you sign in you will see Chat, Lead, and Sales. The ETC logo always returns here.",
+            "Home is the intranet landing page. After you sign in you will see Chat, Lead, Sales, and Feature Requests. The ETC logo always returns here.",
             ["home"]),
     ];
 
@@ -169,7 +169,7 @@ public static class IntranetMap
 
     private static HelpMapAnswer Overview() =>
         FromPlaces(
-            "This intranet has three Home apps: Chat (company knowledge-base ChatGPT), Lead (multifamily LBP / XRF jobs), and Sales (Bids from CLEATUS, plus Pipeline pursuits). Ask where you want to go, or open Home to pick a card.",
+            "This intranet has four Home apps: Chat (company knowledge-base ChatGPT), Lead (multifamily LBP / XRF jobs), Sales (Bids from CLEATUS, plus Pipeline pursuits), and Feature Requests (suggest and track intranet improvements). Ask where you want to go, or open Home to pick a card.",
             ["home", "chat", "lead", "sales"]);
 
     private static HelpMapAnswer FromPlaces(string answer, IReadOnlyList<string> placeIds)

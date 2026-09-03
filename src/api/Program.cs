@@ -321,7 +321,8 @@ app.MapPost("/api/feature-requests", async (
             body.Page ?? string.Empty,
             body.RawText ?? string.Empty,
             CreatedByFromUser(user),
-            cancellationToken);
+            cancellationToken,
+            body.AreaLabel);
         return Results.Ok(created);
     }
     catch (ArgumentException ex)

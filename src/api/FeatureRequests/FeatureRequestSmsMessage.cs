@@ -6,7 +6,7 @@ public static class FeatureRequestSmsMessage
 
     public static string Format(FeatureRequestDto ticket)
     {
-        var area = FeatureRequestPages.DisplayName(ticket.Page);
+        var area = FeatureRequestPages.DisplayName(ticket.Page, ticket.AreaLabel);
         var title = FirstMeaningful(ticket.Title, ticket.RawText);
         var who = string.IsNullOrWhiteSpace(ticket.CreatedBy) ? "someone" : ticket.CreatedBy.Trim();
         var text =

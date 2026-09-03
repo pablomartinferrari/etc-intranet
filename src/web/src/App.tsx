@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
-import { BrowserRouter, Link as RouterLink, Route, Routes, useNavigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BriefcaseIcon, ClipboardListIcon, InboxIcon, SparklesIcon } from "lucide-react";
+import { BriefcaseIcon, ClipboardListIcon, LightbulbIcon, SparklesIcon } from "lucide-react";
 
 import { apiRequest, signInRequest } from "./authConfig";
 import MultifamilyRoutes from "./multifamily-lbp/MultifamilyRoutes";
@@ -12,7 +12,6 @@ import {
   CleatusPipelineRoute,
 } from "./cleatus/CleatusRoutes";
 import { FeatureRequestsRoute } from "./sales/FeatureRequestsPage";
-import { RequestChangeControl } from "./sales/RequestChangeSheet";
 import { SalesHubRoute } from "./sales/SalesHubPage";
 import { ApiAuthBridge } from "./multifamily-lbp/api/ApiAuthBridge";
 import {
@@ -82,6 +81,13 @@ const INTRANET_APPS: IntranetApp[] = [
     description: "Bids and the pursuit pipeline.",
     Icon: BriefcaseIcon,
     accent: "border-violet-500",
+  },
+  {
+    to: "/requests",
+    title: "Feature Requests",
+    description: "Suggest and track intranet improvements.",
+    Icon: LightbulbIcon,
+    accent: "border-amber-500",
   },
 ];
 
@@ -200,18 +206,7 @@ function IntranetHome() {
 
       {isSignedIn && (
         <section className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 px-1">
-            <h2 className="text-base font-semibold text-muted-foreground">Applications</h2>
-            <div className="flex flex-wrap items-center gap-2">
-              <RequestChangeControl />
-              <Button variant="outline" asChild>
-                <RouterLink to="/requests">
-                  <InboxIcon />
-                  Requests
-                </RouterLink>
-              </Button>
-            </div>
-          </div>
+          <h2 className="px-1 text-base font-semibold text-muted-foreground">Applications</h2>
           <IntranetAppGrid apps={INTRANET_APPS} />
         </section>
       )}

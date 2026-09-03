@@ -6,6 +6,7 @@ export type FeatureRequestPage =
   | "lead"
   | "sales"
   | "general"
+  | "other"
   | "opportunities"
   | "pipeline";
 export type FeatureRequestStatus = "new" | "planned" | "done";
@@ -15,6 +16,7 @@ export const FEATURE_REQUEST_AREAS: { value: FeatureRequestPage; label: string }
   { value: "lead", label: "Lead" },
   { value: "sales", label: "Sales" },
   { value: "general", label: "General" },
+  { value: "other", label: "Other" },
 ];
 
 export const FEATURE_REQUEST_PAGE_LABEL: Record<FeatureRequestPage, string> = {
@@ -22,6 +24,7 @@ export const FEATURE_REQUEST_PAGE_LABEL: Record<FeatureRequestPage, string> = {
   lead: "Lead",
   sales: "Sales",
   general: "General",
+  other: "Other",
   opportunities: "Bids",
   pipeline: "Pipeline",
 };
@@ -30,9 +33,21 @@ export function featureRequestPageLabel(page: string): string {
   return FEATURE_REQUEST_PAGE_LABEL[page as FeatureRequestPage] ?? page;
 }
 
+/** Queue/SMS-facing label: Other shows the free-form topic, not just "Other". */
+export function featureRequestAreaLabel(request: {
+  page: string;
+  areaLabel?: string | null;
+}): string {
+  if (request.page === "other" && request.areaLabel?.trim()) {
+    return request.areaLabel.trim();
+  }
+  return featureRequestPageLabel(request.page);
+}
+
 export type FeatureRequest = {
   id: number;
   page: FeatureRequestPage;
+  areaLabel?: string | null;
   createdBy: string;
   createdAt: string;
   rawText: string;
@@ -58,10 +73,15 @@ export class FeatureRequestApiError extends Error {
 export async function createFeatureRequest(
   page: FeatureRequestPage,
   rawText: string,
+  areaLabel?: string,
 ): Promise<FeatureRequest> {
   return request<FeatureRequest>("/api/feature-requests", {
     method: "POST",
-    body: JSON.stringify({ page, rawText }),
+    body: JSON.stringify({
+      page,
+      rawText,
+      ...(page === "other" && areaLabel ? { areaLabel } : {}),
+    }),
   });
 }
 

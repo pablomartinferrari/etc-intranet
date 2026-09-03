@@ -19,8 +19,12 @@ public static class FeatureRequestStructurer
             "Sales hub at /sales. Staff pick Bids (/opportunities, CLEATUS recommendations) or Pipeline (/pipeline, pursuits plus close-out). " +
             "This page has no CLEATUS list. Feature notes persist via POST /api/feature-requests into IntranetDb.FeatureRequests.",
         ["general"] =
-            "Intranet-wide or unspecified area. Home at /. Apps: Chat (/knowledge), Lead (/lead-inspection), Sales (/sales). " +
+            "Intranet-wide or unspecified area. Home at /. Apps: Chat (/knowledge), Lead (/lead-inspection), Sales (/sales), Feature Requests (/requests). " +
             "Feature notes persist via POST /api/feature-requests into IntranetDb.FeatureRequests.",
+        ["other"] =
+            "A named intranet topic that is not Chat, Lead, Sales, or General. Staff named the area in Area topic. " +
+            "Feature notes persist via POST /api/feature-requests into IntranetDb.FeatureRequests. " +
+            "Do not invent CLEATUS or lead-inspection APIs unless the note clearly needs them.",
         ["opportunities"] =
             "Bids at /opportunities. Live CLEATUS list from GET /api/cleat/recommendations?minScore=80 (default). " +
             "Detail from GET /api/cleat/opportunities/{id}. Rows are not stored in IntranetDb. " +
@@ -44,19 +48,22 @@ public static class FeatureRequestStructurer
         acceptanceCriteria: newline-separated bullets an engineer can implement.
         """;
 
-    public static string UserPrompt(string page, string rawText)
+    public static string UserPrompt(string page, string rawText, string? areaLabel = null)
     {
         var context = PageContexts.TryGetValue(page, out var value) ? value : page;
+        var areaLine = string.IsNullOrWhiteSpace(areaLabel)
+            ? $"Page: {page}"
+            : $"Page: {page}\nArea topic: {areaLabel.Trim()}";
         return
             $"""
-            Page: {page}
+            {areaLine}
             Page context: {context}
             Staff note:
             {rawText}
             """;
     }
 
-    public static StructuredTicket FromFallback(string page, string rawText)
+    public static StructuredTicket FromFallback(string page, string rawText, string? areaLabel = null)
     {
         var trimmed = rawText.Trim();
         var firstLine = FirstLine(trimmed);
@@ -66,6 +73,11 @@ public static class FeatureRequestStructurer
             : string.Empty;
 
         var context = PageContexts.TryGetValue(page, out var value) ? value : page;
+        if (!string.IsNullOrWhiteSpace(areaLabel))
+        {
+            context = $"Area topic: {areaLabel.Trim()}. {context}";
+        }
+
         return new StructuredTicket
         {
             Title = title,

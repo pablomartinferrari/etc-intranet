@@ -29,7 +29,7 @@ const PLACES: Place[] = [
     path: "/",
     keywords: ["home", "intranet", "applications", "apps"],
     answer:
-      "Home is the intranet landing page. After you sign in you will see Chat, Lead, and Sales.",
+      "Home is the intranet landing page. After you sign in you will see Chat, Lead, Sales, and Feature Requests.",
   },
   {
     title: "Chat",
@@ -66,11 +66,11 @@ const PLACES: Place[] = [
       "Pipeline tracks pursuits and close-outs. From Home open Sales, then Pipeline.",
   },
   {
-    title: "Requests",
-    path: "/sales/requests",
+    title: "Feature Requests",
+    path: "/requests",
     keywords: ["request", "requests", "feature", "change", "ticket"],
     answer:
-      "Use Request a change on Sales, Bids, or Pipeline. Review the queue at Sales → Requests.",
+      "Open the Feature Requests card on Home. Use Add feature request to suggest an intranet improvement — Chat, Lead, Sales, General, or another topic. Review the queue on that same page.",
   },
 ];
 
@@ -87,7 +87,7 @@ export function matchHelpLocally(question: string): HelpAskResponse {
   if (!normalized) {
     return {
       answer:
-        "This intranet has Chat, Lead, and Sales on Home. Ask where you want to go.",
+        "This intranet has Chat, Lead, Sales, and Feature Requests on Home. Ask where you want to go.",
       links: [{ label: "Home", path: "/" }],
       source: "map",
     };
@@ -138,12 +138,13 @@ export function matchHelpLocally(question: string): HelpAskResponse {
 
   return {
     answer:
-      "This intranet has three Home apps: Chat (knowledge-base ChatGPT), Lead (LBP / XRF jobs), and Sales (Bids and Pipeline).",
+      "This intranet has four Home apps: Chat (knowledge-base ChatGPT), Lead (LBP / XRF jobs), Sales (Bids and Pipeline), and Feature Requests (suggest and track intranet improvements).",
     links: [
       { label: "Home", path: "/" },
       { label: "Chat", path: "/knowledge" },
       { label: "Lead", path: "/lead-inspection" },
       { label: "Sales", path: "/sales" },
+      { label: "Feature Requests", path: "/requests" },
     ],
     source: "map",
   };

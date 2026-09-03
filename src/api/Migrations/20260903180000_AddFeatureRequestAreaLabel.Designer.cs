@@ -3,6 +3,7 @@ using System;
 using Intranet.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Intranet.Api.Migrations
 {
     [DbContext(typeof(IntranetDbContext))]
-    partial class IntranetDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260903180000_AddFeatureRequestAreaLabel")]
+    partial class AddFeatureRequestAreaLabel
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

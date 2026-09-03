@@ -1,4 +1,5 @@
 using Intranet.Api.Data;
+using Intranet.Api.Data.Entities;
 using Intranet.Api.FeatureRequests;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -128,7 +129,109 @@ public class FeatureRequestServiceTests
 
         Assert.Contains("chat", error.Message, StringComparison.Ordinal);
         Assert.Contains("general", error.Message, StringComparison.Ordinal);
+        Assert.Contains("other", error.Message, StringComparison.Ordinal);
         Assert.Empty(db.FeatureRequests);
+    }
+
+    [Fact]
+    public async Task CreateOtherPersistsKindAndFreeFormLabel()
+    {
+        await using var db = CreateDb();
+        var service = new FeatureRequestService(db, new NullLlm());
+
+        var created = await service.CreateAsync(
+            "other",
+            "Add a checklist for first-week laptop setup.",
+            "alex@etc.example",
+            CancellationToken.None,
+            "IT VPN");
+
+        Assert.Equal("other", created.Page);
+        Assert.Equal("IT VPN", created.AreaLabel);
+        Assert.Equal("fallback", created.StructuredBy);
+        Assert.Contains("IT VPN", created.DataInvolved, StringComparison.Ordinal);
+        Assert.Contains("IT VPN", FeatureRequestStructurer.UserPrompt("other", "note", "IT VPN"), StringComparison.Ordinal);
+        Assert.Equal("IT VPN", FeatureRequestPages.DisplayName(created.Page, created.AreaLabel));
+
+        var stored = Assert.Single(db.FeatureRequests);
+        Assert.Equal("other", stored.Page);
+        Assert.Equal("IT VPN", stored.AreaLabel);
+    }
+
+    [Fact]
+    public async Task CreateOtherRejectsMissingAreaLabelWithoutWriting()
+    {
+        await using var db = CreateDb();
+        var service = new FeatureRequestService(db, new NullLlm());
+
+        var error = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.CreateAsync("other", "Please add a parking map.", "alex@etc.example", CancellationToken.None));
+
+        Assert.Contains("area or topic", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(db.FeatureRequests);
+    }
+
+    [Fact]
+    public async Task CreateOtherRejectsWhitespaceAreaLabelWithoutWriting()
+    {
+        await using var db = CreateDb();
+        var service = new FeatureRequestService(db, new NullLlm());
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.CreateAsync(
+                "other",
+                "Please add a parking map.",
+                "alex@etc.example",
+                CancellationToken.None,
+                "   "));
+
+        Assert.Empty(db.FeatureRequests);
+    }
+
+    [Fact]
+    public async Task CreateIgnoresAreaLabelForPresetPages()
+    {
+        await using var db = CreateDb();
+        var service = new FeatureRequestService(db, new NullLlm());
+
+        var created = await service.CreateAsync(
+            "chat",
+            "Pin recent chats on Home.",
+            "alex@etc.example",
+            CancellationToken.None,
+            "should-not-persist");
+
+        Assert.Equal("chat", created.Page);
+        Assert.Null(created.AreaLabel);
+        Assert.Null(Assert.Single(db.FeatureRequests).AreaLabel);
+    }
+
+    [Fact]
+    public async Task ListKeepsLegacyAreasWithoutAreaLabel()
+    {
+        await using var db = CreateDb();
+        db.FeatureRequests.Add(new()
+        {
+            Page = "opportunities",
+            AreaLabel = null,
+            CreatedBy = "legacy@etc.example",
+            CreatedAt = DateTimeOffset.UtcNow,
+            RawText = "Old bids ticket",
+            Title = "Old bids ticket",
+            Problem = "Old bids ticket",
+            DesiredBehavior = "",
+            DataInvolved = "GET /api/cleat/recommendations",
+            AcceptanceCriteria = "",
+            Status = "new",
+            StructuredBy = "fallback",
+        });
+        await db.SaveChangesAsync();
+
+        var service = new FeatureRequestService(db, new NullLlm());
+        var listed = Assert.Single(await service.ListAsync(CancellationToken.None));
+        Assert.Equal("opportunities", listed.Page);
+        Assert.Null(listed.AreaLabel);
+        Assert.Equal("Bids", FeatureRequestPages.DisplayName(listed.Page, listed.AreaLabel));
     }
 
     [Fact]
@@ -196,6 +299,30 @@ public class FeatureRequestServiceTests
         Assert.Contains("Requests", body, StringComparison.Ordinal);
         Assert.True(body.Length <= FeatureRequestSmsMessage.MaxLength);
         Assert.Single(db.FeatureRequests);
+    }
+
+    [Fact]
+    public async Task CreateSendsSmsWithOtherAreaLabel()
+    {
+        await using var db = CreateDb();
+        var sms = new RecordingSms(configured: true);
+        var service = new FeatureRequestService(db, new NullLlm(), sms);
+
+        var created = await service.CreateAsync(
+            "other",
+            "Add a first-day laptop checklist.",
+            "alex.rivera@etc.example",
+            CancellationToken.None,
+            "HR onboarding");
+
+        var body = Assert.Single(sms.Messages);
+        Assert.Contains($"#{created.Id}", body, StringComparison.Ordinal);
+        Assert.Contains("HR onboarding", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("(Other)", body, StringComparison.Ordinal);
+        Assert.Contains("Add a first-day laptop checklist.", body, StringComparison.Ordinal);
+        Assert.True(body.Length <= FeatureRequestSmsMessage.MaxLength);
+        Assert.Equal("other", Assert.Single(db.FeatureRequests).Page);
+        Assert.Equal("HR onboarding", db.FeatureRequests.Single().AreaLabel);
     }
 
     [Fact]
@@ -271,6 +398,33 @@ public class FeatureRequestServiceTests
         Assert.Contains("alex@etc.example", body, StringComparison.Ordinal);
         Assert.DoesNotContain("too long to put in SMS", body, StringComparison.Ordinal);
         Assert.DoesNotContain("/api/cleat/recommendations", body, StringComparison.Ordinal);
+        Assert.True(body.Length <= FeatureRequestSmsMessage.MaxLength);
+    }
+
+    [Fact]
+    public void SmsMessageUsesOtherFreeFormLabel()
+    {
+        var body = FeatureRequestSmsMessage.Format(new FeatureRequestDto
+        {
+            Id = 7,
+            Page = "other",
+            AreaLabel = "IT VPN",
+            CreatedBy = "alex@etc.example",
+            CreatedAt = DateTimeOffset.UtcNow,
+            RawText = "VPN docs are hard to find.",
+            Title = "VPN setup guide",
+            Problem = "too long to put in SMS",
+            DesiredBehavior = "guide",
+            DataInvolved = "intranet",
+            AcceptanceCriteria = "lots of structured json that must not appear",
+            Status = "new",
+            StructuredBy = "llm",
+        });
+
+        Assert.Contains("IT VPN", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("(Other)", body, StringComparison.Ordinal);
+        Assert.Contains("#7", body, StringComparison.Ordinal);
+        Assert.Contains("VPN setup guide", body, StringComparison.Ordinal);
         Assert.True(body.Length <= FeatureRequestSmsMessage.MaxLength);
     }
 

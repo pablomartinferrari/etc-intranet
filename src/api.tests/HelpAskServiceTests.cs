@@ -10,8 +10,8 @@ public class HelpAskServiceTests
     [InlineData("Where do I go to create a chat?", "/knowledge", "Chat")]
     [InlineData("new chat", "/knowledge", "Chat")]
     [InlineData("Where are bids?", "/opportunities", "Bids")]
-    [InlineData("How do I request a feature?", "/sales/requests", "Requests")]
-    [InlineData("request a change", "/sales/requests", "Requests")]
+    [InlineData("How do I request a feature?", "/requests", "Feature Requests")]
+    [InlineData("request a change", "/requests", "Feature Requests")]
     [InlineData("lead inspection", "/lead-inspection", "Lead")]
     public async Task MapAnswersKnownNavigationQuestions(string question, string path, string label)
     {
@@ -125,7 +125,7 @@ public class HelpAskServiceTests
             "/sales",
             "/opportunities",
             "/pipeline",
-            "/sales/requests",
+            "/requests",
         ]));
     }
 
