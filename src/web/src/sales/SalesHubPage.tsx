@@ -1,8 +1,9 @@
-import { BriefcaseIcon, Building2Icon, HomeIcon, InboxIcon, TrendingUpIcon } from "lucide-react";
+import { BriefcaseIcon, Building2Icon, InboxIcon, TrendingUpIcon } from "lucide-react";
 import { Link as RouterLink } from "react-router-dom";
 
 import { BrandBar, SignOutButton } from "@/components/brand-bar";
 import { IntranetAppGrid, type IntranetApp } from "@/components/intranet-app-card";
+import { PageBreadcrumb } from "@/components/page-breadcrumb";
 import { Button } from "@/components/ui/button";
 import { RequireAuth } from "../multifamily-lbp/auth/RequireAuth";
 import { PageExplainer } from "./PageExplainer";
@@ -28,25 +29,20 @@ function SalesHubPage() {
   return (
     <div className="flex min-h-svh flex-col bg-muted/40">
       <BrandBar actions={<SignOutButton outlineOnBlack />} />
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b bg-background px-6 py-4">
-        <div className="flex items-center gap-3">
-          <BriefcaseIcon className="size-7" />
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Sales</h1>
-            <p className="text-sm text-muted-foreground">Bids and the pursuit pipeline.</p>
+      <div className="flex flex-col gap-3 border-b bg-background px-6 py-4">
+        <PageBreadcrumb items={[{ label: "Home", to: "/" }, { label: "Sales" }]} />
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <BriefcaseIcon className="size-7" />
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">Sales</h1>
+              <p className="text-sm text-muted-foreground">Bids and the pursuit pipeline.</p>
+            </div>
           </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" asChild>
             <RouterLink to="/requests">
               <InboxIcon />
               Requests
-            </RouterLink>
-          </Button>
-          <Button variant="ghost" asChild>
-            <RouterLink to="/">
-              <HomeIcon />
-              Applications
             </RouterLink>
           </Button>
         </div>
