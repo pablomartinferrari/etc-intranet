@@ -16,6 +16,10 @@ public class HelpAskServiceTests
     [InlineData("lead inspection", "/lead-inspection", "Lead")]
     [InlineData("How do I sign in?", "/", "Sign in")]
     [InlineData("What do planned and done mean?", "/requests", "Feature Requests")]
+    [InlineData("add knowledge", "/knowledge/sources", "Agent sources")]
+    [InlineData("connect sharepoint", "/knowledge/sources", "Agent sources")]
+    [InlineData("index this SharePoint folder", "/knowledge", "Chat")]
+    [InlineData("add sharepoint folder", "/knowledge", "Chat")]
     public async Task MapAnswersKnownNavigationQuestions(string question, string path, string label)
     {
         var service = CreateService(new NullLlm());
@@ -231,10 +235,12 @@ public class HelpAskServiceTests
             "/pipeline",
             "/requests",
             "/sales/requests",
+            "/knowledge/sources",
         ]));
         Assert.Contains(IntranetMap.Places, p => p.Id == "help");
         Assert.Contains(IntranetMap.Places, p => p.Id == "signin");
         Assert.Contains(IntranetMap.Places, p => p.Id == "requests");
+        Assert.Contains(IntranetMap.Places, p => p.Id == "agent-sources");
     }
 
     [Fact]

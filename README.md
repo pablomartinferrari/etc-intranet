@@ -112,9 +112,53 @@ Local stack uses a **separate Postgres** (pgvector) in the sibling [`etc-kg`](..
 
 | Route | Purpose |
 |-------|---------|
-| `/knowledge` | Semantic search, chat Q&A, file upload, document list |
+| `/knowledge` | Semantic search, chat Q&A, file upload, document list. **Add SharePoint folder** opens a sheet in Chat (also in Help). |
+| `/knowledge/sources` | **Manage sources** — job status and disconnect for connected SharePoint folders |
 
-API endpoints: `POST /api/kb/search`, `POST /api/kb/chat`, `POST /api/kb/ingest/upload`, `GET /api/kb/documents`
+Anyone signed in can add a SharePoint folder (not sales-only). In **Chat**, click **Add SharePoint folder** (the same action is in **Help**) to paste a site URL and folder path, review a Graph probe (file count, size, depth, sample types), then connect. **Manage sources** (`/knowledge/sources`) lists jobs and disconnect.
+
+| Probe size | What happens |
+|------------|----------------|
+| **Soft** — ≤ 2,000 files **and** ≤ 2 GB | Ingest starts automatically |
+| **Medium** — ≤ 10,000 files **and** ≤ 10 GB | Warns; you must confirm |
+| **Hard** — above medium | Self-serve is blocked; an admin **Feature Request** is created (area Other / “Chat agent sources”) with the probe stats |
+
+Ingest is a **one-time recursive** Graph crawl (max depth 20). Delta / incremental sync is a follow-up. Video, disk images, executables, archives, and files over **50 MB** are skipped. Disconnecting a folder stops future ingest and marks already-indexed documents inactive for retrieval; chunks are **not** deleted in v1.
+
+The crawl downloads allowed files, chunks them, and upserts into Knowledge Postgres so existing Chat RAG can see them (including inside a project). Embeddings prefer a **hosted** OpenAI-compatible API so the GPU VM can stay off. If the embedding key is missing, files are still indexed for keyword search.
+
+#### SharePoint Graph + hosted embeddings
+
+The same Entra app used for multifamily SharePoint import (`AzureAd__TenantId`, `AzureAd__ClientId`, `AzureAd__ClientSecret`) is used with application permissions **Sites.Read.All** and **Files.Read.All** (admin consent). A dedicated `SharePoint:SiteUrl` is **not** required — each user pastes the site they want.
+
+**Local (user secrets — preferred):**
+
+```powershell
+cd src/api
+dotnet user-secrets set "AzureAd:ClientSecret" "<entra-app-secret>"
+dotnet user-secrets set "KnowledgeBase:Embeddings:ApiKey" "<your-openai-or-azure-openai-key>"
+```
+
+If `KnowledgeBase__Embeddings__ApiKey` or `BaseUrl` is empty, embeddings reuse `KnowledgeBase__Fallback__*`.
+
+| Setting | Default | Notes |
+|---------|---------|--------|
+| `AzureAd__TenantId` / `ClientId` / `ClientSecret` | (Entra app) | Client-credentials Graph; same pattern as lead-inspection SharePoint import |
+| `KnowledgeBase__Embeddings__Enabled` | `true` | Set `false` to skip vectors (keyword-only) |
+| `KnowledgeBase__Embeddings__BaseUrl` | (inherits Fallback) | OpenAI `https://api.openai.com/v1` or Azure OpenAI resource URL |
+| `KnowledgeBase__Embeddings__Model` | `text-embedding-3-small` | Azure: deployment name when the URL has no deployment segment |
+| `KnowledgeBase__Embeddings__ApiKey` | (inherits Fallback) | Do not commit a real key |
+| `KnowledgeBase__Embeddings__Dimensions` | `768` | Matches typical nomic/pgvector columns; set empty for the model default |
+| `KnowledgeBase__AgentSources__SoftMaxFiles` | `2000` | Automatic ingest ceiling (with SoftMaxBytes) |
+| `KnowledgeBase__AgentSources__SoftMaxBytes` | `2147483648` (2 GB) | |
+| `KnowledgeBase__AgentSources__MediumMaxFiles` | `10000` | Confirm ceiling |
+| `KnowledgeBase__AgentSources__MediumMaxBytes` | `10737418240` (10 GB) | |
+| `KnowledgeBase__AgentSources__MaxFileBytes` | `52428800` (50 MB) | Per-file skip cap |
+| `KnowledgeBase__AgentSources__MaxDepth` | `20` | Recursion safety valve |
+
+API endpoints: `GET /api/kb/sources`, `GET /api/kb/sources/capabilities`, `POST /api/kb/sources/probe`, `POST /api/kb/sources`, `DELETE /api/kb/sources/{id}`, `GET /api/kb/sources/jobs/{id}`
+
+Chat / search APIs: `POST /api/kb/search`, `POST /api/kb/chat`, `POST /api/kb/ingest/upload`, `GET /api/kb/documents`
 
 #### Hosted chat fallback (when the GPU VM / Ollama is down)
 
