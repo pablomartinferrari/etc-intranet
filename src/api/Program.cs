@@ -39,13 +39,20 @@ builder.Services.AddHttpClient<CleatClient>((sp, client) =>
 });
 builder.Services.AddScoped<PipelineService>();
 builder.Services.AddScoped<IFeatureRequestLlm, OllamaFeatureRequestLlm>();
+builder.Services.Configure<FeatureRequestOptions>(
+    builder.Configuration.GetSection(FeatureRequestOptions.SectionName));
 builder.Services.Configure<FeatureRequestSmsOptions>(
     builder.Configuration.GetSection(FeatureRequestSmsOptions.SectionName));
+builder.Services.Configure<FeatureRequestEmailOptions>(
+    builder.Configuration.GetSection(FeatureRequestEmailOptions.SectionName));
 builder.Services.AddHttpClient<IFeatureRequestSmsClient, TwilioFeatureRequestSmsClient>((_, client) =>
 {
     client.BaseAddress = new Uri("https://api.twilio.com/");
     client.Timeout = TimeSpan.FromSeconds(15);
 });
+builder.Services.AddScoped<GraphFeatureRequestEmailClient>();
+builder.Services.AddScoped<SmtpFeatureRequestEmailClient>();
+builder.Services.AddScoped<IFeatureRequestEmailClient, FeatureRequestEmailClient>();
 builder.Services.AddScoped<FeatureRequestService>();
 builder.Services.AddMultifamilyLbp(builder.Configuration);
 builder.Services.AddKnowledgeBase(builder.Configuration);
@@ -320,7 +327,7 @@ app.MapPost("/api/feature-requests", async (
         var created = await features.CreateAsync(
             body.Page ?? string.Empty,
             body.RawText ?? string.Empty,
-            CreatedByFromUser(user),
+            FeatureRequestActor.FromUser(user).CreatedBy,
             cancellationToken,
             body.AreaLabel);
         return Results.Ok(created);
@@ -333,11 +340,19 @@ app.MapPost("/api/feature-requests", async (
     }
 }).RequireAuthorization();
 
+app.MapGet("/api/feature-requests/meta", (
+    FeatureRequestService features,
+    ClaimsPrincipal user) =>
+{
+    return Results.Ok(features.GetMeta(FeatureRequestActor.FromUser(user)));
+}).RequireAuthorization();
+
 app.MapGet("/api/feature-requests", async (
     FeatureRequestService features,
+    ClaimsPrincipal user,
     CancellationToken cancellationToken) =>
 {
-    var items = await features.ListAsync(cancellationToken);
+    var items = await features.ListAsync(FeatureRequestActor.FromUser(user), cancellationToken);
     return Results.Ok(new { items });
 }).RequireAuthorization();
 
@@ -345,16 +360,27 @@ app.MapPatch("/api/feature-requests/{id:int}", async (
     int id,
     UpdateFeatureRequestStatusBody body,
     FeatureRequestService features,
+    ClaimsPrincipal user,
     CancellationToken cancellationToken) =>
 {
     try
     {
-        var updated = await features.UpdateStatusAsync(id, body.Status ?? string.Empty, cancellationToken);
+        var updated = await features.UpdateStatusAsync(
+            id,
+            body.Status ?? string.Empty,
+            FeatureRequestActor.FromUser(user),
+            cancellationToken);
         return updated is null
             ? Results.Json(
                 new { error = "not_found", message = "Feature request not found." },
                 statusCode: StatusCodes.Status404NotFound)
             : Results.Ok(updated);
+    }
+    catch (FeatureRequestException ex)
+    {
+        return Results.Json(
+            new { error = ex.Error, message = ex.Message },
+            statusCode: ex.StatusCode);
     }
     catch (ArgumentException ex)
     {
@@ -423,45 +449,6 @@ app.MapGet("/api/me", [Authorize] (ClaimsPrincipal user) =>
 app.MapFallbackToFile("index.html");
 
 app.Run();
-
-static string CreatedByFromUser(ClaimsPrincipal user)
-{
-    static string? First(ClaimsPrincipal principal, params string[] claimTypes)
-    {
-        foreach (var claimType in claimTypes)
-        {
-            var value = principal.FindFirstValue(claimType);
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                return value;
-            }
-        }
-
-        return null;
-    }
-
-    var email = First(
-        user,
-        "preferred_username",
-        "email",
-        ClaimTypes.Email,
-        "upn",
-        ClaimTypes.Upn,
-        "unique_name");
-    if (string.IsNullOrWhiteSpace(email) && user.Identity?.Name?.Contains('@', StringComparison.Ordinal) == true)
-    {
-        email = user.Identity.Name;
-    }
-
-    var objectId = First(
-        user,
-        "oid",
-        "http://schemas.microsoft.com/identity/claims/objectidentifier",
-        ClaimTypes.NameIdentifier,
-        "sub");
-
-    return email ?? objectId ?? "unknown";
-}
 
 static IResult MapCleatError(Exception ex) => ex switch
 {

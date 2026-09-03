@@ -260,12 +260,14 @@ public class FeatureRequestServiceTests
         Assert.Equal(newer.Id, listed[0].Id);
         Assert.Equal(older.Id, listed[1].Id);
 
-        var updated = await service.UpdateStatusAsync(older.Id, "planned", CancellationToken.None);
-        Assert.Equal("planned", updated!.Status);
-        Assert.Equal("planned", (await service.ListAsync(CancellationToken.None)).Single(row => row.Id == older.Id).Status);
+        var actor = new FeatureRequestActor("approver@etc.example", "oid-1", "Approver");
+        var updated = await service.UpdateStatusAsync(older.Id, "approved", actor, CancellationToken.None);
+        Assert.Equal("approved", updated!.Status);
+        Assert.Equal("approved", (await service.ListAsync(CancellationToken.None)).Single(row => row.Id == older.Id).Status);
 
-        await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.UpdateStatusAsync(older.Id, "shipped", CancellationToken.None));
+        var error = await Assert.ThrowsAsync<FeatureRequestException>(() =>
+            service.UpdateStatusAsync(older.Id, "new", actor, CancellationToken.None));
+        Assert.Equal("invalid_transition", error.Error);
     }
 
     [Fact]

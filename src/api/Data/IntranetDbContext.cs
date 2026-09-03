@@ -54,6 +54,8 @@ public class IntranetDbContext(DbContextOptions<IntranetDbContext> options) : Db
             entity.Property(e => e.AcceptanceCriteria).HasMaxLength(4000);
             entity.Property(e => e.Status).HasMaxLength(32);
             entity.Property(e => e.StructuredBy).HasMaxLength(32);
+            entity.Property(e => e.ReviewedBy).HasMaxLength(320);
+            entity.Property(e => e.ClosedBy).HasMaxLength(320);
             entity.HasIndex(e => e.CreatedAt);
             entity.HasIndex(e => e.Status);
         });
