@@ -1,0 +1,233 @@
+{
+  "suggestedQuestions": [
+    "Where is Chat?",
+    "How do I request a feature?",
+    "What's Bids vs Pipeline?",
+    "How do I sign in?"
+  ],
+  "places": [
+    {
+      "id": "home",
+      "title": "Home",
+      "path": "/",
+      "aliases": [
+        "intranet",
+        "landing",
+        "applications",
+        "apps",
+        "start",
+        "welcome",
+        "home page",
+        "etc intranet"
+      ],
+      "purpose": "Intranet landing page. After Microsoft Entra sign-in it shows four application cards: Chat, Lead, Sales, and Feature Requests. Unsigned visitors only see Sign in with Microsoft.",
+      "commonQuestions": [
+        "What is Home?",
+        "Where is Home?",
+        "How do I get back to applications?",
+        "What apps are on the intranet?"
+      ],
+      "fallbackAnswer": "Home is the intranet landing page. After you sign in with Microsoft you will see Chat, Lead, Sales, and Feature Requests. The ETC logo in the header always returns here."
+    },
+    {
+      "id": "chat",
+      "title": "Chat",
+      "path": "/knowledge",
+      "aliases": [
+        "chatgpt",
+        "knowledge",
+        "kb",
+        "rag",
+        "conversation",
+        "company chatgpt",
+        "knowledge base",
+        "documents",
+        "prompts",
+        "project",
+        "new chat"
+      ],
+      "purpose": "Company ChatGPT / knowledge-base RAG. Create a project, start a chat, upload files, and save prompts. Answers use project documents. Local Ollama is used when the GPU VM is up; otherwise a hosted OpenAI-compatible model when KnowledgeBase Fallback is configured. This is not the floating Help panel.",
+      "commonQuestions": [
+        "Where is Chat?",
+        "Where do I go to create a chat?",
+        "How do I start a new chat?",
+        "Where is the company ChatGPT?",
+        "How do I upload documents to the knowledge base?",
+        "Where are prompts?"
+      ],
+      "fallbackAnswer": "Open Chat from Home (the ChatGPT / knowledge-base card). Create a project with New project if you do not have one, then click New chat. Use Files to upload documents and Prompts to save reusable instructions. Chat is for company documents and Q&A — not this Help guide."
+    },
+    {
+      "id": "lead",
+      "title": "Lead",
+      "path": "/lead-inspection",
+      "aliases": [
+        "lbp",
+        "xrf",
+        "inspection",
+        "job",
+        "jobs",
+        "multifamily",
+        "readings",
+        "grid",
+        "report",
+        "normalize",
+        "lead inspection",
+        "job number"
+      ],
+      "purpose": "Multifamily lead-based paint (LBP) inspection workspace. Look up a job, import XRF workbooks from SharePoint (XRF-SourceFiles library / Lead Inspection Upload web part), review the grid, normalize readings, and generate reports.",
+      "commonQuestions": [
+        "What is Lead?",
+        "Where is lead inspection?",
+        "How do I open a job?",
+        "Where do I import XRF readings?",
+        "How does SharePoint import work for Lead?"
+      ],
+      "fallbackAnswer": "Lead is the multifamily LBP workspace. From Home open Lead, enter a job number, then import XRF files from SharePoint, review the grid, normalize, and generate reports."
+    },
+    {
+      "id": "sales",
+      "title": "Sales",
+      "path": "/sales",
+      "aliases": [
+        "sales hub",
+        "sales home",
+        "sales card"
+      ],
+      "purpose": "Sales hub. Choose Bids (CLEATUS government opportunities) or Pipeline (pursuits and close-outs). This page does not list bids itself.",
+      "commonQuestions": [
+        "Where is Sales?",
+        "What is the Sales hub?",
+        "How do I get to Bids or Pipeline?"
+      ],
+      "fallbackAnswer": "Sales is the hub for Bids and Pipeline. From Home open the Sales card, then choose Bids (CLEATUS opportunities) or Pipeline (pursuits and close-out). Feature Requests is a separate Home card, with a shortcut from Sales."
+    },
+    {
+      "id": "bids",
+      "title": "Bids",
+      "path": "/opportunities",
+      "aliases": [
+        "bid",
+        "opportunities",
+        "opportunity",
+        "cleatus",
+        "government",
+        "recommendations",
+        "sam",
+        "set-aside",
+        "naics"
+      ],
+      "purpose": "Recommended government bids from CLEATUS. This is the opportunity list, not the pursuit board. Filter by search, deadline, NAICS, and set-aside. Default minimum recommendation score is 80. When ETC decides to pursue a bid, it is tracked on Pipeline.",
+      "commonQuestions": [
+        "Where are bids?",
+        "Where is Bids?",
+        "What are bids?",
+        "What is the opportunities list?",
+        "How do I find government opportunities?"
+      ],
+      "fallbackAnswer": "Bids live under Sales. From Home open Sales, then the Bids card. That page lists recommended CLEATUS government opportunities. It is not Pipeline — Pipeline tracks deals ETC is already pursuing."
+    },
+    {
+      "id": "pipeline",
+      "title": "Pipeline",
+      "path": "/pipeline",
+      "aliases": [
+        "pursuit",
+        "pursuits",
+        "closeout",
+        "close-out",
+        "won",
+        "lost",
+        "archived",
+        "triage",
+        "preparing",
+        "submitted",
+        "needs close-out"
+      ],
+      "purpose": "Pursuits ETC is already working. Phases are triage, preparing, submitted, won, lost, and archived. Close-out records why a pursuit was won, lost, or dropped. Needs close-out highlights overdue items. This is not the Bids opportunity list.",
+      "commonQuestions": [
+        "What is Pipeline?",
+        "What are pursuits?",
+        "Where is close-out?",
+        "What do triage, preparing, and submitted mean?",
+        "What's Pipeline vs Bids?"
+      ],
+      "fallbackAnswer": "Pipeline is the pursuit board: jobs ETC is already working, with phases triage / preparing / submitted / won / lost / archived, plus close-out. It is not Bids, which lists new CLEATUS opportunities. Open Sales first if you are not sure which you need."
+    },
+    {
+      "id": "requests",
+      "title": "Feature Requests",
+      "path": "/requests",
+      "aliases": [
+        "request",
+        "requests",
+        "feature",
+        "ticket",
+        "inbox",
+        "change",
+        "feedback",
+        "feature request",
+        "suggest",
+        "planned",
+        "done",
+        "queue"
+      ],
+      "purpose": "Queue of intranet improvement ideas stored in Postgres. New notes can be structured by an optional local model; they still save if that model is down. Reviewers mark a row new → planned → done. Planned means it was picked up. Done means the work finished. New is the default just after capture. Areas include Chat, Lead, Sales, General, and Other.",
+      "commonQuestions": [
+        "How do I request a feature?",
+        "How do I submit a feature request?",
+        "Where is the requests queue?",
+        "What do new, planned, and done mean?",
+        "How do I mark a request planned or done?"
+      ],
+      "fallbackAnswer": "Open the Feature Requests card on Home (or Requests from Sales). Use Add feature request, pick Chat / Lead / Sales / General / Other, and write a note. The queue statuses are new (just captured), planned (picked up), and done (finished). Change status on a row in that same page."
+    },
+    {
+      "id": "help",
+      "title": "Help",
+      "path": "",
+      "aliases": [
+        "help agent",
+        "side panel",
+        "guide",
+        "this panel",
+        "help button",
+        "intranet help"
+      ],
+      "purpose": "Short in-app guide for finding intranet apps. It answers from an AI model grounded only on this curated map (Ollama when healthy, else the same hosted KnowledgeBase Fallback chat as company Chat), or from map scoring when no model is available. It does not search Chat documents and is not company ChatGPT.",
+      "commonQuestions": [
+        "What is this Help panel?",
+        "How does Help work?",
+        "Is Help the same as Chat?",
+        "Where is the Help button?"
+      ],
+      "fallbackAnswer": "Help is this side panel (the floating Help button), not Chat. It only knows the intranet map: Home, Chat, Lead, Sales, Bids, Pipeline, Feature Requests, and sign-in. Chat is the knowledge-base ChatGPT under the Chat card on Home."
+    },
+    {
+      "id": "signin",
+      "title": "Sign in",
+      "path": "/",
+      "aliases": [
+        "sign in",
+        "signin",
+        "login",
+        "log in",
+        "microsoft",
+        "entra",
+        "azure ad",
+        "sso",
+        "authentication",
+        "work account",
+        "sign-in"
+      ],
+      "purpose": "Gates every intranet app. Use your Microsoft work account (Entra ID / Azure AD). The Help button appears only after sign-in. API calls use the same Entra access token.",
+      "commonQuestions": [
+        "How do I sign in?",
+        "How do I log in?",
+        "How does Microsoft Entra sign-in work?",
+        "Where is Sign in with Microsoft?"
+      ],
+      "fallbackAnswer": "Sign in on Home with Sign in with Microsoft (Entra ID / your work account). After the redirect you land on Home or a saved deep link such as a Lead job. The Help button and application cards appear only once you are signed in."
+    }
+  ]
+}

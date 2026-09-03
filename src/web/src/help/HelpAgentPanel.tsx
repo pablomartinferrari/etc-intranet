@@ -15,7 +15,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { askHelp, type HelpAskResponse } from "./api";
-import { SUGGESTED_HELP_QUESTIONS } from "./intranetMap";
+import { SUGGESTED_HELP_QUESTIONS, helpAnswerSourceLabel } from "./intranetMap";
 
 type Exchange = {
   question: string;
@@ -102,7 +102,8 @@ export function HelpAgentPanel({
         <SheetHeader>
           <SheetTitle>Intranet help</SheetTitle>
           <SheetDescription>
-            Ask where to go. Answers stay on the real Home apps — Chat, Lead, and Sales.
+            Ask where to go. Answers use the intranet map — AI when a model is
+            available, otherwise map matching.
           </SheetDescription>
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-2">
@@ -149,9 +150,7 @@ export function HelpAgentPanel({
                   </div>
                 )}
                 <p className="text-[11px] leading-4 text-muted-foreground">
-                  {exchange.result.source === "llm"
-                    ? "Answered with the intranet map as context."
-                    : "Answered from the intranet map."}
+                  {helpAnswerSourceLabel(exchange.result)}
                 </p>
               </div>
               <Button

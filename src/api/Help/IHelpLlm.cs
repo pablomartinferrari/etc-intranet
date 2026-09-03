@@ -6,7 +6,7 @@ namespace Intranet.Api.Help;
 /// </summary>
 public interface IHelpLlm
 {
-    Task<string?> ChatAsync(
+    Task<HelpLlmTurn?> ChatAsync(
         string systemPrompt,
         string userPrompt,
         CancellationToken cancellationToken);
