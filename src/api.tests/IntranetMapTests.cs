@@ -15,6 +15,9 @@ public class IntranetMapTests
     [InlineData("how do I sign in with Microsoft?", "signin")]
     [InlineData("what is this Help panel?", "help")]
     [InlineData("where is the sales hub?", "sales")]
+    [InlineData("add knowledge", "agent-sources")]
+    [InlineData("connect sharepoint", "agent-sources")]
+    [InlineData("add sharepoint folder", "chat")]
     public void RankPutsExpectedPlaceFirst(string question, string placeId)
     {
         var ranked = IntranetMap.Rank(question);
