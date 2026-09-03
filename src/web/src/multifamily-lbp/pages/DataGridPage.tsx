@@ -125,10 +125,10 @@ export function DataGridPage(): React.JSX.Element {
       </p>
 
       <div className="mb-4 flex flex-wrap items-end gap-4 rounded-md border bg-card p-4">
-        <div className="grid min-w-[180px] gap-1.5">
+        <div className="grid w-full min-w-0 gap-1.5 sm:w-auto sm:min-w-[180px]">
           <Label>Data type</Label>
           <Select value={dataType || "all"} onValueChange={(v) => setDataType(v === "all" ? "" : v)}>
-            <SelectTrigger className="min-w-[180px]">
+            <SelectTrigger className="w-full sm:min-w-[180px]">
               <SelectValue placeholder="All types" />
             </SelectTrigger>
             <SelectContent>
@@ -140,13 +140,13 @@ export function DataGridPage(): React.JSX.Element {
             </SelectContent>
           </Select>
         </div>
-        <div className="grid min-w-[180px] gap-1.5">
+        <div className="grid w-full min-w-0 gap-1.5 sm:w-auto sm:min-w-[180px]">
           <Label>Result</Label>
           <Select
             value={resultFilter || "all-results"}
             onValueChange={(v) => setResultFilter(v === "all-results" ? "" : v)}
           >
-            <SelectTrigger className="min-w-[180px]">
+            <SelectTrigger className="w-full sm:min-w-[180px]">
               <SelectValue placeholder="All results" />
             </SelectTrigger>
             <SelectContent>
@@ -158,7 +158,7 @@ export function DataGridPage(): React.JSX.Element {
             </SelectContent>
           </Select>
         </div>
-        <div className="grid min-w-[180px] gap-1.5">
+        <div className="grid w-full min-w-0 gap-1.5 sm:w-auto sm:min-w-[180px]">
           <Label>Search</Label>
           <Input
             value={search}

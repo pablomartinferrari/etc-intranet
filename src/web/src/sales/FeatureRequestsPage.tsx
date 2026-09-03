@@ -92,13 +92,13 @@ function FeatureRequestsPage() {
   return (
     <div className="flex min-h-svh flex-col bg-muted/40">
       <BrandBar actions={<SignOutButton outlineOnBlack />} />
-      <div className="flex flex-col gap-3 border-b bg-background px-6 py-4">
+      <div className="flex flex-col gap-3 border-b bg-background px-4 py-3 md:px-6 md:py-4">
         <PageBreadcrumb items={[{ label: "Home", to: "/" }, { label: "Feature Requests" }]} />
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <InboxIcon className="size-7" />
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Feature Requests</h1>
+          <div className="flex min-w-0 items-center gap-3">
+            <InboxIcon className="size-7 shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold tracking-tight md:text-2xl">Feature Requests</h1>
               <p className="text-sm text-muted-foreground">
                 Suggest intranet improvements and review the queue.
               </p>
@@ -110,7 +110,7 @@ function FeatureRequestsPage() {
           </Button>
         </div>
       </div>
-      <main className="mx-auto grid w-full max-w-[1100px] flex-1 gap-4 px-5 py-8 pb-14">
+      <main className="mx-auto grid w-full max-w-[1100px] flex-1 gap-4 px-4 py-6 pb-24 md:px-5 md:py-8 md:pb-14">
         <PageExplainer title="Feature Requests">
           <p>
             Notes staff left from Home for any intranet topic — Chat, Lead, Sales, General,
@@ -189,7 +189,7 @@ function FeatureRequestsPage() {
       />
 
       <Sheet open={selected !== null} onOpenChange={(open) => !open && setSelected(null)}>
-        <SheetContent className="sm:max-w-lg" side="right">
+        <SheetContent className="w-full sm:max-w-lg" side="right">
           {selected && (
             <>
               <SheetHeader>
@@ -212,7 +212,7 @@ function FeatureRequestsPage() {
                       }
                     }}
                   >
-                    <SelectTrigger className="w-48">
+                    <SelectTrigger className="w-full max-w-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

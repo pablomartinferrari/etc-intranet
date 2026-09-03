@@ -99,7 +99,7 @@ function ShotsGrid(props: { readings: XrfReading[]; areaType: AreaType }): React
         </FieldSmall>
         <FieldSmall label="Result">
           <Select value={filterResult} onValueChange={setFilterResult}>
-            <SelectTrigger className="min-w-[140px]">
+            <SelectTrigger className="w-full sm:min-w-[140px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -111,7 +111,7 @@ function ShotsGrid(props: { readings: XrfReading[]; areaType: AreaType }): React
         </FieldSmall>
         <FieldSmall label="Side">
           <Select value={filterSide} onValueChange={setFilterSide}>
-            <SelectTrigger className="min-w-[140px]">
+            <SelectTrigger className="w-full sm:min-w-[140px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -125,7 +125,7 @@ function ShotsGrid(props: { readings: XrfReading[]; areaType: AreaType }): React
           </Select>
         </FieldSmall>
       </div>
-      <div className="mb-4 flex gap-8 rounded-md bg-muted p-4">
+      <div className="mb-4 flex flex-wrap gap-4 rounded-md bg-muted p-4">
         <div>
           <p className="text-xs text-muted-foreground">Total shots</p>
           <p className="text-3xl font-bold">{stats.total}</p>
@@ -195,7 +195,7 @@ function ShotsGrid(props: { readings: XrfReading[]; areaType: AreaType }): React
 
 function FieldSmall(props: { label: string; children: ReactNode }): React.JSX.Element {
   return (
-    <div className="grid min-w-[140px] gap-1.5">
+    <div className="grid w-full min-w-0 gap-1.5 sm:w-auto sm:min-w-[140px]">
       <Label>{props.label}</Label>
       {props.children}
     </div>

@@ -99,7 +99,7 @@ export function RequestChangeSheet({
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
-      <SheetContent className="sm:max-w-lg" side="right">
+      <SheetContent className="w-full sm:max-w-lg" side="right">
         <SheetHeader>
           <SheetTitle>{saved ? "Request captured" : "New request"}</SheetTitle>
           <SheetDescription>
@@ -130,7 +130,7 @@ export function RequestChangeSheet({
                   {FEATURE_REQUEST_AREAS.map((area) => (
                     <label
                       key={area.value}
-                      className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm"
+                      className="flex min-h-11 items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm"
                     >
                       <RadioGroupItem value={area.value} />
                       {area.label}

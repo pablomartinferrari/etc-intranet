@@ -143,7 +143,7 @@ export function OpportunitiesPage() {
   }
 
   return (
-    <main className="mx-auto grid w-full max-w-[1100px] gap-4 px-5 py-8 pb-14">
+    <main className="mx-auto grid w-full max-w-[1100px] gap-4 px-4 py-6 pb-24 md:px-5 md:py-8 md:pb-14">
       <PageExplainer title="Bids">
         <p>
           Live list from CLEATUS, loaded when you open the page (score ≥ 80 by
