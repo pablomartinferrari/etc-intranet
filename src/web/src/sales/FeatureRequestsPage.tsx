@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
-import { HomeIcon, InboxIcon } from "lucide-react";
-import { Link as RouterLink } from "react-router-dom";
+import { InboxIcon } from "lucide-react";
 
 import { BrandBar, SignOutButton } from "@/components/brand-bar";
+import { PageBreadcrumb } from "@/components/page-breadcrumb";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -86,7 +85,8 @@ function FeatureRequestsPage() {
   return (
     <div className="flex min-h-svh flex-col bg-muted/40">
       <BrandBar actions={<SignOutButton outlineOnBlack />} />
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b bg-background px-6 py-4">
+      <div className="flex flex-col gap-3 border-b bg-background px-6 py-4">
+        <PageBreadcrumb items={[{ label: "Home", to: "/" }, { label: "Requests" }]} />
         <div className="flex items-center gap-3">
           <InboxIcon className="size-7" />
           <div>
@@ -95,17 +95,6 @@ function FeatureRequestsPage() {
               Feature notes from Chat, Lead, Sales, and General.
             </p>
           </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="ghost" asChild>
-            <RouterLink to="/">
-              <HomeIcon />
-              Home
-            </RouterLink>
-          </Button>
-          <Button variant="ghost" asChild>
-            <RouterLink to="/sales">Sales</RouterLink>
-          </Button>
         </div>
       </div>
       <main className="mx-auto grid w-full max-w-[1100px] flex-1 gap-4 px-5 py-8 pb-14">
