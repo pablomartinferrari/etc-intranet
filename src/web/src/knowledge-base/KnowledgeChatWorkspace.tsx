@@ -49,6 +49,7 @@ import {
   type Prompt,
   type UploadQueueItem,
 } from "./api/knowledge";
+import { AddSharePointFolderButton } from "./AddSharePointFolderSheet";
 import { AgentSourcesChatLink } from "./AgentSourcesPage";
 import { FileTypeIcon, fileKindFromFormat, fileKindFromName } from "./fileTypeIcon";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -571,8 +572,9 @@ export default function KnowledgeChatWorkspace() {
                     Focused on one file — clear
                   </Button>
                 )}
-                <Button variant="outline" size="sm" asChild>
-                  <RouterLink to="/knowledge/sources">Add to Chat context</RouterLink>
+                <AddSharePointFolderButton size="sm">Add SharePoint folder</AddSharePointFolderButton>
+                <Button variant="ghost" size="sm" asChild>
+                  <RouterLink to="/knowledge/sources">Manage sources</RouterLink>
                 </Button>
               </div>
             </header>
@@ -594,9 +596,19 @@ export default function KnowledgeChatWorkspace() {
                     </span>
                   )}
                   {!hasReadyDocs && (
-                    <Button variant="outline" onClick={() => setPanelTab("files")}>
-                      Go to Files
-                    </Button>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Button variant="outline" onClick={() => setPanelTab("files")}>
+                        Go to Files
+                      </Button>
+                      <AddSharePointFolderButton variant="outline">
+                        Add SharePoint folder
+                      </AddSharePointFolderButton>
+                    </div>
+                  )}
+                  {hasReadyDocs && (
+                    <AddSharePointFolderButton variant="outline" size="sm">
+                      Add SharePoint folder
+                    </AddSharePointFolderButton>
                   )}
                   {(promptsQuery.data ?? []).length > 0 && canChat && (
                     <div className="mt-2 flex flex-col gap-2">
@@ -669,13 +681,17 @@ export default function KnowledgeChatWorkspace() {
                     }
                   }}
                 />
-                <Button
-                  className="self-end"
-                  disabled={!canChat || !input.trim() || chatMutation.isPending}
-                  onClick={sendMessage}
-                >
-                  Send
-                </Button>
+                <div className="flex items-center justify-between gap-2">
+                  <AddSharePointFolderButton variant="ghost" size="sm">
+                    Add SharePoint folder
+                  </AddSharePointFolderButton>
+                  <Button
+                    disabled={!canChat || !input.trim() || chatMutation.isPending}
+                    onClick={sendMessage}
+                  >
+                    Send
+                  </Button>
+                </div>
               </div>
             </footer>
           </main>

@@ -77,7 +77,7 @@ const PLACES: Place[] = [
     path: "/knowledge/sources",
     keywords: ["sources", "sharepoint", "knowledge", "context", "ingest", "folder"],
     answer:
-      "Add SharePoint folders to Chat from Agent sources. Open Chat, then Add to Chat context. Paste a site URL and folder path, review the size estimate, and connect.",
+      "In Chat, click Add SharePoint folder (Help has the same button). Paste a site URL and folder path, review the size estimate, and connect. Manage connected folders from Manage sources.",
   },
 ];
 

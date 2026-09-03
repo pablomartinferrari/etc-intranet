@@ -15,6 +15,8 @@ public class HelpAskServiceTests
     [InlineData("lead inspection", "/lead-inspection", "Lead")]
     [InlineData("add knowledge", "/knowledge/sources", "Agent sources")]
     [InlineData("connect sharepoint", "/knowledge/sources", "Agent sources")]
+    [InlineData("index this SharePoint folder", "/knowledge", "Chat")]
+    [InlineData("add sharepoint folder", "/knowledge", "Chat")]
     public async Task MapAnswersKnownNavigationQuestions(string question, string path, string label)
     {
         var service = CreateService(new NullLlm());

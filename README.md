@@ -112,10 +112,10 @@ Local stack uses a **separate Postgres** (pgvector) in the sibling [`etc-kg`](..
 
 | Route | Purpose |
 |-------|---------|
-| `/knowledge` | Semantic search, chat Q&A, file upload, document list |
-| `/knowledge/sources` | **Agent sources** — connect a SharePoint folder so Chat can use those documents |
+| `/knowledge` | Semantic search, chat Q&A, file upload, document list. **Add SharePoint folder** opens a sheet in Chat (also in Help). |
+| `/knowledge/sources` | **Manage sources** — job status and disconnect for connected SharePoint folders |
 
-Anyone signed in can add a SharePoint folder (not sales-only). Paste a site URL and folder path, review a Graph probe (file count, size, depth, sample types), then connect:
+Anyone signed in can add a SharePoint folder (not sales-only). In **Chat**, click **Add SharePoint folder** (the same action is in **Help**) to paste a site URL and folder path, review a Graph probe (file count, size, depth, sample types), then connect. **Manage sources** (`/knowledge/sources`) lists jobs and disconnect.
 
 | Probe size | What happens |
 |------------|----------------|
