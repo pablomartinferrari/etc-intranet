@@ -124,9 +124,12 @@ Signed-in Home shows three **Applications** cards, in this order: **Chat**, **Le
 
 Staff open Bids and Pipeline from `/sales` (after Entra sign-in) to review CLEATUS-recommended SAM.gov/SLED bids and the live pursuit pipeline without opening CLEATUS first. Page-load fetch only; no webhooks; no API key in the repo. Win/loss/drop **reasons live in Postgres**, not in CLEATUS.
 
+Sales, Bids, and Pipeline each have a short explainer (what the page is and which data lives in CLEATUS vs intranet Postgres) and a **Request a change** control. Notes are structured with the Knowledge Base Ollama model when it is up, otherwise saved as written. Pablo reviews them at `/sales/requests`.
+
 | Route | Purpose |
 |-------|---------|
-| `/sales` | Sales hub — Bids and Pipeline cards |
+| `/sales` | Sales hub — Bids and Pipeline cards, plus Requests |
+| `/sales/requests` | Feature notes from Sales/Bids/Pipeline (status: new / planned / done) |
 | `/opportunities` | Recommended bids table + detail drawer |
 | `/pipeline` | Pursued / won / lost list, needs close-out, close-out form |
 
@@ -259,6 +262,9 @@ Roughly **$20–35/month** (B1 App Service + B1ms PostgreSQL, no App Insights/Lo
 | `GET /api/cleat/opportunities/{id}` | Opportunity detail from CLEATUS. Same missing-key 503. Requires Entra. |
 | `GET /api/cleat/pipeline` | Pipeline dashboard (active / won / archived) plus local close-out reasons. Same missing-key 503. Requires Entra. |
 | `POST /api/cleat/pursuits/{id}/close-out` | Save win/loss/drop reason in `PursuitCloseouts`, then PATCH CLEATUS (`column_id` Won/Lost or `archived`). Failed CLEATUS write keeps the local reason and returns 503/502 with `cleatusUpdated: false`. Requires Entra. |
+| `POST /api/feature-requests` | Capture a Sales/Bids/Pipeline change request. Structures via Knowledge Base Ollama when available; otherwise a deterministic fallback. Always persists to `FeatureRequests`. Requires Entra. |
+| `GET /api/feature-requests` | List feature requests, newest first. Requires Entra. |
+| `PATCH /api/feature-requests/{id}` | Set status to `new`, `planned`, or `done`. Requires Entra. |
 
 ## SharePoint SSO with Entra ID
 

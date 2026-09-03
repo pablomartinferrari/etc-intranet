@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PageExplainer } from "../../sales/PageExplainer";
 import {
   CleatApiError,
   fetchOpportunity,
@@ -90,13 +91,16 @@ export function OpportunitiesPage() {
 
   return (
     <main className="mx-auto grid w-full max-w-[1100px] gap-4 px-5 py-8 pb-14">
-      <header>
-        <p className="text-muted-foreground">
-          Recommended SAM.gov and SLED bids from CLEATUS, scored against ETC&apos;s
-          capture profile. This page loads on open (no webhooks) and does not
-          store CLEATUS data locally.
+      <PageExplainer title="Bids">
+        <p>
+          Live list from CLEATUS, loaded when you open the page (score ≥ 80 by
+          default). Not stored in the intranet DB.
         </p>
-      </header>
+        <p>
+          Open a row for detail; Open in CLEATUS for the full breakdown. A missing
+          API key shows a clear setup message.
+        </p>
+      </PageExplainer>
 
       {loading && <Spinner label="Loading recommended opportunities..." />}
 
