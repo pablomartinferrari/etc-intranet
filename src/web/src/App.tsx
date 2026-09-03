@@ -11,6 +11,7 @@ import {
   CleatusOpportunitiesRoute,
   CleatusPipelineRoute,
 } from "./cleatus/CleatusRoutes";
+import { FeatureRequestsRoute } from "./sales/FeatureRequestsPage";
 import { SalesHubRoute } from "./sales/SalesHubPage";
 import { ApiAuthBridge } from "./multifamily-lbp/api/ApiAuthBridge";
 import {
@@ -216,6 +217,7 @@ export default function App() {
               <Route path="/" element={<IntranetHome />} />
               <Route path="/knowledge/*" element={<KnowledgeRoutes />} />
               <Route path="/sales" element={<SalesHubRoute />} />
+              <Route path="/sales/requests" element={<FeatureRequestsRoute />} />
               <Route path="/opportunities" element={<CleatusOpportunitiesRoute />} />
               <Route path="/pipeline" element={<CleatusPipelineRoute />} />
               <Route path="/*" element={<MultifamilyRoutes />} />

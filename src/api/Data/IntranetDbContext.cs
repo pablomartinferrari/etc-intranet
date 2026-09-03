@@ -9,6 +9,8 @@ public class IntranetDbContext(DbContextOptions<IntranetDbContext> options) : Db
 
     public DbSet<PursuitCloseout> PursuitCloseouts => Set<PursuitCloseout>();
 
+    public DbSet<FeatureRequest> FeatureRequests => Set<FeatureRequest>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<SiteMessage>(entity =>
@@ -29,6 +31,23 @@ public class IntranetDbContext(DbContextOptions<IntranetDbContext> options) : Db
             entity.Property(e => e.Note).HasMaxLength(2000);
             entity.HasIndex(e => e.PursuitId).IsUnique();
             entity.HasIndex(e => e.UpdatedAt);
+        });
+
+        modelBuilder.Entity<FeatureRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Page).HasMaxLength(32);
+            entity.Property(e => e.CreatedBy).HasMaxLength(320);
+            entity.Property(e => e.RawText).HasMaxLength(8000);
+            entity.Property(e => e.Title).HasMaxLength(200);
+            entity.Property(e => e.Problem).HasMaxLength(4000);
+            entity.Property(e => e.DesiredBehavior).HasMaxLength(4000);
+            entity.Property(e => e.DataInvolved).HasMaxLength(4000);
+            entity.Property(e => e.AcceptanceCriteria).HasMaxLength(4000);
+            entity.Property(e => e.Status).HasMaxLength(32);
+            entity.Property(e => e.StructuredBy).HasMaxLength(32);
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => e.Status);
         });
     }
 }

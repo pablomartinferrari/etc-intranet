@@ -30,6 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { PageExplainer } from "../../sales/PageExplainer";
 import {
   CleatApiError,
   CloseoutSyncError,
@@ -107,16 +108,17 @@ export function PipelinePage() {
 
   return (
     <main className="mx-auto grid w-full max-w-[1100px] gap-4 px-5 py-8 pb-14">
-      <header>
-        <p className="text-muted-foreground">
-          Pursuits from CLEATUS, loaded on page open. Close-out reasons (why we
-          won, lost, or stopped) are stored in the intranet database — CLEATUS
-          has no win/loss-reason field. Needs close-out: past deadline, or
-          triage/preparing/submitted with no movement for 21 days when an
-          updated-at exists. If CLEATUS does not send last activity, rows
-          without a deadline are flagged so they do not hide.
+      <PageExplainer title="Pipeline">
+        <p>
+          Pursuits from CLEATUS (triage / preparing / submitted / won / lost /
+          archived). Needs close-out is overdue (past deadline, or no deadline on
+          file).
         </p>
-      </header>
+        <p>
+          When someone closes won/lost/dropped, the reason is stored here in
+          Postgres; CLEATUS only gets the board/archive change.
+        </p>
+      </PageExplainer>
 
       {loading && <Spinner label="Loading pipeline..." />}
 
