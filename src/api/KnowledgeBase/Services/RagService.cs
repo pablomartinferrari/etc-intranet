@@ -12,29 +12,32 @@ namespace Intranet.Api.KnowledgeBase.Services;
 public sealed class RagService
 {
     private readonly SemanticSearchService _search;
-    private readonly OllamaClient _ollama;
+    private readonly ChatCompletionRouter _chat;
     private readonly WebSearchService _webSearch;
     private readonly ChatSearchRouter _router;
     private readonly ChatExportService _export;
     private readonly KnowledgeDbContext _db;
     private readonly KnowledgeBaseOptions _options;
+    private readonly ILogger<RagService> _logger;
 
     public RagService(
         SemanticSearchService search,
-        OllamaClient ollama,
+        ChatCompletionRouter chat,
         WebSearchService webSearch,
         ChatSearchRouter router,
         ChatExportService export,
         KnowledgeDbContext db,
-        IOptions<KnowledgeBaseOptions> options)
+        IOptions<KnowledgeBaseOptions> options,
+        ILogger<RagService> logger)
     {
         _search = search;
-        _ollama = ollama;
+        _chat = chat;
         _webSearch = webSearch;
         _router = router;
         _export = export;
         _db = db;
         _options = options.Value;
+        _logger = logger;
     }
 
     public ChatCapabilitiesDto GetCapabilities() =>
@@ -59,14 +62,23 @@ public sealed class RagService
             cancellationToken);
 
         var useDocuments = !string.Equals(request.SearchMode, "web", StringComparison.OrdinalIgnoreCase);
-        var chunks = useDocuments
-            ? await _search.RetrieveChunksAsync(
-                request.Query,
-                _options.ChatTopK,
-                request.DocumentId,
-                request.ProjectId,
-                cancellationToken)
-            : [];
+        IReadOnlyList<(Guid ChunkId, Guid DocumentId, string Title, string? SourceUri, string Text, double Score)> chunks = [];
+        if (useDocuments)
+        {
+            try
+            {
+                chunks = await _search.RetrieveChunksAsync(
+                    request.Query,
+                    _options.ChatTopK,
+                    request.DocumentId,
+                    request.ProjectId,
+                    cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "KB retrieval failed; continuing without document context.");
+            }
+        }
 
         var bestDocScore = chunks.Count > 0 ? chunks.Max(c => c.Score) : 0;
         var resolved = _router.Resolve(request.SearchMode, chunks.Count > 0, bestDocScore);
@@ -77,7 +89,7 @@ public sealed class RagService
                 "Web search is not configured on the server. " +
                 "Set WebSearch:Enabled and WebSearch:ApiKey (Tavily) in API settings, or use document search.";
             await SaveMessageAsync(session.Id, "user", request.Query, null, cancellationToken: cancellationToken);
-            await SaveMessageAsync(session.Id, "assistant", webDisabled, [], cancellationToken: cancellationToken);
+            await SaveMessageAsync(session.Id, "assistant", webDisabled, [], null, cancellationToken);
             await TouchSessionAsync(session, cancellationToken);
             return new ChatResponseDto(session.Id, webDisabled, [], "none", []);
         }
@@ -94,7 +106,7 @@ public sealed class RagService
                 "I could not find relevant project documents or web results for that question. " +
                 "Try uploading files, enabling web search, or rephrasing your query.";
             await SaveMessageAsync(session.Id, "user", request.Query, null, cancellationToken: cancellationToken);
-            await SaveMessageAsync(session.Id, "assistant", noContextAnswer, [], cancellationToken: cancellationToken);
+            await SaveMessageAsync(session.Id, "assistant", noContextAnswer, [], null, cancellationToken);
             await TouchSessionAsync(session, cancellationToken);
             return new ChatResponseDto(session.Id, noContextAnswer, [], "none", []);
         }
@@ -129,8 +141,9 @@ public sealed class RagService
                     "assistant",
                     built.Answer,
                     citations,
-                    assistantId,
-                    cancellationToken);
+                    generation: null,
+                    cancellationToken,
+                    assistantId);
 
                 var attachment = await _export.SaveExportAsync(
                     built,
@@ -148,7 +161,7 @@ public sealed class RagService
                 var failAnswer =
                     $"I could not generate the {ChatExportIntent.FormatLabel(exportFormat.Value)} file: {ex.Message}. " +
                     "Try asking for a simpler table or document, or rephrase your request.";
-                await SaveMessageAsync(session.Id, "assistant", failAnswer, citations, cancellationToken: cancellationToken);
+                await SaveMessageAsync(session.Id, "assistant", failAnswer, citations, null, cancellationToken);
                 await TouchSessionAsync(session, cancellationToken);
                 return new ChatResponseDto(session.Id, failAnswer, citations, sourcesUsed, []);
             }
@@ -161,12 +174,33 @@ public sealed class RagService
             Question: {request.Query}
             """;
 
-        var answer = await _ollama.ChatAsync(systemPrompt, userPrompt, cancellationToken);
+        ChatCompletionResult generated;
+        try
+        {
+            generated = await _chat.CompleteAsync(systemPrompt, userPrompt, cancellationToken);
+        }
+        catch (ChatUnavailableException ex)
+        {
+            _logger.LogWarning("KB chat unavailable: {Message}", ex.Message);
+            await SaveMessageAsync(session.Id, "assistant", ex.Message, citations, null, cancellationToken);
+            await TouchSessionAsync(session, cancellationToken);
+            return new ChatResponseDto(session.Id, ex.Message, citations, sourcesUsed, []);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "KB chat generation failed unexpectedly.");
+            const string failAnswer =
+                "Chat could not generate an answer just now. Please try again in a moment.";
+            await SaveMessageAsync(session.Id, "assistant", failAnswer, citations, null, cancellationToken);
+            await TouchSessionAsync(session, cancellationToken);
+            return new ChatResponseDto(session.Id, failAnswer, citations, sourcesUsed, []);
+        }
 
-        await SaveMessageAsync(session.Id, "assistant", answer, citations, cancellationToken: cancellationToken);
+        var generation = new ChatGenerationDto(generated.Provider, generated.Model, generated.IsFallback);
+        await SaveMessageAsync(session.Id, "assistant", generated.Content, citations, generation, cancellationToken);
         await TouchSessionAsync(session, cancellationToken);
 
-        return new ChatResponseDto(session.Id, answer, citations, sourcesUsed, []);
+        return new ChatResponseDto(session.Id, generated.Content, citations, sourcesUsed, [], generation);
     }
 
     private static IReadOnlyList<CitationDto> BuildCitations(
@@ -330,8 +364,9 @@ public sealed class RagService
         string role,
         string content,
         IReadOnlyList<CitationDto>? citations,
-        Guid? messageId = null,
-        CancellationToken cancellationToken = default)
+        ChatGenerationDto? generation = null,
+        CancellationToken cancellationToken = default,
+        Guid? messageId = null)
     {
         var id = messageId ?? Guid.NewGuid();
         _db.ChatMessages.Add(new KbChatMessage
@@ -340,12 +375,47 @@ public sealed class RagService
             SessionId = sessionId,
             Role = role,
             Content = content,
-            CitationsJson = citations is null ? null : JsonSerializer.Serialize(citations),
+            CitationsJson = SerializeMessagePayload(citations, generation),
             CreatedAt = DateTimeOffset.UtcNow,
         });
         await _db.SaveChangesAsync(cancellationToken);
         return id;
     }
+
+    public static string? SerializeMessagePayload(
+        IReadOnlyList<CitationDto>? citations,
+        ChatGenerationDto? generation)
+    {
+        if (citations is null && generation is null)
+        {
+            return null;
+        }
+
+        return JsonSerializer.Serialize(new ChatMessageStorePayload(citations, generation));
+    }
+
+    public static (IReadOnlyList<CitationDto>? Citations, ChatGenerationDto? Generation) ParseMessagePayload(
+        string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return (null, null);
+        }
+
+        var trimmed = json.TrimStart();
+        if (trimmed.StartsWith('['))
+        {
+            var list = JsonSerializer.Deserialize<List<CitationDto>>(json);
+            return (list, null);
+        }
+
+        var payload = JsonSerializer.Deserialize<ChatMessageStorePayload>(json);
+        return (payload?.Citations, payload?.Generation);
+    }
+
+    private sealed record ChatMessageStorePayload(
+        IReadOnlyList<CitationDto>? Citations,
+        ChatGenerationDto? Generation);
 
     private static string Truncate(string text, int max) =>
         text.Length <= max ? text : text[..max] + "...";

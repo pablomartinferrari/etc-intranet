@@ -2,6 +2,7 @@ using Intranet.Api.KnowledgeBase.Data;
 using Intranet.Api.KnowledgeBase.Options;
 using Intranet.Api.KnowledgeBase.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace Intranet.Api.KnowledgeBase;
@@ -39,11 +40,26 @@ public static class KnowledgeBaseServiceExtensions
 
         services.Configure<WebSearchOptions>(configuration.GetSection(WebSearchOptions.SectionName));
 
+        // Ollama chat/embed uses the HttpClient default (100s). A deallocated GPU VM
+        // does not fail fast, so generation must not wait on this client for health.
         services.AddHttpClient<OllamaClient>();
+        services.AddHttpClient<OllamaHealthProbe>(client =>
+        {
+            client.Timeout = OllamaHealthProbe.ProbeTimeout;
+        });
+        services.AddSingleton<IOllamaHealthProbe>(sp =>
+            sp.GetRequiredService<OllamaHealthProbe>());
+        services.AddHttpClient<OpenAiCompatibleChatClient>((sp, client) =>
+        {
+            var fallback = sp.GetRequiredService<IOptions<KnowledgeBaseOptions>>().Value.Fallback;
+            var seconds = fallback.TimeoutSeconds > 0 ? fallback.TimeoutSeconds : 30;
+            client.Timeout = TimeSpan.FromSeconds(seconds);
+        });
         services.AddHttpClient<WebSearchService>();
         services.AddScoped<SemanticSearchService>();
         services.AddScoped<WebSearchService>();
         services.AddScoped<ChatSearchRouter>();
+        services.AddScoped<ChatCompletionRouter>();
         services.AddScoped<ChatExportService>();
         services.AddScoped<RagService>();
         services.AddScoped<KnowledgeUploadStaging>();

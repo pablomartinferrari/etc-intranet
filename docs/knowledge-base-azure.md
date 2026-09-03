@@ -219,6 +219,9 @@ az webapp log tail --resource-group rg-intranet-dev --name <webapp-name>
 |---------|--------|
 | `ConnectionStrings__KnowledgeDb` | App Service |
 | `KnowledgeBase__OllamaBaseUrl` | App Service → VM |
+| `KnowledgeBase__Fallback__ApiKey` | App Service or Key Vault — activates hosted chat when the GPU VM is down |
+| `KnowledgeBase__Fallback__BaseUrl` | Optional; default `https://api.openai.com/v1` (Azure OpenAI resource URL also works) |
+| `KnowledgeBase__Fallback__Model` | Optional; default `gpt-4o-mini` |
 | `KNOWLEDGE_DB_CONNECTION` | etc-kg on VM |
 | `AZURE_STORAGE_CONNECTION_STRING` | etc-kg on VM |
 | `STORAGE_BACKEND=azure_blob` | etc-kg on VM |

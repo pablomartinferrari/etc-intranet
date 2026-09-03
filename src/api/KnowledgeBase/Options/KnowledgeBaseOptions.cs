@@ -20,4 +20,7 @@ public sealed class KnowledgeBaseOptions
     public int ChatTopK { get; set; } = 8;
     public double HybridKeywordWeight { get; set; } = 0.25;
     public string GeneratedFilesPath { get; set; } = "../etc-kg/data/generated";
+
+    /// <summary>Hosted OpenAI-compatible generation used when Ollama is down.</summary>
+    public KnowledgeBaseFallbackOptions Fallback { get; set; } = new();
 }

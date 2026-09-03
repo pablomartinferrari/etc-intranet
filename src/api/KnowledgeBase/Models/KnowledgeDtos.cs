@@ -33,12 +33,18 @@ public sealed record CitationDto(
     string? SourceUri = null,
     string? Url = null);
 
+public sealed record ChatGenerationDto(
+    string Provider,
+    string Model,
+    bool IsFallback);
+
 public sealed record ChatResponseDto(
     Guid SessionId,
     string Answer,
     IReadOnlyList<CitationDto> Citations,
     string SourcesUsed,
-    IReadOnlyList<ChatAttachmentDto> Attachments);
+    IReadOnlyList<ChatAttachmentDto> Attachments,
+    ChatGenerationDto? Generation = null);
 
 public sealed record ChatCapabilitiesDto(
     bool WebSearchEnabled,
@@ -148,4 +154,5 @@ public sealed record ChatMessageDto(
     string Content,
     IReadOnlyList<CitationDto>? Citations,
     IReadOnlyList<ChatAttachmentDto>? Attachments,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    ChatGenerationDto? Generation = null);

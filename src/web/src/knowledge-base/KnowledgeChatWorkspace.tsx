@@ -195,6 +195,7 @@ export default function KnowledgeChatWorkspace() {
           citations: data.citations,
           attachments: data.attachments?.length ? data.attachments : undefined,
           createdAt: new Date().toISOString(),
+          generation: data.generation ?? undefined,
         },
       ]);
       void queryClient.invalidateQueries({ queryKey: ["kb-sessions", selectedProjectId] });
@@ -969,6 +970,12 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           <p className="whitespace-pre-wrap text-sm">{message.content}</p>
         ) : (
           <ChatMarkdown content={message.content} className="w-full" />
+        )}
+        {!isUser && message.generation?.isFallback && (
+          <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
+            Answered by hosted {message.generation.provider} ({message.generation.model}) —
+            local KB model was offline
+          </p>
         )}
         {!isUser && message.attachments && message.attachments.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
