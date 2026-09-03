@@ -1,14 +1,12 @@
+import { Badge } from "@/components/ui/badge";
 import {
-  Badge,
   Table,
   TableBody,
   TableCell,
+  TableHead,
   TableHeader,
-  TableHeaderCell,
   TableRow,
-  Text,
-  tokens,
-} from "@fluentui/react-components";
+} from "@/components/ui/table";
 import { DataTablePanel, useDataTableStyles } from "@mf/components/DataTablePanel";
 import { REPORT_SECTION_COLUMNS, STATISTICAL_SAMPLE_SIZE } from "@mf/config/reportOptions";
 
@@ -59,19 +57,11 @@ function formatCell(key: string, value: unknown): React.ReactNode {
   if (key === "isPositive") {
     const positive =
       typeof value === "boolean" ? value : value === "true" || value === "POSITIVE";
-    return (
-      <Badge appearance="filled" color={positive ? "danger" : "success"}>
-        {positive ? "Positive" : "Negative"}
-      </Badge>
-    );
+    return <Badge variant={positive ? "destructive" : "secondary"}>{positive ? "Positive" : "Negative"}</Badge>;
   }
   if (key === "result" && typeof value === "string") {
     const positive = value.toUpperCase() === "POSITIVE";
-    return (
-      <Badge appearance="filled" color={positive ? "danger" : "success"}>
-        {positive ? "Positive" : "Negative"}
-      </Badge>
-    );
+    return <Badge variant={positive ? "destructive" : "secondary"}>{positive ? "Positive" : "Negative"}</Badge>;
   }
   if (key === "leadContent" && typeof value === "number") return value.toFixed(2);
   if (key === "positivePercent" && typeof value === "number") return `${value.toFixed(2)}%`;
@@ -304,11 +294,7 @@ export function ReportSectionGrid({
   const rows = normalizeReportSectionRows(sectionKey, data);
 
   if (rows.length === 0) {
-    return (
-      <Text block style={{ color: tokens.colorNeutralForeground3, marginTop: tokens.spacingVerticalM }}>
-        {emptyMessage}
-      </Text>
-    );
+    return <p className="mt-4 text-muted-foreground">{emptyMessage}</p>;
   }
 
   const columns = resolveColumns(sectionKey, rows);
@@ -317,13 +303,13 @@ export function ReportSectionGrid({
   return (
     <>
       <DataTablePanel>
-        <Table className={tableStyles.table} size="small" aria-label="Report section">
+        <Table className={tableStyles.table} aria-label="Report section">
           <TableHeader className={tableStyles.stickyHead}>
             <TableRow>
               {columns.map((col) => (
-                <TableHeaderCell key={col} className={tableStyles.headCell}>
+                <TableHead key={col} className={tableStyles.headCell}>
                   {headerLabel(col)}
-                </TableHeaderCell>
+                </TableHead>
               ))}
             </TableRow>
           </TableHeader>
@@ -342,18 +328,16 @@ export function ReportSectionGrid({
       </DataTablePanel>
 
       {readingGroups.map((group) => (
-        <div key={group.component} style={{ marginTop: tokens.spacingVerticalL }}>
-          <Text weight="semibold" block style={{ marginBottom: tokens.spacingVerticalS }}>
-            {group.component} — individual readings
-          </Text>
+        <div key={group.component} className="mt-6">
+          <p className="mb-2 font-semibold">{group.component} — individual readings</p>
           <DataTablePanel maxHeight="min(40vh, 320px)">
-            <Table className={tableStyles.table} size="small" aria-label={`Readings for ${group.component}`}>
+            <Table className={tableStyles.table} aria-label={`Readings for ${group.component}`}>
               <TableHeader className={tableStyles.stickyHead}>
                 <TableRow>
                   {["readingId", "substrate", "location", "leadContent", "isPositive"].map((col) => (
-                    <TableHeaderCell key={col} className={tableStyles.headCell}>
+                    <TableHead key={col} className={tableStyles.headCell}>
                       {headerLabel(col)}
-                    </TableHeaderCell>
+                    </TableHead>
                   ))}
                 </TableRow>
               </TableHeader>

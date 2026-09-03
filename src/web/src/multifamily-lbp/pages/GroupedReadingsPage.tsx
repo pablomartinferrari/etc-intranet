@@ -1,32 +1,34 @@
 import { Fragment, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
-  Badge,
-  Button,
-  Dropdown,
-  Field,
-  Input,
-  MessageBar,
-  MessageBarBody,
-  Option,
-  Spinner,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import {
   Table,
   TableBody,
   TableCell,
+  TableHead,
   TableHeader,
-  TableHeaderCell,
   TableRow,
-  Text,
-  Title1,
-  makeStyles,
-  tokens,
-} from "@fluentui/react-components";
-import { ChevronDownRegular, ChevronRightRegular } from "@fluentui/react-icons";
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { useEntity } from "@mf/context/EntityContext";
 import { fetchRows, patchRows, type InspectionRow } from "@mf/api/entity";
 import { DataTablePanel, useDataTableStyles } from "@mf/components/DataTablePanel";
-import { DATA_TYPE_FILTER_OPTIONS, dropdownDisplayValue } from "@mf/config/reportOptions";
+import { DATA_TYPE_FILTER_OPTIONS } from "@mf/config/reportOptions";
 import {
   displayComponentWithEdits,
   displaySubstrateWithEdits,
@@ -34,54 +36,9 @@ import {
 } from "@mf/utils/readingGroups";
 import { ReadingResultBadge } from "@mf/utils/readingResult";
 
-const useStyles = makeStyles({
-  toolbar: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "flex-end",
-    gap: tokens.spacingHorizontalM,
-    marginBottom: tokens.spacingVerticalM,
-    padding: tokens.spacingVerticalM,
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: tokens.colorNeutralBackground1,
-  },
-  toolbarField: { minWidth: "180px" },
-  summaryLink: { marginBottom: tokens.spacingVerticalM },
-  groupRow: {
-    backgroundColor: tokens.colorNeutralBackground3,
-    cursor: "pointer",
-    ":hover": {
-      backgroundColor: tokens.colorNeutralBackground2,
-    },
-  },
-  detailRow: {
-    backgroundColor: tokens.colorNeutralBackground1,
-  },
-  detailIndent: {
-    paddingLeft: tokens.spacingHorizontalXXL,
-  },
-  rowEdited: {
-    backgroundColor: tokens.colorBrandBackground2,
-  },
-  expandBtn: {
-    minWidth: "28px",
-  },
-  groupLabel: { fontWeight: tokens.fontWeightSemibold },
-  mono: {
-    fontFamily: tokens.fontFamilyMonospace,
-    fontSize: tokens.fontSizeBase200,
-  },
-  footer: {
-    marginTop: tokens.spacingVerticalS,
-    color: tokens.colorNeutralForeground3,
-  },
-});
-
 type EditFields = Pick<InspectionRow, "normalizedComponent" | "normalizedSubstrate">;
 
 export function GroupedReadingsPage(): React.JSX.Element {
-  const styles = useStyles();
   const tableStyles = useDataTableStyles();
   const { jobId, entitySlug, refetchDashboard } = useEntity();
   const base = `/jobs/${jobId}/${entitySlug}`;
@@ -148,87 +105,88 @@ export function GroupedReadingsPage(): React.JSX.Element {
     displaySubstrateWithEdits(row, edits[row.id]);
 
   const rowClass = (row: InspectionRow, detail: boolean): string | undefined => {
-    if (edits[row.id]) return styles.rowEdited;
-    return detail ? styles.detailRow : tableStyles.zebra;
+    if (edits[row.id]) return "bg-muted";
+    return detail ? "bg-card" : tableStyles.zebra;
   };
 
   const columns = ["", "Component", "Substrate", "Reading", "Location", "Pb (mg/cm²)", "Result"];
 
   return (
     <div>
-      <Title1 block style={{ marginBottom: tokens.spacingVerticalS }}>
-        Grouped readings
-      </Title1>
-      <Text block style={{ marginBottom: tokens.spacingVerticalM, color: tokens.colorNeutralForeground2 }}>
+      <h1 className="mb-2 text-2xl font-semibold tracking-tight">Grouped readings</h1>
+      <p className="mb-4 text-muted-foreground">
         Step 5 — readings grouped by component and substrate (normalized values when set). Expand groups to review
         or edit individual shots inline.
-      </Text>
+      </p>
 
-      <Text block className={styles.summaryLink}>
+      <p className="mb-4">
         <Link to={`${base}/normalize`}>Back to AI normalization</Link>
         {" · "}
         <Link to={`${base}/grid`}>View flat data grid</Link>
-      </Text>
+      </p>
 
-      <div className={styles.toolbar}>
-        <Field label="Data type" className={styles.toolbarField}>
-          <Dropdown
-            placeholder="All types"
-            value={dropdownDisplayValue(DATA_TYPE_FILTER_OPTIONS, dataType)}
-            selectedOptions={dataType ? [dataType] : []}
-            onOptionSelect={(_, d) => setDataType(d.optionValue ?? "")}
-          >
-            {DATA_TYPE_FILTER_OPTIONS.map((opt) => (
-              <Option key={opt.value || "all"} value={opt.value}>
-                {opt.label}
-              </Option>
-            ))}
-          </Dropdown>
-        </Field>
-        <Field label="Search" className={styles.toolbarField}>
-          <Input value={search} onChange={(_, d) => setSearch(d.value)} placeholder="Component, location…" />
-        </Field>
-        <Button appearance="subtle" onClick={expandAll} disabled={groups.length === 0}>
+      <div className="mb-4 flex flex-wrap items-end gap-4 rounded-md border bg-card p-4">
+        <div className="grid min-w-[180px] gap-1.5">
+          <Label>Data type</Label>
+          <Select value={dataType || "all"} onValueChange={(v) => setDataType(v === "all" ? "" : v)}>
+            <SelectTrigger className="min-w-[180px]">
+              <SelectValue placeholder="All types" />
+            </SelectTrigger>
+            <SelectContent>
+              {DATA_TYPE_FILTER_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value || "all"} value={opt.value || "all"}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid min-w-[180px] gap-1.5">
+          <Label>Search</Label>
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Component, location…"
+          />
+        </div>
+        <Button variant="ghost" onClick={expandAll} disabled={groups.length === 0}>
           Expand all
         </Button>
-        <Button appearance="subtle" onClick={collapseAll} disabled={groups.length === 0}>
+        <Button variant="ghost" onClick={collapseAll} disabled={groups.length === 0}>
           Collapse all
         </Button>
         <Button
-          appearance="primary"
           disabled={Object.keys(edits).length === 0 || saveMut.isPending}
           onClick={() => saveMut.mutate()}
         >
-          {saveMut.isPending ? <Spinner size="tiny" /> : "Save changes"}
+          {saveMut.isPending ? <Spinner size="sm" /> : "Save changes"}
         </Button>
         {Object.keys(edits).length > 0 && (
-          <Button appearance="secondary" onClick={() => setEdits({})}>
+          <Button variant="secondary" onClick={() => setEdits({})}>
             Discard edits
           </Button>
         )}
       </div>
 
       {saveMsg && (
-        <MessageBar intent="success" style={{ marginBottom: tokens.spacingVerticalM }}>
-          <MessageBarBody>{saveMsg}</MessageBarBody>
-        </MessageBar>
+        <Alert className="mb-4">
+          <AlertDescription>{saveMsg}</AlertDescription>
+        </Alert>
       )}
 
       {isLoading ? (
         <Spinner label="Loading readings…" />
       ) : groups.length === 0 ? (
-        <Text block style={{ color: tokens.colorNeutralForeground3 }}>
-          No readings to group. Import data or adjust filters.
-        </Text>
+        <p className="text-muted-foreground">No readings to group. Import data or adjust filters.</p>
       ) : (
         <DataTablePanel>
-          <Table className={tableStyles.table} size="small" aria-label="Grouped readings">
+          <Table className={tableStyles.table} aria-label="Grouped readings">
             <TableHeader className={tableStyles.stickyHead}>
               <TableRow>
                 {columns.map((h) => (
-                  <TableHeaderCell key={h || "expand"} className={tableStyles.headCell}>
+                  <TableHead key={h || "expand"} className={tableStyles.headCell}>
                     {h}
-                  </TableHeaderCell>
+                  </TableHead>
                 ))}
               </TableRow>
             </TableHeader>
@@ -238,41 +196,38 @@ export function GroupedReadingsPage(): React.JSX.Element {
                 return (
                   <Fragment key={g.key}>
                     <TableRow
-                      className={styles.groupRow}
+                      className="cursor-pointer bg-muted hover:bg-muted/80"
                       onClick={() => toggleGroup(g.key)}
                       aria-expanded={isOpen}
                     >
                       <TableCell className={tableStyles.bodyCell}>
                         <Button
-                          className={styles.expandBtn}
-                          appearance="subtle"
-                          size="small"
-                          icon={isOpen ? <ChevronDownRegular /> : <ChevronRightRegular />}
+                          className="min-w-7"
+                          variant="ghost"
+                          size="icon-sm"
                           aria-label={isOpen ? "Collapse group" : "Expand group"}
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleGroup(g.key);
                           }}
-                        />
+                        >
+                          {isOpen ? <ChevronDownIcon /> : <ChevronRightIcon />}
+                        </Button>
                       </TableCell>
-                      <TableCell className={`${tableStyles.bodyCell} ${styles.groupLabel}`}>{g.component}</TableCell>
+                      <TableCell className={cn(tableStyles.bodyCell, "font-semibold")}>{g.component}</TableCell>
                       <TableCell className={tableStyles.bodyCell}>{g.substrate}</TableCell>
                       <TableCell className={tableStyles.bodyCell}>
                         {g.readingCount} reading{g.readingCount === 1 ? "" : "s"}
                       </TableCell>
                       <TableCell className={tableStyles.bodyCell}>—</TableCell>
-                      <TableCell className={`${tableStyles.bodyCell} ${styles.mono}`}>
+                      <TableCell className={cn(tableStyles.bodyCell, "font-mono text-xs")}>
                         {g.avgLeadContent.toFixed(2)} avg
                       </TableCell>
                       <TableCell className={tableStyles.bodyCell}>
                         {g.positiveCount > 0 ? (
-                          <Badge appearance="filled" color="danger">
-                            {g.positiveCount} positive
-                          </Badge>
+                          <Badge variant="destructive">{g.positiveCount} positive</Badge>
                         ) : (
-                          <Badge appearance="outline" color="success">
-                            All negative
-                          </Badge>
+                          <Badge variant="outline">All negative</Badge>
                         )}
                       </TableCell>
                     </TableRow>
@@ -284,26 +239,24 @@ export function GroupedReadingsPage(): React.JSX.Element {
                           className={rowClass(row, true)}
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <TableCell className={`${tableStyles.bodyCell} ${styles.detailIndent}`} />
+                          <TableCell className={cn(tableStyles.bodyCell, "pl-8")} />
                           <TableCell className={tableStyles.bodyCell}>
                             <Input
-                              size="small"
-                              appearance="filled-darker"
+                              className="h-7"
                               value={displayComponent(row)}
-                              onChange={(_, d) => update(row.id, "normalizedComponent", d.value)}
+                              onChange={(e) => update(row.id, "normalizedComponent", e.target.value)}
                             />
                           </TableCell>
                           <TableCell className={tableStyles.bodyCell}>
                             <Input
-                              size="small"
-                              appearance="filled-darker"
+                              className="h-7"
                               value={displaySubstrate(row)}
-                              onChange={(_, d) => update(row.id, "normalizedSubstrate", d.value)}
+                              onChange={(e) => update(row.id, "normalizedSubstrate", e.target.value)}
                             />
                           </TableCell>
-                          <TableCell className={`${tableStyles.bodyCell} ${styles.mono}`}>{row.readingId}</TableCell>
+                          <TableCell className={cn(tableStyles.bodyCell, "font-mono text-xs")}>{row.readingId}</TableCell>
                           <TableCell className={tableStyles.bodyCell}>{row.location || "—"}</TableCell>
-                          <TableCell className={`${tableStyles.bodyCell} ${styles.mono}`}>
+                          <TableCell className={cn(tableStyles.bodyCell, "font-mono text-xs")}>
                             {row.leadContent.toFixed(2)}
                           </TableCell>
                           <TableCell className={tableStyles.bodyCell}>
@@ -319,11 +272,11 @@ export function GroupedReadingsPage(): React.JSX.Element {
         </DataTablePanel>
       )}
 
-      <Text size={200} className={styles.footer}>
+      <p className="mt-2 text-xs text-muted-foreground">
         {groups.length} group{groups.length === 1 ? "" : "s"} · {rows.length} reading
         {rows.length === 1 ? "" : "s"}
         {Object.keys(edits).length > 0 && ` · ${Object.keys(edits).length} unsaved edit${Object.keys(edits).length === 1 ? "" : "s"}`}
-      </Text>
+      </p>
     </div>
   );
 }

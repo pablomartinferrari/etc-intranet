@@ -1,35 +1,36 @@
+import { useEffect, useMemo, useState } from "react";
+import { ExternalLinkIcon } from "lucide-react";
+
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
-  Badge,
-  Body1,
-  Button,
-  Caption1,
-  Checkbox,
-  Drawer,
-  DrawerBody,
-  DrawerHeader,
-  DrawerHeaderTitle,
-  Dropdown,
-  Field,
-  MessageBar,
-  MessageBarBody,
-  MessageBarTitle,
-  Option,
-  Radio,
-  RadioGroup,
-  Spinner,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Spinner } from "@/components/ui/spinner";
+import {
   Table,
   TableBody,
   TableCell,
-  TableCellLayout,
+  TableHead,
   TableHeader,
-  TableHeaderCell,
   TableRow,
-  Textarea,
-  makeStyles,
-  tokens,
-} from "@fluentui/react-components";
-import { Dismiss24Regular, Open24Regular } from "@fluentui/react-icons";
-import { useEffect, useMemo, useState } from "react";
+} from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
+import { PageExplainer } from "../../sales/PageExplainer";
 import {
   CleatApiError,
   CloseoutSyncError,
@@ -57,7 +58,6 @@ const WON_REASONS = [
 ];
 
 export function PipelinePage() {
-  const styles = useStyles();
   const [dashboard, setDashboard] = useState<PipelineDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<CleatApiError | Error | null>(null);
@@ -107,57 +107,52 @@ export function PipelinePage() {
   }, [items, phaseFilter]);
 
   return (
-    <main className={styles.page}>
-      <header className={styles.header}>
-        <Body1 className={styles.subtitle}>
-          Pursuits from CLEATUS, loaded on page open. Close-out reasons (why we
-          won, lost, or stopped) are stored in the intranet database — CLEATUS
-          has no win/loss-reason field. Needs close-out: past deadline, or
-          triage/preparing/submitted with no movement for 21 days when an
-          updated-at exists. If CLEATUS does not send last activity, rows
-          without a deadline are flagged so they do not hide.
-        </Body1>
-      </header>
+    <main className="mx-auto grid w-full max-w-[1100px] gap-4 px-5 py-8 pb-14">
+      <PageExplainer title="Pipeline">
+        <p>
+          Pursuits from CLEATUS (triage / preparing / submitted / won / lost /
+          archived). Needs close-out is overdue (past deadline, or no deadline on
+          file).
+        </p>
+        <p>
+          When someone closes won/lost/dropped, the reason is stored here in
+          Postgres; CLEATUS only gets the board/archive change.
+        </p>
+      </PageExplainer>
 
       {loading && <Spinner label="Loading pipeline..." />}
 
       {missingKey && (
-        <MessageBar intent="warning">
-          <MessageBarBody>
-            <MessageBarTitle>Add Cleat__ApiKey</MessageBarTitle>
-            <div>
-              {error.message} The intranet compiles and runs without a key; set
-              it in user secrets locally or as an App Setting / Key Vault secret
-              in Azure, then refresh this page.
-            </div>
-          </MessageBarBody>
-        </MessageBar>
+        <Alert>
+          <AlertTitle>Add Cleat__ApiKey</AlertTitle>
+          <AlertDescription>
+            {error.message} The intranet compiles and runs without a key; set
+            it in user secrets locally or as an App Setting / Key Vault secret
+            in Azure, then refresh this page.
+          </AlertDescription>
+        </Alert>
       )}
 
       {upstream && (
-        <MessageBar intent="error">
-          <MessageBarBody>
-            <MessageBarTitle>Could not load CLEATUS pipeline</MessageBarTitle>
-            <div>{error.message}</div>
-          </MessageBarBody>
-        </MessageBar>
+        <Alert variant="destructive">
+          <AlertTitle>Could not load CLEATUS pipeline</AlertTitle>
+          <AlertDescription>{error.message}</AlertDescription>
+        </Alert>
       )}
 
       {dashboard && !dashboard.lastActivityFieldFound && (
-        <MessageBar intent="info">
-          <MessageBarBody>
-            <MessageBarTitle>No last-activity field from CLEATUS</MessageBarTitle>
-            <div>
-              OpenAPI/Zapier do not document a pursuit updated-at. Stale 21-day
-              detection is off; overdue uses deadline, and items with no
-              deadline on file are listed under Needs close-out.
-            </div>
-          </MessageBarBody>
-        </MessageBar>
+        <Alert>
+          <AlertTitle>No last-activity field from CLEATUS</AlertTitle>
+          <AlertDescription>
+            OpenAPI/Zapier do not document a pursuit updated-at. Stale 21-day
+            detection is off; overdue uses deadline, and items with no
+            deadline on file are listed under Needs close-out.
+          </AlertDescription>
+        </Alert>
       )}
 
       {dashboard && (
-        <div className={styles.counts}>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-7">
           <CountTile label="Triage" value={dashboard.counts.triage} />
           <CountTile label="Preparing" value={dashboard.counts.preparing} />
           <CountTile label="Submitted" value={dashboard.counts.submitted} />
@@ -169,17 +164,19 @@ export function PipelinePage() {
       )}
 
       {dashboard && showNeedsCloseOut && (
-        <section className={styles.section}>
-          <div className={styles.sectionHead}>
+        <section className="grid gap-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <strong>Needs close-out ({needs.length})</strong>
-            <Checkbox
-              checked={showNeedsCloseOut}
-              onChange={(_, data) => setShowNeedsCloseOut(Boolean(data.checked))}
-              label="Show this section"
-            />
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={showNeedsCloseOut}
+                onCheckedChange={(checked) => setShowNeedsCloseOut(Boolean(checked))}
+              />
+              Show this section
+            </label>
           </div>
           {needs.length === 0 ? (
-            <Body1>Nothing currently needs close-out.</Body1>
+            <p>Nothing currently needs close-out.</p>
           ) : (
             <PursuitTable
               items={needs}
@@ -191,43 +188,44 @@ export function PipelinePage() {
       )}
 
       {dashboard && !showNeedsCloseOut && (
-        <Checkbox
-          checked={false}
-          onChange={(_, data) => setShowNeedsCloseOut(Boolean(data.checked))}
-          label="Show needs close-out"
-        />
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={false}
+            onCheckedChange={(checked) => setShowNeedsCloseOut(Boolean(checked))}
+          />
+          Show needs close-out
+        </label>
       )}
 
       {dashboard && (
-        <section className={styles.section}>
-          <div className={styles.sectionHead}>
+        <section className="grid gap-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <strong>All pursuits</strong>
-            <Dropdown
-              value={phaseLabel(phaseFilter)}
-              selectedOptions={[phaseFilter]}
-              onOptionSelect={(_, data) => setPhaseFilter(data.optionValue ?? "all")}
-            >
-              <Option value="all">All phases</Option>
-              <Option value="needs">Needs close-out</Option>
-              <Option value="triage">Triage</Option>
-              <Option value="preparing">Preparing</Option>
-              <Option value="submitted">Submitted</Option>
-              <Option value="won">Won</Option>
-              <Option value="lost">Lost</Option>
-              <Option value="archived">Archived</Option>
-            </Dropdown>
+            <Select value={phaseFilter} onValueChange={setPhaseFilter}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All phases</SelectItem>
+                <SelectItem value="needs">Needs close-out</SelectItem>
+                <SelectItem value="triage">Triage</SelectItem>
+                <SelectItem value="preparing">Preparing</SelectItem>
+                <SelectItem value="submitted">Submitted</SelectItem>
+                <SelectItem value="won">Won</SelectItem>
+                <SelectItem value="lost">Lost</SelectItem>
+                <SelectItem value="archived">Archived</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           {filtered.length === 0 ? (
-            <MessageBar intent="info">
-              <MessageBarBody>
-                <MessageBarTitle>No pursuits</MessageBarTitle>
-                <div>
-                  {items.length === 0
-                    ? "CLEATUS returned no pipeline items for this entity."
-                    : "No pursuits match this filter."}
-                </div>
-              </MessageBarBody>
-            </MessageBar>
+            <Alert>
+              <AlertTitle>No pursuits</AlertTitle>
+              <AlertDescription>
+                {items.length === 0
+                  ? "CLEATUS returned no pipeline items for this entity."
+                  : "No pursuits match this filter."}
+              </AlertDescription>
+            </Alert>
           ) : (
             <PursuitTable
               items={filtered}
@@ -259,48 +257,43 @@ function PursuitTable({
   showAssignee: boolean;
   onOpen: (item: PipelineItem) => void;
 }) {
-  const styles = useStyles();
   return (
-    <div className={styles.tableWrap}>
+    <div className="overflow-x-auto rounded-lg bg-card p-2 shadow-sm">
       <Table aria-label="Pursuits">
         <TableHeader>
           <TableRow>
-            <TableHeaderCell>Title</TableHeaderCell>
-            <TableHeaderCell>Agency</TableHeaderCell>
-            <TableHeaderCell>Phase</TableHeaderCell>
-            <TableHeaderCell>Deadline</TableHeaderCell>
-            <TableHeaderCell>Status</TableHeaderCell>
-            {showAssignee && <TableHeaderCell>Owner</TableHeaderCell>}
-            <TableHeaderCell>Reason</TableHeaderCell>
+            <TableHead>Title</TableHead>
+            <TableHead>Agency</TableHead>
+            <TableHead>Phase</TableHead>
+            <TableHead>Deadline</TableHead>
+            <TableHead>Status</TableHead>
+            {showAssignee && <TableHead>Owner</TableHead>}
+            <TableHead>Reason</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {items.map((item) => (
             <TableRow
               key={item.pursuit.id}
-              className={styles.clickableRow}
+              className="cursor-pointer"
               onClick={() => onOpen(item)}
             >
               <TableCell>
-                <TableCellLayout>
-                  <div className={styles.titleCell}>
-                    <span>{item.pursuit.title ?? "Untitled pursuit"}</span>
-                    {item.pursuit.solicitationNumber && (
-                      <Caption1 className={styles.muted}>
-                        {item.pursuit.solicitationNumber}
-                      </Caption1>
-                    )}
-                  </div>
-                </TableCellLayout>
+                <div className="grid gap-0.5">
+                  <span>{item.pursuit.title ?? "Untitled pursuit"}</span>
+                  {item.pursuit.solicitationNumber && (
+                    <span className="text-xs text-muted-foreground">
+                      {item.pursuit.solicitationNumber}
+                    </span>
+                  )}
+                </div>
               </TableCell>
               <TableCell>{item.pursuit.agency ?? "—"}</TableCell>
               <TableCell>{phaseDisplay(item)}</TableCell>
               <TableCell>{formatDate(item.pursuit.deadlineDate)}</TableCell>
               <TableCell>
                 {item.needsCloseOut && (
-                  <Badge appearance="filled" color="danger">
-                    {badgeLabel(item.closeOutReasons)}
-                  </Badge>
+                  <Badge variant="destructive">{badgeLabel(item.closeOutReasons)}</Badge>
                 )}
               </TableCell>
               {showAssignee && <TableCell>{item.pursuit.assignee ?? "—"}</TableCell>}
@@ -326,7 +319,6 @@ function CloseoutDrawer({
   onDismiss: () => void;
   onSaved: (item: PipelineItem) => void;
 }) {
-  const styles = useStyles();
   const [outcome, setOutcome] = useState("lost");
   const [reason, setReason] = useState<string>("");
   const [note, setNote] = useState("");
@@ -397,40 +389,22 @@ function CloseoutDrawer({
   }
 
   return (
-    <Drawer
-      type="overlay"
-      position="end"
-      size="medium"
+    <Sheet
       open={item !== null}
-      onOpenChange={(_, data) => {
-        if (!data.open) {
-          onDismiss();
-        }
+      onOpenChange={(open) => {
+        if (!open) onDismiss();
       }}
     >
-      <DrawerHeader>
-        <DrawerHeaderTitle
-          action={
-            <Button
-              appearance="subtle"
-              aria-label="Close"
-              icon={<Dismiss24Regular />}
-              onClick={onDismiss}
-            />
-          }
-        >
-          {item?.pursuit.title ?? "Pursuit"}
-        </DrawerHeaderTitle>
-      </DrawerHeader>
-      <DrawerBody>
+      <SheetContent side="right" className="w-full sm:max-w-lg">
+        <SheetHeader>
+          <SheetTitle>{item?.pursuit.title ?? "Pursuit"}</SheetTitle>
+        </SheetHeader>
         {item && (
-          <div className={styles.detail}>
+          <div className="grid gap-3 overflow-y-auto px-4 pb-6">
             {syncWarning && (
-              <MessageBar intent="warning">
-                <MessageBarBody>
-                  <div>{syncWarning}</div>
-                </MessageBarBody>
-              </MessageBar>
+              <Alert>
+                <AlertDescription>{syncWarning}</AlertDescription>
+              </Alert>
             )}
             <DetailField label="Agency" value={item.pursuit.agency} />
             <DetailField label="Phase" value={phaseDisplay(item)} />
@@ -452,86 +426,93 @@ function CloseoutDrawer({
               />
             )}
 
-            <Field label="Close-out">
+            <div className="grid gap-2">
+              <Label>Close-out</Label>
               <RadioGroup
                 value={outcome}
-                onChange={(_, data) => {
-                  setOutcome(data.value);
+                onValueChange={(value) => {
+                  setOutcome(value);
                   setReason("");
                 }}
               >
-                <Radio value="won" label="Won" />
-                <Radio value="lost" label="Lost" />
-                <Radio value="dropped" label="No longer pursuing" />
+                <label className="flex items-center gap-2 text-sm">
+                  <RadioGroupItem value="won" />
+                  Won
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <RadioGroupItem value="lost" />
+                  Lost
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <RadioGroupItem value="dropped" />
+                  No longer pursuing
+                </label>
               </RadioGroup>
-            </Field>
-            <Field
-              label={reasonRequired ? "Reason (required)" : "Reason (optional)"}
-            >
-              <Dropdown
-                placeholder="Select a reason"
-                selectedOptions={reason ? [reason] : []}
-                value={reasonLabel(reason, reasonOptions)}
-                onOptionSelect={(_, data) => setReason(data.optionValue ?? "")}
-              >
-                {reasonOptions.map((option) => (
-                  <Option key={option.value} value={option.value}>
-                    {option.label}
-                  </Option>
-                ))}
-              </Dropdown>
-            </Field>
-            <Field label="Note (optional)">
+            </div>
+            <div className="grid gap-2">
+              <Label>{reasonRequired ? "Reason (required)" : "Reason (optional)"}</Label>
+              <Select value={reason || undefined} onValueChange={setReason}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a reason" />
+                </SelectTrigger>
+                <SelectContent>
+                  {reasonOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Note (optional)</Label>
               <Textarea
                 value={note}
-                onChange={(_, data) => setNote(data.value)}
+                onChange={(event) => setNote(event.target.value)}
                 rows={4}
               />
-            </Field>
-            {formError && (
-              <Body1 className={styles.error}>{formError}</Body1>
-            )}
-            <div className={styles.actions}>
-              <Button appearance="primary" disabled={saving} onClick={() => void submit()}>
+            </div>
+            {formError && <p className="text-sm text-destructive">{formError}</p>}
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <Button disabled={saving} onClick={() => void submit()}>
                 {saving ? "Saving..." : "Save close-out"}
               </Button>
               {item.pursuit.cleatusUrl && (
                 <Button
-                  icon={<Open24Regular />}
+                  variant="outline"
                   onClick={() =>
                     window.open(item.pursuit.cleatusUrl!, "_blank", "noopener,noreferrer")
                   }
                 >
+                  <ExternalLinkIcon />
                   Open in CLEATUS
                 </Button>
               )}
             </div>
           </div>
         )}
-      </DrawerBody>
-    </Drawer>
+      </SheetContent>
+    </Sheet>
   );
 }
 
 function CountTile({ label, value }: { label: string; value: number }) {
-  const styles = useStyles();
   return (
-    <div className={styles.countTile}>
-      <Caption1 className={styles.muted}>{label}</Caption1>
-      <Body1 className={styles.countValue}>{value}</Body1>
+    <div className="grid gap-1 rounded-lg bg-card p-3 shadow-sm">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="font-semibold">{value}</span>
     </div>
   );
 }
 
 function DetailField({ label, value }: { label: string; value: string | null }) {
-  const styles = useDetailStyles();
   if (!value) {
     return null;
   }
   return (
-    <div className={styles.field}>
-      <Caption1 className={styles.label}>{label}</Caption1>
-      <Body1>{value}</Body1>
+    <div className="grid gap-1">
+      <p className="text-xs tracking-wide text-muted-foreground uppercase">{label}</p>
+      <p className="text-sm">{value}</p>
     </div>
   );
 }
@@ -541,17 +522,6 @@ function phaseDisplay(item: PipelineItem): string {
     return "archived";
   }
   return item.pursuit.phase ?? item.pursuit.columnTitle ?? "—";
-}
-
-function phaseLabel(value: string): string {
-  switch (value) {
-    case "all":
-      return "All phases";
-    case "needs":
-      return "Needs close-out";
-    default:
-      return value.charAt(0).toUpperCase() + value.slice(1);
-  }
 }
 
 function badgeLabel(reasons: string[]): string {
@@ -565,13 +535,6 @@ function badgeLabel(reasons: string[]): string {
     return "No deadline";
   }
   return "Needs close-out";
-}
-
-function reasonLabel(
-  value: string,
-  options: { value: string; label: string }[],
-): string {
-  return options.find((option) => option.value === value)?.label ?? "";
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -588,91 +551,3 @@ function formatDate(value: string | null | undefined): string {
     day: "numeric",
   });
 }
-
-const useStyles = makeStyles({
-  page: {
-    margin: "0 auto",
-    maxWidth: "1100px",
-    padding: "32px 20px 56px",
-    display: "grid",
-    rowGap: "16px",
-  },
-  header: {
-    display: "grid",
-    rowGap: "8px",
-  },
-  subtitle: {
-    color: tokens.colorNeutralForeground2,
-  },
-  counts: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
-    gap: "10px",
-  },
-  countTile: {
-    backgroundColor: tokens.colorNeutralBackground1,
-    borderRadius: tokens.borderRadiusMedium,
-    padding: "12px",
-    boxShadow: tokens.shadow2,
-    display: "grid",
-    rowGap: "4px",
-  },
-  countValue: {
-    fontWeight: tokens.fontWeightSemibold,
-  },
-  section: {
-    display: "grid",
-    rowGap: "10px",
-  },
-  sectionHead: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "12px",
-    flexWrap: "wrap",
-  },
-  tableWrap: {
-    overflowX: "auto",
-    backgroundColor: tokens.colorNeutralBackground1,
-    borderRadius: tokens.borderRadiusMedium,
-    padding: "8px",
-    boxShadow: tokens.shadow4,
-  },
-  clickableRow: {
-    cursor: "pointer",
-  },
-  titleCell: {
-    display: "grid",
-    rowGap: "2px",
-  },
-  muted: {
-    color: tokens.colorNeutralForeground3,
-  },
-  detail: {
-    display: "grid",
-    rowGap: "12px",
-    paddingBottom: "24px",
-  },
-  actions: {
-    display: "flex",
-    gap: "12px",
-    alignItems: "center",
-    flexWrap: "wrap",
-    marginTop: "8px",
-  },
-  error: {
-    color: tokens.colorPaletteRedForeground1,
-  },
-});
-
-const useDetailStyles = makeStyles({
-  field: {
-    display: "grid",
-    rowGap: "4px",
-  },
-  label: {
-    color: tokens.colorNeutralForeground3,
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
-  },
-});

@@ -1,6 +1,7 @@
 using Intranet.Api.Cleat;
 using Intranet.Api.Data;
 using Intranet.Api.Data.Entities;
+using Intranet.Api.FeatureRequests;
 using Intranet.Api.KnowledgeBase;
 using Intranet.Api.MultifamilyLbp;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -36,6 +37,8 @@ builder.Services.AddHttpClient<CleatClient>((sp, client) =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 builder.Services.AddScoped<PipelineService>();
+builder.Services.AddScoped<IFeatureRequestLlm, OllamaFeatureRequestLlm>();
+builder.Services.AddScoped<FeatureRequestService>();
 builder.Services.AddMultifamilyLbp(builder.Configuration);
 builder.Services.AddKnowledgeBase(builder.Configuration);
 
@@ -297,6 +300,60 @@ app.MapPost("/api/cleat/pursuits/{id}/close-out", async (
     }
 }).RequireAuthorization();
 
+app.MapPost("/api/feature-requests", async (
+    CreateFeatureRequestBody body,
+    FeatureRequestService features,
+    ClaimsPrincipal user,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var created = await features.CreateAsync(
+            body.Page ?? string.Empty,
+            body.RawText ?? string.Empty,
+            CreatedByFromUser(user),
+            cancellationToken);
+        return Results.Ok(created);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.Json(
+            new { error = "invalid_feature_request", message = ex.Message },
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+}).RequireAuthorization();
+
+app.MapGet("/api/feature-requests", async (
+    FeatureRequestService features,
+    CancellationToken cancellationToken) =>
+{
+    var items = await features.ListAsync(cancellationToken);
+    return Results.Ok(new { items });
+}).RequireAuthorization();
+
+app.MapPatch("/api/feature-requests/{id:int}", async (
+    int id,
+    UpdateFeatureRequestStatusBody body,
+    FeatureRequestService features,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var updated = await features.UpdateStatusAsync(id, body.Status ?? string.Empty, cancellationToken);
+        return updated is null
+            ? Results.Json(
+                new { error = "not_found", message = "Feature request not found." },
+                statusCode: StatusCodes.Status404NotFound)
+            : Results.Ok(updated);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.Json(
+            new { error = "invalid_status", message = ex.Message },
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+}).RequireAuthorization();
+
 app.MapGet("/api/me", [Authorize] (ClaimsPrincipal user) =>
 {
     static string? FirstClaim(ClaimsPrincipal principal, params string[] claimTypes)
@@ -356,6 +413,45 @@ app.MapGet("/api/me", [Authorize] (ClaimsPrincipal user) =>
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+static string CreatedByFromUser(ClaimsPrincipal user)
+{
+    static string? First(ClaimsPrincipal principal, params string[] claimTypes)
+    {
+        foreach (var claimType in claimTypes)
+        {
+            var value = principal.FindFirstValue(claimType);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    var email = First(
+        user,
+        "preferred_username",
+        "email",
+        ClaimTypes.Email,
+        "upn",
+        ClaimTypes.Upn,
+        "unique_name");
+    if (string.IsNullOrWhiteSpace(email) && user.Identity?.Name?.Contains('@', StringComparison.Ordinal) == true)
+    {
+        email = user.Identity.Name;
+    }
+
+    var objectId = First(
+        user,
+        "oid",
+        "http://schemas.microsoft.com/identity/claims/objectidentifier",
+        ClaimTypes.NameIdentifier,
+        "sub");
+
+    return email ?? objectId ?? "unknown";
+}
 
 static IResult MapCleatError(Exception ex) => ex switch
 {

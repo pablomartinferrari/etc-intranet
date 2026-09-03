@@ -1,10 +1,4 @@
-import {
-  Document24Regular,
-  DocumentPdf24Regular,
-  DocumentTable24Regular,
-  DocumentText24Regular,
-  Globe24Regular,
-} from "@fluentui/react-icons";
+import { FileTextIcon, GlobeIcon, TableIcon } from "lucide-react";
 
 export type FileKind = "pdf" | "excel" | "word" | "text" | "web" | "generic";
 
@@ -35,14 +29,14 @@ export function FileTypeIcon({
 }) {
   switch (kind) {
     case "pdf":
-      return <DocumentPdf24Regular className={className} />;
+      return <FileTextIcon className={className} />;
     case "excel":
-      return <DocumentTable24Regular className={className} />;
+      return <TableIcon className={className} />;
     case "word":
-      return <DocumentText24Regular className={className} />;
+      return <FileTextIcon className={className} />;
     case "web":
-      return <Globe24Regular className={className} />;
+      return <GlobeIcon className={className} />;
     default:
-      return <Document24Regular className={className} />;
+      return <FileTextIcon className={className} />;
   }
 }

@@ -1,40 +1,31 @@
-import {
-  Badge,
-  Body1,
-  Button,
-  Caption1,
-  Dialog,
-  DialogActions,
-  DialogBody,
-  DialogContent,
-  DialogSurface,
-  DialogTitle,
-  Input,
-  Spinner,
-  Subtitle1,
-  Tab,
-  TabList,
-  Textarea,
-  Title3,
-  makeStyles,
-  tokens,
-  shorthands,
-} from "@fluentui/react-components";
-import type { SelectTabEvent, SelectTabData } from "@fluentui/react-components";
-import {
-  Add24Regular,
-  ArrowLeft24Regular,
-  ArrowUpload24Regular,
-  Chat24Regular,
-  Delete24Regular,
-  Document24Regular,
-  Edit24Regular,
-  Folder24Regular,
-  Lightbulb24Regular,
-} from "@fluentui/react-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  FileText,
+  Folder,
+  Lightbulb,
+  MessageSquare,
+  Pencil,
+  Plus,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink } from "react-router-dom";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
   chatKnowledge,
   createProject,
@@ -66,7 +57,6 @@ const ACTIVE_INGEST = new Set(["queued", "processing", "pending"]);
 type ProjectPanelTab = "chats" | "files" | "prompts";
 
 export default function KnowledgeChatWorkspace() {
-  const styles = useStyles();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -323,10 +313,6 @@ export default function KnowledgeChatWorkspace() {
     setEditProjectOpen(true);
   };
 
-  const onTabSelect = (_: SelectTabEvent, data: SelectTabData) => {
-    setPanelTab(data.value as ProjectPanelTab);
-  };
-
   const sendMessage = () => {
     const text = input.trim();
     if (!text || !canChat || chatMutation.isPending) return;
@@ -340,97 +326,112 @@ export default function KnowledgeChatWorkspace() {
   );
 
   return (
-    <div className={styles.app}>
-      <nav className={styles.projectRail}>
-        <RouterLink className={styles.homeLink} to="/" title="Back to home">
-          <ArrowLeft24Regular />
+    <div className="flex h-[calc(100vh-48px)] min-h-[560px] bg-background">
+      <nav className="flex w-[220px] shrink-0 flex-col items-stretch gap-3 border-r bg-muted px-2.5 py-3">
+        <RouterLink
+          className="mx-auto flex size-10 items-center justify-center rounded-md text-muted-foreground no-underline hover:bg-card"
+          to="/"
+          title="Back to home"
+        >
+          <ArrowLeft />
         </RouterLink>
-        <div className={styles.railProjects}>
+        <div className="flex w-full flex-1 flex-col gap-2 overflow-y-auto">
           {(projectsQuery.data ?? []).map((p) => (
             <button
               key={p.id}
               type="button"
-              className={`${styles.railProjectCard} ${selectedProjectId === p.id ? styles.railProjectCardActive : ""}`}
+              className={`flex min-h-16 w-full cursor-pointer items-start gap-2.5 rounded-lg border bg-card px-3 py-2.5 text-left hover:bg-muted ${
+                selectedProjectId === p.id ? "border-primary bg-primary/10" : ""
+              }`}
               onClick={() => setSelectedProjectId(p.id)}
               title={p.name}
             >
-              <span className={styles.railProjectInitial}>{p.name.charAt(0).toUpperCase()}</span>
-              <div className={styles.railProjectInfo}>
-                <span className={styles.railProjectName}>{p.name}</span>
-                <Caption1 className={styles.railProjectSubtitle}>
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-base font-semibold">
+                {p.name.charAt(0).toUpperCase()}
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className="line-clamp-2 text-sm font-semibold leading-5">{p.name}</span>
+                <span className="line-clamp-2 text-xs leading-4 text-muted-foreground">
                   {projectSubtitle(p)}
-                </Caption1>
+                </span>
               </div>
             </button>
           ))}
         </div>
         <button
           type="button"
-          className={styles.railNewBtn}
+          className="flex h-11 w-full cursor-pointer items-center justify-center rounded-lg border border-dashed bg-transparent text-muted-foreground hover:bg-card"
           onClick={() => setNewProjectOpen(true)}
           title="New project"
         >
-          <Add24Regular />
+          <Plus />
         </button>
       </nav>
 
       {!hasProjects ? (
-        <main className={styles.onboarding}>
-          <Folder24Regular className={styles.onboardingIcon} />
-          <Title3>Create your first project</Title3>
-          <Body1 className={styles.onboardingText}>
+        <main className="flex flex-1 flex-col items-center justify-center gap-4 p-10 text-center">
+          <Folder className="size-14 opacity-50" />
+          <h3 className="text-lg font-semibold">Create your first project</h3>
+          <p className="max-w-[420px] text-sm text-muted-foreground">
             Projects keep documents, chats, and prompts together — like ChatGPT projects. Each
             project is a separate knowledge space.
-          </Body1>
-          <Button appearance="primary" size="large" onClick={() => setNewProjectOpen(true)}>
+          </p>
+          <Button size="lg" onClick={() => setNewProjectOpen(true)}>
             New project
           </Button>
         </main>
       ) : (
         <>
-          <aside className={styles.projectPanel}>
-            <div className={styles.projectHeader}>
-              <div className={styles.projectHeaderText}>
-                <Subtitle1 className={styles.projectName}>{selectedProject?.name}</Subtitle1>
+          <aside className="flex w-[300px] shrink-0 flex-col border-r bg-muted">
+            <div className="flex items-start justify-between gap-2 px-4 pt-4 pb-2">
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-base font-semibold">{selectedProject?.name}</h2>
                 {selectedProject?.instructions && (
-                  <Caption1 className={styles.projectMeta}>Custom instructions</Caption1>
+                  <span className="text-xs text-muted-foreground">Custom instructions</span>
                 )}
               </div>
-              <Button
-                appearance="subtle"
-                icon={<Edit24Regular />}
-                size="small"
-                onClick={openEditProject}
-                title="Edit project"
-              />
+              <Button variant="ghost" size="icon-sm" onClick={openEditProject} title="Edit project">
+                <Pencil />
+              </Button>
             </div>
 
-            <TabList selectedValue={panelTab} onTabSelect={onTabSelect} className={styles.tabs}>
-              <Tab icon={<Chat24Regular />} value="chats">
-                Chats
-              </Tab>
-              <Tab icon={<Document24Regular />} value="files">
-                Files
-              </Tab>
-              <Tab icon={<Lightbulb24Regular />} value="prompts">
-                Prompts
-              </Tab>
-            </TabList>
+            <Tabs
+              value={panelTab}
+              onValueChange={(value) => {
+                if (value === "chats" || value === "files" || value === "prompts") {
+                  setPanelTab(value);
+                }
+              }}
+              className="px-2"
+            >
+              <TabsList className="w-full">
+                <TabsTrigger value="chats">
+                  <MessageSquare />
+                  Chats
+                </TabsTrigger>
+                <TabsTrigger value="files">
+                  <FileText />
+                  Files
+                </TabsTrigger>
+                <TabsTrigger value="prompts">
+                  <Lightbulb />
+                  Prompts
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
 
-            <div className={styles.panelBody}>
+            <div className="flex min-h-0 flex-1 flex-col gap-2.5 p-3">
               {panelTab === "chats" && (
                 <>
-                  <Button
-                    appearance="primary"
-                    icon={<Add24Regular />}
-                    className={styles.panelAction}
-                    onClick={startNewChat}
-                  >
+                  <Button className="w-full" onClick={startNewChat}>
+                    <Plus />
                     New chat
                   </Button>
-                  <div className={styles.panelList}>
+                  <div className="flex flex-1 flex-col gap-1 overflow-y-auto">
                     {(sessionsQuery.data ?? []).length === 0 && (
-                      <Caption1 className={styles.emptyPanel}>No chats in this project yet</Caption1>
+                      <span className="px-2 py-3 text-center text-xs text-muted-foreground">
+                        No chats in this project yet
+                      </span>
                     )}
                     {(sessionsQuery.data ?? []).map((s) => (
                       <ChatSessionRow
@@ -448,7 +449,7 @@ export default function KnowledgeChatWorkspace() {
               {panelTab === "files" && (
                 <>
                   <div
-                    className={styles.uploadZone}
+                    className="flex cursor-pointer flex-col items-center gap-1.5 rounded-md border-2 border-dashed bg-card px-3 py-5 text-center hover:border-primary"
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => {
                       e.preventDefault();
@@ -458,15 +459,17 @@ export default function KnowledgeChatWorkspace() {
                     role="button"
                     tabIndex={0}
                   >
-                    <ArrowUpload24Regular />
-                    <Body1>Add files to this project</Body1>
-                    <Caption1>PDF, Word, Excel, text — indexes in background</Caption1>
+                    <Upload />
+                    <p className="text-sm">Add files to this project</p>
+                    <span className="text-xs text-muted-foreground">
+                      PDF, Word, Excel, text — indexes in background
+                    </span>
                     <input
                       ref={fileInputRef}
                       type="file"
                       multiple
                       accept=".pdf,.docx,.xlsx,.txt,.md,.html,.csv"
-                      className={styles.hiddenInput}
+                      className="hidden"
                       onChange={(e) => {
                         if (e.target.files) void processFiles(e.target.files);
                         e.target.value = "";
@@ -474,14 +477,15 @@ export default function KnowledgeChatWorkspace() {
                     />
                   </div>
                   {hasActiveIngest && (
-                    <div className={styles.indexingNote}>
-                      <Spinner size="tiny" />
-                      <Caption1>Indexing… ready files are searchable now</Caption1>
+                    <div className="flex items-center gap-2 rounded-md bg-card px-2.5 py-2">
+                      <Spinner size="sm" label="Indexing… ready files are searchable now" />
                     </div>
                   )}
-                  <div className={styles.panelList}>
+                  <div className="flex flex-1 flex-col gap-1 overflow-y-auto">
                     {projectDocuments.length === 0 && (
-                      <Caption1 className={styles.emptyPanel}>No files in this project</Caption1>
+                      <span className="px-2 py-3 text-center text-xs text-muted-foreground">
+                        No files in this project
+                      </span>
                     )}
                     {projectDocuments.map((doc) => (
                       <DocumentRow
@@ -502,21 +506,21 @@ export default function KnowledgeChatWorkspace() {
               {panelTab === "prompts" && (
                 <>
                   <Button
-                    appearance="secondary"
-                    icon={<Add24Regular />}
-                    className={styles.panelAction}
+                    variant="secondary"
+                    className="w-full"
                     onClick={() => {
                       setNewPromptContent(input);
                       setNewPromptOpen(true);
                     }}
                   >
+                    <Plus />
                     Save prompt
                   </Button>
-                  <div className={styles.panelList}>
+                  <div className="flex flex-1 flex-col gap-1 overflow-y-auto">
                     {(promptsQuery.data ?? []).length === 0 && (
-                      <Caption1 className={styles.emptyPanel}>
+                      <span className="px-2 py-3 text-center text-xs text-muted-foreground">
                         Save reusable questions for this project
-                      </Caption1>
+                      </span>
                     )}
                     {(promptsQuery.data ?? []).map((p) => (
                       <PromptItem
@@ -541,59 +545,60 @@ export default function KnowledgeChatWorkspace() {
             </div>
           </aside>
 
-          <main className={styles.chatMain}>
-            <header className={styles.chatHeader}>
-              <div className={styles.chatHeaderTitle}>
-                <Title3>
+          <main className="flex min-w-0 flex-1 flex-col bg-background">
+            <header className="flex items-center justify-between border-b px-6 py-4">
+              <div className="flex min-w-0 flex-1 items-center gap-1">
+                <h3 className="text-lg font-semibold">
                   {activeSession?.title ?? (sessionId ? "Chat" : "New conversation")}
-                </Title3>
+                </h3>
                 {sessionId && (
                   <Button
-                    appearance="subtle"
-                    icon={<Edit24Regular />}
-                    size="small"
+                    variant="ghost"
+                    size="icon-sm"
                     title="Rename chat"
                     onClick={() => activeSession && openRenameSession(activeSession)}
-                  />
+                  >
+                    <Pencil />
+                  </Button>
                 )}
               </div>
               {contextDocId && (
-                <Button appearance="subtle" size="small" onClick={() => setContextDocId(undefined)}>
+                <Button variant="ghost" size="sm" onClick={() => setContextDocId(undefined)}>
                   Focused on one file — clear
                 </Button>
               )}
             </header>
 
-            <div className={styles.messages} ref={messagesContainerRef}>
+            <div className="flex flex-1 flex-col gap-5 overflow-y-auto p-6" ref={messagesContainerRef}>
               {messages.length === 0 && (
-                <div className={styles.chatEmpty}>
-                  <Body1 className={styles.chatEmptyTitle}>
+                <div className="m-auto flex max-w-[480px] flex-col items-center gap-4 text-center">
+                  <p className="text-lg font-semibold">
                     {hasReadyDocs
                       ? "Ask about this project's documents"
                       : webSearchEnabled
                         ? "Ask a question — we'll search your project files and the web when needed"
                         : "Add files to this project to get started"}
-                  </Body1>
+                  </p>
                   {hasReadyDocs && (
-                    <Caption1>
+                    <span className="text-xs text-muted-foreground">
                       Say &quot;export to Excel&quot; or &quot;create a Word summary&quot; to generate a
                       downloadable file from your project sources.
-                    </Caption1>
+                    </span>
                   )}
                   {!hasReadyDocs && (
-                    <Button appearance="outline" onClick={() => setPanelTab("files")}>
+                    <Button variant="outline" onClick={() => setPanelTab("files")}>
                       Go to Files
                     </Button>
                   )}
                   {(promptsQuery.data ?? []).length > 0 && canChat && (
-                    <div className={styles.starterPrompts}>
-                      <Caption1>Try a saved prompt</Caption1>
-                      <div className={styles.starterPromptRow}>
+                    <div className="mt-2 flex flex-col gap-2">
+                      <span className="text-xs text-muted-foreground">Try a saved prompt</span>
+                      <div className="flex flex-wrap justify-center gap-2">
                         {(promptsQuery.data ?? []).slice(0, 3).map((p) => (
                           <Button
                             key={p.id}
-                            appearance="outline"
-                            size="small"
+                            variant="outline"
+                            size="sm"
                             onClick={() => setInput(p.content)}
                           >
                             {p.title}
@@ -610,35 +615,36 @@ export default function KnowledgeChatWorkspace() {
               ))}
 
               {chatMutation.isPending && (
-                <div className={styles.assistantRow}>
-                  <div className={`${styles.bubble} ${styles.assistantBubble}`}>
-                    <Spinner size="tiny" label="Thinking..." />
+                <div className="flex justify-start">
+                  <div className="max-w-[720px] rounded-[18px] border bg-muted px-[18px] py-3.5 leading-normal">
+                    <Spinner size="sm" label="Thinking..." />
                   </div>
                 </div>
               )}
               <div ref={messagesEndRef} />
             </div>
 
-            <footer className={styles.composer}>
+            <footer className="border-t bg-background px-6 pt-4 pb-6">
               {!selectedProjectId && (
-                <Caption1 className={styles.composerHint}>Select a project to continue</Caption1>
+                <span className="mb-2 block text-center text-xs text-muted-foreground">
+                  Select a project to continue
+                </span>
               )}
               {selectedProjectId && !canChat && (
-                <Caption1 className={styles.composerHint}>
+                <span className="mb-2 block text-center text-xs text-muted-foreground">
                   {webSearchEnabled
                     ? "Upload a file and wait for indexing, or ask a general question"
                     : "Upload a file and wait for completed status, or enable web search in API settings"}
-                </Caption1>
+                </span>
               )}
               {canChat && hasActiveIngest && (
-                <Caption1 className={styles.composerHint}>
+                <span className="mb-2 block text-center text-xs text-muted-foreground">
                   Some files still indexing — answers use completed files only
-                </Caption1>
+                </span>
               )}
-              <div className={styles.composerBox}>
+              <div className="mx-auto flex max-w-[800px] flex-col gap-2.5 rounded-xl border bg-muted p-3">
                 <Textarea
-                  className={styles.composerInput}
-                  resize="none"
+                  className="min-h-[72px] w-full resize-none"
                   rows={3}
                   placeholder={
                     canChat
@@ -647,7 +653,7 @@ export default function KnowledgeChatWorkspace() {
                   }
                   value={input}
                   disabled={!canChat || chatMutation.isPending}
-                  onChange={(_, d) => setInput(d.value)}
+                  onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -656,8 +662,7 @@ export default function KnowledgeChatWorkspace() {
                   }}
                 />
                 <Button
-                  appearance="primary"
-                  className={styles.sendBtn}
+                  className="self-end"
                   disabled={!canChat || !input.trim() || chatMutation.isPending}
                   onClick={sendMessage}
                 >
@@ -697,68 +702,71 @@ export default function KnowledgeChatWorkspace() {
         disabled={!newProjectName.trim()}
       />
 
-      <Dialog open={newPromptOpen} onOpenChange={(_, d) => setNewPromptOpen(d.open)}>
-        <DialogSurface>
-          <DialogBody>
+      <Dialog open={newPromptOpen} onOpenChange={setNewPromptOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
             <DialogTitle>Save prompt for {selectedProject?.name}</DialogTitle>
-            <DialogContent className={styles.dialogStack}>
-              <Input
-                placeholder="Short title"
-                value={newPromptTitle}
-                onChange={(_, d) => setNewPromptTitle(d.value)}
-              />
-              <Textarea
-                placeholder="Full prompt text"
-                value={newPromptContent}
-                onChange={(_, d) => setNewPromptContent(d.value)}
-                rows={4}
-              />
-            </DialogContent>
-            <DialogActions>
-              <Button appearance="secondary" onClick={() => setNewPromptOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                appearance="primary"
-                disabled={
-                  !newPromptTitle.trim() ||
-                  !newPromptContent.trim() ||
-                  createPromptMutation.isPending
-                }
-                onClick={() => void createPromptMutation.mutateAsync()}
-              >
-                Save
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <Input
+              placeholder="Short title"
+              value={newPromptTitle}
+              onChange={(e) => setNewPromptTitle(e.target.value)}
+            />
+            <Textarea
+              placeholder="Full prompt text"
+              value={newPromptContent}
+              onChange={(e) => setNewPromptContent(e.target.value)}
+              rows={4}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setNewPromptOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                !newPromptTitle.trim() ||
+                !newPromptContent.trim() ||
+                createPromptMutation.isPending
+              }
+              onClick={() => void createPromptMutation.mutateAsync()}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
 
-      <Dialog open={renameSessionOpen} onOpenChange={(_, d) => !d.open && setRenameSessionOpen(false)}>
-        <DialogSurface>
-          <DialogBody>
+      <Dialog
+        open={renameSessionOpen}
+        onOpenChange={(open) => {
+          if (!open) setRenameSessionOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
             <DialogTitle>Rename chat</DialogTitle>
-            <DialogContent className={styles.dialogStack}>
-              <Input
-                placeholder="Chat name"
-                value={renameSessionTitle}
-                onChange={(_, d) => setRenameSessionTitle(d.value)}
-              />
-            </DialogContent>
-            <DialogActions>
-              <Button appearance="secondary" onClick={() => setRenameSessionOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                appearance="primary"
-                disabled={!renameSessionTitle.trim() || renameSessionMutation.isPending}
-                onClick={() => void renameSessionMutation.mutateAsync()}
-              >
-                Save
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <Input
+              placeholder="Chat name"
+              value={renameSessionTitle}
+              onChange={(e) => setRenameSessionTitle(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setRenameSessionOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!renameSessionTitle.trim() || renameSessionMutation.isPending}
+              onClick={() => void renameSessionMutation.mutateAsync()}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </div>
   );
@@ -785,24 +793,31 @@ function ChatSessionRow({
   onSelect: () => void;
   onRename: () => void;
 }) {
-  const styles = useStyles();
-
   return (
-    <div className={`${styles.sessionRow} ${active ? styles.sessionRowActive : ""}`}>
-      <button type="button" className={styles.sessionRowMain} onClick={onSelect}>
-        <Chat24Regular />
-        <span>{session.title ?? "Untitled chat"}</span>
+    <div
+      className={`flex items-center gap-1 rounded-md hover:bg-card ${
+        active ? "bg-card outline outline-1 outline-primary" : ""
+      }`}
+    >
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 border-0 bg-transparent py-2.5 pr-2 pl-3 text-left text-sm"
+        onClick={onSelect}
+      >
+        <MessageSquare className="size-4 shrink-0" />
+        <span className="flex-1 truncate">{session.title ?? "Untitled chat"}</span>
       </button>
       <Button
-        appearance="subtle"
-        size="small"
-        icon={<Edit24Regular />}
+        variant="ghost"
+        size="icon-sm"
         title="Rename chat"
         onClick={(e) => {
           e.stopPropagation();
           onRename();
         }}
-      />
+      >
+        <Pencil />
+      </Button>
     </div>
   );
 }
@@ -832,31 +847,39 @@ function ProjectDialog({
   pending: boolean;
   disabled: boolean;
 }) {
-  const styles = useStyles();
   return (
-    <Dialog open={open} onOpenChange={(_, d) => !d.open && onClose()}>
-      <DialogSurface>
-        <DialogBody>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogContent className={styles.dialogStack}>
-            <Input placeholder="Project name" value={name} onChange={(_, d) => onNameChange(d.value)} />
-            <Textarea
-              placeholder="How should the assistant behave in this project? (optional)"
-              value={instructions}
-              onChange={(_, d) => onInstructionsChange(d.value)}
-              rows={4}
-            />
-          </DialogContent>
-          <DialogActions>
-            <Button appearance="secondary" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button appearance="primary" disabled={disabled || pending} onClick={onSubmit}>
-              {submitLabel}
-            </Button>
-          </DialogActions>
-        </DialogBody>
-      </DialogSurface>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          <Input
+            placeholder="Project name"
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
+          />
+          <Textarea
+            placeholder="How should the assistant behave in this project? (optional)"
+            value={instructions}
+            onChange={(e) => onInstructionsChange(e.target.value)}
+            rows={4}
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={disabled || pending} onClick={onSubmit}>
+            {submitLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }
@@ -870,14 +893,20 @@ function PromptItem({
   onUse: () => void;
   onDelete: () => void;
 }) {
-  const styles = useStyles();
   return (
-    <div className={styles.promptRow}>
-      <button type="button" className={styles.panelItem} onClick={onUse} title={prompt.content}>
-        <Lightbulb24Regular />
-        <span>{prompt.title}</span>
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        className="flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-3 py-2.5 text-left text-sm hover:bg-card"
+        onClick={onUse}
+        title={prompt.content}
+      >
+        <Lightbulb className="size-4 shrink-0" />
+        <span className="flex-1 truncate">{prompt.title}</span>
       </button>
-      <Button appearance="subtle" icon={<Delete24Regular />} size="small" onClick={onDelete} />
+      <Button variant="ghost" size="icon-sm" onClick={onDelete}>
+        <Trash2 />
+      </Button>
     </div>
   );
 }
@@ -895,28 +924,31 @@ function DocumentRow({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const styles = useStyles();
-  const badgeColor =
-    status === "completed"
-      ? "success"
-      : status === "failed"
-        ? "danger"
-        : status === "processing"
-          ? "informative"
-          : "warning";
   const statusLabel =
     detail && status !== "completed" && status !== "failed" ? detail : status;
+  const badgeVariant =
+    status === "failed" ? "destructive" : status === "processing" ? "secondary" : "outline";
+  const badgeClass =
+    status === "completed"
+      ? "border-green-600/40 text-green-700 dark:text-green-400"
+      : status === "failed"
+        ? ""
+        : status === "processing"
+          ? ""
+          : "border-amber-500/40 text-amber-700 dark:text-amber-400";
 
   return (
     <button
       type="button"
-      className={`${styles.panelItem} ${selected ? styles.panelItemActive : ""}`}
+      className={`flex w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-3 py-2.5 text-left text-sm hover:bg-card ${
+        selected ? "bg-card outline outline-1 outline-primary" : ""
+      }`}
       onClick={onSelect}
       title={detail ? `${status}: ${detail}` : selected ? "Chat uses this file only" : "Focus chat on this file"}
     >
-      <FileTypeIcon kind={fileKindFromName(title)} className={styles.fileTypeIcon} />
-      <span className={styles.docTitle}>{title}</span>
-      <Badge appearance="outline" color={badgeColor} size="small">
+      <FileTypeIcon kind={fileKindFromName(title)} className="size-5 shrink-0 text-muted-foreground" />
+      <span className="flex-1 truncate">{title}</span>
+      <Badge variant={badgeVariant} className={badgeClass}>
         {statusLabel}
       </Badge>
     </button>
@@ -924,27 +956,30 @@ function DocumentRow({
 }
 
 function MessageBubble({ message }: { message: ChatMessage }) {
-  const styles = useStyles();
   const isUser = message.role === "user";
 
   return (
-    <div className={isUser ? styles.userRow : styles.assistantRow}>
-      <div className={`${styles.bubble} ${isUser ? styles.userBubble : styles.assistantBubble}`}>
+    <div className={isUser ? "flex justify-end" : "flex justify-start"}>
+      <div
+        className={`max-w-[720px] rounded-[18px] px-[18px] py-3.5 leading-normal ${
+          isUser ? "bg-primary text-primary-foreground" : "border bg-muted"
+        }`}
+      >
         {isUser ? (
-          <Body1 className={styles.messageText}>{message.content}</Body1>
+          <p className="whitespace-pre-wrap text-sm">{message.content}</p>
         ) : (
-          <ChatMarkdown content={message.content} className={styles.messageMarkdown} />
+          <ChatMarkdown content={message.content} className="w-full" />
         )}
         {!isUser && message.attachments && message.attachments.length > 0 && (
-          <div className={styles.attachments}>
+          <div className="mt-3 flex flex-wrap gap-2">
             {message.attachments.map((attachment) => (
               <AttachmentDownload key={attachment.id} attachment={attachment} />
             ))}
           </div>
         )}
         {!isUser && message.citations && message.citations.length > 0 && (
-          <div className={styles.citations}>
-            <Caption1 className={styles.citationsLabel}>Sources</Caption1>
+          <div className="mt-3.5 flex flex-col gap-2">
+            <span className="text-xs font-semibold">Sources</span>
             {message.citations.map((c, i) => (
               <CitationChip
                 key={c.documentId ?? c.url ?? `${c.title}-${i}`}
@@ -959,7 +994,6 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 }
 
 function AttachmentDownload({ attachment }: { attachment: ChatAttachment }) {
-  const styles = useStyles();
   const kind =
     fileKindFromFormat(attachment.format) !== "generic"
       ? fileKindFromFormat(attachment.format)
@@ -967,424 +1001,39 @@ function AttachmentDownload({ attachment }: { attachment: ChatAttachment }) {
 
   return (
     <Button
-      appearance="secondary"
-      size="small"
-      icon={<FileTypeIcon kind={kind} className={styles.fileTypeIcon} />}
-      className={styles.attachmentButton}
+      variant="secondary"
+      size="sm"
+      className="max-w-full"
       onClick={() => void downloadGeneratedFile(attachment.id, attachment.filename)}
     >
+      <FileTypeIcon kind={kind} className="size-5 shrink-0 text-muted-foreground" />
       {attachment.filename}
     </Button>
   );
 }
 
 function CitationChip({ citation }: { citation: Citation }) {
-  const styles = useStyles();
   const isWeb = citation.type === "web" || !!citation.url;
   const iconKind = isWeb ? "web" : fileKindFromName(citation.title);
 
   return (
-    <div className={styles.citation}>
-      <div className={styles.citationHeader}>
-        <FileTypeIcon kind={iconKind} className={styles.fileTypeIcon} />
+    <div className="rounded-md bg-card px-3 py-2.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <FileTypeIcon kind={iconKind} className="size-5 shrink-0 text-muted-foreground" />
         {isWeb && citation.url ? (
           <a
             href={citation.url}
             target="_blank"
             rel="noopener noreferrer"
-            className={styles.citationLink}
+            className="text-xs font-semibold text-primary"
           >
             {citation.title}
           </a>
         ) : (
-          <Body1 className={styles.citationTitle}>{citation.title}</Body1>
+          <p className="text-xs font-semibold">{citation.title}</p>
         )}
       </div>
-      <Caption1 className={styles.citationSnippet}>{citation.snippet}</Caption1>
+      <span className="ml-7 text-xs text-muted-foreground">{citation.snippet}</span>
     </div>
   );
 }
-
-const useStyles = makeStyles({
-  app: {
-    display: "flex",
-    height: "calc(100vh - 48px)",
-    minHeight: "560px",
-    backgroundColor: tokens.colorNeutralBackground1,
-  },
-  projectRail: {
-    width: "220px",
-    flexShrink: 0,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "stretch",
-    gap: "12px",
-    padding: "12px 10px",
-    backgroundColor: tokens.colorNeutralBackground3,
-    borderRight: `1px solid ${tokens.colorNeutralStroke2}`,
-  },
-  homeLink: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "40px",
-    height: "40px",
-    margin: "0 auto",
-    borderRadius: tokens.borderRadiusMedium,
-    color: tokens.colorNeutralForeground2,
-    textDecoration: "none",
-    ":hover": { backgroundColor: tokens.colorNeutralBackground1 },
-  },
-  railProjects: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-    width: "100%",
-    overflowY: "auto",
-  },
-  railProjectCard: {
-    width: "100%",
-    minHeight: "64px",
-    padding: "10px 12px",
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
-    borderRadius: tokens.borderRadiusLarge,
-    backgroundColor: tokens.colorNeutralBackground1,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "flex-start",
-    gap: "10px",
-    textAlign: "left",
-    ":hover": { backgroundColor: tokens.colorNeutralBackground2 },
-  },
-  railProjectCardActive: {
-    backgroundColor: tokens.colorBrandBackground2,
-    borderTopColor: tokens.colorBrandStroke1,
-    borderRightColor: tokens.colorBrandStroke1,
-    borderBottomColor: tokens.colorBrandStroke1,
-    borderLeftColor: tokens.colorBrandStroke1,
-  },
-  railProjectInfo: {
-    minWidth: 0,
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-  },
-  railProjectName: {
-    fontWeight: tokens.fontWeightSemibold,
-    fontSize: tokens.fontSizeBase300,
-    lineHeight: tokens.lineHeightBase300,
-    display: "-webkit-box",
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: "vertical",
-    overflow: "hidden",
-  },
-  railProjectSubtitle: {
-    color: tokens.colorNeutralForeground3,
-    display: "-webkit-box",
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: "vertical",
-    overflow: "hidden",
-    lineHeight: tokens.lineHeightBase200,
-  },
-  railProjectInitial: {
-    flexShrink: 0,
-    width: "36px",
-    height: "36px",
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: tokens.colorNeutralBackground3,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontWeight: tokens.fontWeightSemibold,
-    fontSize: tokens.fontSizeBase400,
-  },
-  railNewBtn: {
-    width: "100%",
-    height: "44px",
-    border: `1px dashed ${tokens.colorNeutralStroke2}`,
-    borderRadius: tokens.borderRadiusLarge,
-    backgroundColor: "transparent",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: tokens.colorNeutralForeground2,
-    ":hover": { backgroundColor: tokens.colorNeutralBackground1 },
-  },
-  onboarding: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "16px",
-    padding: "40px",
-    textAlign: "center",
-  },
-  onboardingIcon: { width: "56px", height: "56px", opacity: 0.5 },
-  onboardingText: { maxWidth: "420px", color: tokens.colorNeutralForeground2 },
-  projectPanel: {
-    width: "300px",
-    flexShrink: 0,
-    display: "flex",
-    flexDirection: "column",
-    borderRight: `1px solid ${tokens.colorNeutralStroke2}`,
-    backgroundColor: tokens.colorNeutralBackground2,
-  },
-  projectHeader: {
-    display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    padding: "16px 16px 8px",
-    gap: "8px",
-  },
-  projectHeaderText: { minWidth: 0, flex: 1 },
-  projectName: {
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
-  projectMeta: { color: tokens.colorNeutralForeground3 },
-  tabs: { paddingLeft: "8px", paddingRight: "8px" },
-  panelBody: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    minHeight: 0,
-    padding: "12px",
-    gap: "10px",
-  },
-  panelAction: { width: "100%" },
-  panelList: {
-    flex: 1,
-    overflowY: "auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-  },
-  panelItem: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    width: "100%",
-    padding: "10px 12px",
-    border: "none",
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: "transparent",
-    cursor: "pointer",
-    textAlign: "left",
-    fontSize: tokens.fontSizeBase300,
-    color: tokens.colorNeutralForeground1,
-    ":hover": { backgroundColor: tokens.colorNeutralBackground1 },
-    "& span": {
-      flex: 1,
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      whiteSpace: "nowrap",
-    },
-  },
-  panelItemActive: {
-    backgroundColor: tokens.colorNeutralBackground1,
-    outline: `1px solid ${tokens.colorBrandStroke1}`,
-  },
-  emptyPanel: {
-    padding: "12px 8px",
-    color: tokens.colorNeutralForeground3,
-    textAlign: "center",
-  },
-  uploadZone: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: "6px",
-    padding: "20px 12px",
-    borderRadius: tokens.borderRadiusMedium,
-    border: `2px dashed ${tokens.colorNeutralStroke2}`,
-    cursor: "pointer",
-    textAlign: "center",
-    backgroundColor: tokens.colorNeutralBackground1,
-    ":hover": { borderTopColor: tokens.colorBrandStroke1 },
-  },
-  hiddenInput: { display: "none" },
-  indexingNote: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    padding: "8px 10px",
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: tokens.colorNeutralBackground1,
-  },
-  docTitle: { flex: 1 },
-  promptRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "4px",
-  },
-  chatMain: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    minWidth: 0,
-    backgroundColor: tokens.colorNeutralBackground1,
-  },
-  chatHeader: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "16px 24px",
-    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
-  },
-  chatHeaderTitle: {
-    display: "flex",
-    alignItems: "center",
-    gap: "4px",
-    minWidth: 0,
-    flex: 1,
-  },
-  sessionRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "4px",
-    borderRadius: tokens.borderRadiusMedium,
-    ":hover": { backgroundColor: tokens.colorNeutralBackground1 },
-  },
-  sessionRowActive: {
-    backgroundColor: tokens.colorNeutralBackground1,
-    outline: `1px solid ${tokens.colorBrandStroke1}`,
-  },
-  sessionRowMain: {
-    flex: 1,
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    minWidth: 0,
-    padding: "10px 8px 10px 12px",
-    border: "none",
-    backgroundColor: "transparent",
-    cursor: "pointer",
-    textAlign: "left",
-    fontSize: tokens.fontSizeBase300,
-    color: tokens.colorNeutralForeground1,
-    "& span": {
-      flex: 1,
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      whiteSpace: "nowrap",
-    },
-  },
-  messages: {
-    flex: 1,
-    overflowY: "auto",
-    padding: "24px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "20px",
-  },
-  chatEmpty: {
-    margin: "auto",
-    maxWidth: "480px",
-    textAlign: "center",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: "16px",
-  },
-  chatEmptyTitle: {
-    fontSize: tokens.fontSizeBase500,
-    fontWeight: tokens.fontWeightSemibold,
-  },
-  starterPrompts: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-    marginTop: "8px",
-  },
-  starterPromptRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "8px",
-    justifyContent: "center",
-  },
-  userRow: { display: "flex", justifyContent: "flex-end" },
-  assistantRow: { display: "flex", justifyContent: "flex-start" },
-  bubble: {
-    maxWidth: "720px",
-    padding: "14px 18px",
-    borderRadius: "18px",
-    lineHeight: "1.5",
-  },
-  userBubble: {
-    backgroundColor: tokens.colorBrandBackground,
-    color: tokens.colorNeutralForegroundOnBrand,
-  },
-  assistantBubble: {
-    backgroundColor: tokens.colorNeutralBackground2,
-    ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-  },
-  messageText: { whiteSpace: "pre-wrap" },
-  messageMarkdown: { width: "100%" },
-  citations: { marginTop: "14px", display: "flex", flexDirection: "column", gap: "8px" },
-  attachments: {
-    marginTop: "12px",
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "8px",
-  },
-  attachmentButton: {
-    maxWidth: "100%",
-  },
-  citationsLabel: { fontWeight: tokens.fontWeightSemibold },
-  citation: {
-    padding: "10px 12px",
-    borderRadius: tokens.borderRadiusMedium,
-    backgroundColor: tokens.colorNeutralBackground1,
-  },
-  citationTitle: { fontWeight: tokens.fontWeightSemibold, fontSize: tokens.fontSizeBase200 },
-  composer: {
-    padding: "16px 24px 24px",
-    borderTop: `1px solid ${tokens.colorNeutralStroke2}`,
-    backgroundColor: tokens.colorNeutralBackground1,
-  },
-  composerHint: {
-    display: "block",
-    marginBottom: "8px",
-    color: tokens.colorNeutralForeground3,
-    textAlign: "center",
-  },
-  composerBox: {
-    maxWidth: "800px",
-    margin: "0 auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
-    padding: "12px",
-    borderRadius: tokens.borderRadiusXLarge,
-    backgroundColor: tokens.colorNeutralBackground2,
-    ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-  },
-  fileTypeIcon: {
-    flexShrink: 0,
-    width: "20px",
-    height: "20px",
-    color: tokens.colorNeutralForeground2,
-  },
-  citationHeader: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    minWidth: 0,
-  },
-  citationSnippet: {
-    marginLeft: "28px",
-  },
-  citationLink: {
-    fontWeight: tokens.fontWeightSemibold,
-    fontSize: tokens.fontSizeBase200,
-    color: tokens.colorBrandForeground1,
-  },
-  composerInput: { width: "100%" },
-  sendBtn: { alignSelf: "flex-end" },
-  dialogStack: { display: "flex", flexDirection: "column", gap: "12px" },
-});
