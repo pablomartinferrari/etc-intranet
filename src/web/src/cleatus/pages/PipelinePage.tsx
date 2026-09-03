@@ -40,6 +40,10 @@ import {
   type PipelineDashboard,
   type PipelineItem,
 } from "../api/cleat";
+import {
+  filterPipelineItems,
+  pipelineFilterHeading,
+} from "../pipelinePhase";
 
 const LOST_REASONS = [
   { value: "price", label: "Price" },
@@ -89,23 +93,12 @@ export function PipelinePage() {
   const items = dashboard?.items ?? [];
   const needs = dashboard?.needsCloseOut ?? [];
 
-  const filtered = useMemo(() => {
-    return items.filter((item) => {
-      if (phaseFilter === "needs") {
-        return item.needsCloseOut;
-      }
-      if (phaseFilter === "archived") {
-        return item.pursuit.archived;
-      }
-      if (phaseFilter !== "all") {
-        const stage = (item.pursuit.phase ?? item.pursuit.columnTitle ?? "").toLowerCase();
-        if (stage !== phaseFilter) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [items, phaseFilter]);
+  const filterActive = phaseFilter !== "all";
+  const filtered = useMemo(
+    () => filterPipelineItems(items, phaseFilter),
+    [items, phaseFilter],
+  );
+  const listHeading = pipelineFilterHeading(phaseFilter, filtered.length);
 
   function togglePhaseFilter(next: string) {
     setPhaseFilter((current) => (current === next ? "all" : next));
@@ -209,7 +202,7 @@ export function PipelinePage() {
         </div>
       )}
 
-      {dashboard && showNeedsCloseOut && (
+      {dashboard && showNeedsCloseOut && !filterActive && (
         <section className="grid gap-2.5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <strong>Needs close-out ({needs.length})</strong>
@@ -233,7 +226,7 @@ export function PipelinePage() {
         </section>
       )}
 
-      {dashboard && !showNeedsCloseOut && (
+      {dashboard && !showNeedsCloseOut && !filterActive && (
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
             checked={false}
@@ -246,10 +239,10 @@ export function PipelinePage() {
       {dashboard && (
         <section className="grid gap-2.5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <strong>All pursuits</strong>
+            <strong aria-live="polite">{listHeading}</strong>
             <div className="flex flex-wrap items-center gap-2">
-              {phaseFilter !== "all" && (
-                <Button type="button" variant="outline" size="sm" onClick={() => setPhaseFilter("all")}>
+              {filterActive && (
+                <Button type="button" size="sm" onClick={() => setPhaseFilter("all")}>
                   Show all
                 </Button>
               )}

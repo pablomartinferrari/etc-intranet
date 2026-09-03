@@ -110,6 +110,25 @@ public class PipelineMapperAndRulesTests
         Assert.False(needs);
     }
 
+    [Theory]
+    [InlineData("  Won  ", "won")]
+    [InlineData("In Progress", "in_progress")]
+    [InlineData("TRIAGE", "triage")]
+    [InlineData("Preparing", "preparing")]
+    public void NormalizeTrimsLowersAndTurnsSpacesIntoUnderscores(string input, string expected)
+    {
+        Assert.Equal(expected, PipelineCloseoutRules.Normalize(input));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void NormalizeBlankIsNull(string? input)
+    {
+        Assert.Null(PipelineCloseoutRules.Normalize(input));
+    }
+
     [Fact]
     public void WonLostArchivedAreNotCloseOut()
     {
