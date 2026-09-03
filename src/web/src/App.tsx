@@ -21,6 +21,7 @@ import {
 } from "./multifamily-lbp/auth/jobEntryPaths";
 import { BrandBar, SignOutButton } from "@/components/brand-bar";
 import { IntranetAppGrid, type IntranetApp } from "@/components/intranet-app-card";
+import { HelpAgentHost } from "@/help";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -213,6 +214,7 @@ export default function App() {
         <BrowserRouter>
           <ApiAuthBridge>
             <PostLoginRedirect />
+            <HelpAgentHost />
             <Routes>
               <Route path="/" element={<IntranetHome />} />
               <Route path="/knowledge/*" element={<KnowledgeRoutes />} />
