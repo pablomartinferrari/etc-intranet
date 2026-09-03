@@ -14,7 +14,7 @@ public static class KnowledgeBaseServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.Configure<KnowledgeBaseOptions>(configuration.GetSection(KnowledgeBaseOptions.SectionName));
+        services.ConfigureKnowledgeBaseOptions(configuration);
 
         var kbSection = configuration.GetSection(KnowledgeBaseOptions.SectionName);
         var connectionString = kbSection["ConnectionString"]
@@ -79,6 +79,20 @@ public static class KnowledgeBaseServiceExtensions
         services.AddScoped<IAgentSourceIngestRunner>(sp => sp.GetRequiredService<AgentSourceService>());
         services.AddHostedService<AgentSourceIngestWorker>();
 
+        return services;
+    }
+
+    /// <summary>
+    /// Production Configure + PostConfigure path for <see cref="KnowledgeBaseOptions"/>.
+    /// Nested Fallback/Embeddings are re-bound so App Settings env vars win over empty JSON.
+    /// </summary>
+    internal static IServiceCollection ConfigureKnowledgeBaseOptions(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.Configure<KnowledgeBaseOptions>(configuration.GetSection(KnowledgeBaseOptions.SectionName));
+        services.PostConfigure<KnowledgeBaseOptions>(o =>
+            KnowledgeBaseOptionsBinder.BindNestedSections(o, configuration));
         return services;
     }
 

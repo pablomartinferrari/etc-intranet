@@ -1,4 +1,6 @@
+using Intranet.Api.KnowledgeBase.Options;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace Intranet.Api.Help;
 
@@ -20,5 +22,16 @@ public sealed class HelpController(HelpAskService help) : ControllerBase
         {
             return BadRequest(new { error = "invalid_question", message = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Authenticated diagnostic: whether hosted Fallback / Embeddings bound a key.
+    /// Never returns secret values.
+    /// </summary>
+    [HttpGet("status")]
+    public ActionResult<HelpStatusResponse> Status([FromServices] IOptions<KnowledgeBaseOptions> options)
+    {
+        var kb = options.Value;
+        return Ok(new HelpStatusResponse(kb.Fallback.IsConfigured, kb.IsEmbeddingsConfigured));
     }
 }

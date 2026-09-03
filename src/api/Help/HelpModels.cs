@@ -2,6 +2,11 @@ namespace Intranet.Api.Help;
 
 public sealed record HelpAskRequest(string? Question);
 
+/// <summary>
+/// Safe ops diagnostic for hosted-model binding. Booleans only — never keys.
+/// </summary>
+public sealed record HelpStatusResponse(bool FallbackConfigured, bool EmbeddingsConfigured);
+
 public sealed record HelpLinkDto(string Label, string Path);
 
 public sealed record HelpAskResponse(
