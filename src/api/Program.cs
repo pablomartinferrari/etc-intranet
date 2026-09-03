@@ -2,6 +2,7 @@ using Intranet.Api.Cleat;
 using Intranet.Api.Data;
 using Intranet.Api.Data.Entities;
 using Intranet.Api.FeatureRequests;
+using Intranet.Api.Help;
 using Intranet.Api.KnowledgeBase;
 using Intranet.Api.MultifamilyLbp;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -41,6 +42,7 @@ builder.Services.AddScoped<IFeatureRequestLlm, OllamaFeatureRequestLlm>();
 builder.Services.AddScoped<FeatureRequestService>();
 builder.Services.AddMultifamilyLbp(builder.Configuration);
 builder.Services.AddKnowledgeBase(builder.Configuration);
+builder.Services.AddHelpAgent();
 
 var enableSwagger = builder.Environment.IsDevelopment()
     || builder.Configuration.GetValue("Swagger:Enabled", false);
