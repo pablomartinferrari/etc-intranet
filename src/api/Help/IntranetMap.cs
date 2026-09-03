@@ -62,6 +62,13 @@ public static class IntranetMap
             "Queue of intranet feature requests. Capture new notes and mark them planned or done.",
             "From Home, open the Feature Requests card. Use Add feature request to suggest an improvement, including topics that are not Chat, Lead, or Sales.",
             ["requests", "request", "feature", "ticket", "inbox", "change", "feedback"]),
+        new(
+            "agent-sources",
+            "Agent sources",
+            "/knowledge/sources",
+            "Connect a SharePoint folder so ETC Chat can use those documents company-wide.",
+            "From Home open Chat, then Add to Chat context — or go to Agent sources.",
+            ["agent sources", "sources", "sharepoint", "add knowledge", "chat context", "ingest", "folder"]),
     ];
 
     public static readonly IReadOnlyList<IntranetFaq> Faqs =
@@ -106,6 +113,11 @@ public static class IntranetMap
             ["what is home", "where is home", "applications", "back to home"],
             "Home is the intranet landing page. After you sign in you will see Chat, Lead, Sales, and Feature Requests. The ETC logo always returns here.",
             ["home"]),
+        new(
+            "agent-sources",
+            ["add knowledge", "agent sources", "sharepoint folder", "add to chat context", "connect sharepoint", "chat sources"],
+            "To add SharePoint documents to Chat, open Chat from Home, then Add to Chat context (Agent sources). Paste a site URL and folder path, review the size estimate, and connect. Huge folders file an admin request instead of ingesting automatically.",
+            ["agent-sources", "chat"]),
     ];
 
     public static readonly IReadOnlyList<string> SuggestedQuestions =

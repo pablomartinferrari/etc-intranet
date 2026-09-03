@@ -113,10 +113,14 @@ public sealed class SemanticSearchService
             JOIN chunks c ON c.id = e.chunk_id
             JOIN documents d ON d.id = c.document_id
             """ + (projectId.HasValue
-                ? " JOIN kb_project_documents pd ON pd.document_id = d.id AND pd.project_id = @projectId "
-                : "") + """
+                ? """
+             LEFT JOIN kb_project_documents pd ON pd.document_id = d.id AND pd.project_id = @projectId
             WHERE d.ingest_status = 'completed'
-            """ + (documentId.HasValue ? " AND d.id = @documentId" : "") + """
+              AND (pd.project_id IS NOT NULL OR d.source_type = 'sharepoint_folder')
+            """
+                : """
+            WHERE d.ingest_status = 'completed'
+            """) + (documentId.HasValue ? " AND d.id = @documentId" : "") + """
             
             ORDER BY ((1 - (e.vector <=> @queryVector)) * @vectorWeight
                       + COALESCE(ts_rank(c.search_vector, plainto_tsquery('english', @queryText)), 0) * @keywordWeight) DESC
@@ -232,10 +236,14 @@ public sealed class SemanticSearchService
             FROM chunks c
             JOIN documents d ON d.id = c.document_id
             """ + (projectId.HasValue
-                ? " JOIN kb_project_documents pd ON pd.document_id = d.id AND pd.project_id = @projectId "
-                : "") + """
+                ? """
+             LEFT JOIN kb_project_documents pd ON pd.document_id = d.id AND pd.project_id = @projectId
             WHERE d.ingest_status = 'completed'
-            """ + (documentId.HasValue ? " AND d.id = @documentId" : "") + """
+              AND (pd.project_id IS NOT NULL OR d.source_type = 'sharepoint_folder')
+            """
+                : """
+            WHERE d.ingest_status = 'completed'
+            """) + (documentId.HasValue ? " AND d.id = @documentId" : "") + """
             ORDER BY keyword_score DESC
             LIMIT @topK
             """;

@@ -13,6 +13,8 @@ public class HelpAskServiceTests
     [InlineData("How do I request a feature?", "/requests", "Feature Requests")]
     [InlineData("request a change", "/requests", "Feature Requests")]
     [InlineData("lead inspection", "/lead-inspection", "Lead")]
+    [InlineData("add knowledge", "/knowledge/sources", "Agent sources")]
+    [InlineData("connect sharepoint", "/knowledge/sources", "Agent sources")]
     public async Task MapAnswersKnownNavigationQuestions(string question, string path, string label)
     {
         var service = CreateService(new NullLlm());
@@ -126,6 +128,7 @@ public class HelpAskServiceTests
             "/opportunities",
             "/pipeline",
             "/requests",
+            "/knowledge/sources",
         ]));
     }
 

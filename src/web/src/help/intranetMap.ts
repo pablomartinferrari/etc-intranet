@@ -72,6 +72,13 @@ const PLACES: Place[] = [
     answer:
       "Open the Feature Requests card on Home. Use Add feature request to suggest an intranet improvement — Chat, Lead, Sales, General, or another topic. Review the queue on that same page.",
   },
+  {
+    title: "Agent sources",
+    path: "/knowledge/sources",
+    keywords: ["sources", "sharepoint", "knowledge", "context", "ingest", "folder"],
+    answer:
+      "Add SharePoint folders to Chat from Agent sources. Open Chat, then Add to Chat context. Paste a site URL and folder path, review the size estimate, and connect.",
+  },
 ];
 
 function normalize(text: string): string {

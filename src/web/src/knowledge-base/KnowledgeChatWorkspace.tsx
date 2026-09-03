@@ -49,6 +49,7 @@ import {
   type Prompt,
   type UploadQueueItem,
 } from "./api/knowledge";
+import { AgentSourcesChatLink } from "./AgentSourcesPage";
 import { FileTypeIcon, fileKindFromFormat, fileKindFromName } from "./fileTypeIcon";
 import { ChatMarkdown } from "./ChatMarkdown";
 
@@ -336,6 +337,7 @@ export default function KnowledgeChatWorkspace() {
         >
           <ArrowLeft />
         </RouterLink>
+        <AgentSourcesChatLink />
         <div className="flex w-full flex-1 flex-col gap-2 overflow-y-auto">
           {(projectsQuery.data ?? []).map((p) => (
             <button
@@ -563,11 +565,16 @@ export default function KnowledgeChatWorkspace() {
                   </Button>
                 )}
               </div>
-              {contextDocId && (
-                <Button variant="ghost" size="sm" onClick={() => setContextDocId(undefined)}>
-                  Focused on one file — clear
+              <div className="flex shrink-0 items-center gap-2">
+                {contextDocId && (
+                  <Button variant="ghost" size="sm" onClick={() => setContextDocId(undefined)}>
+                    Focused on one file — clear
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" asChild>
+                  <RouterLink to="/knowledge/sources">Add to Chat context</RouterLink>
                 </Button>
-              )}
+              </div>
             </header>
 
             <div className="flex flex-1 flex-col gap-5 overflow-y-auto p-6" ref={messagesContainerRef}>
