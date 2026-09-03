@@ -570,9 +570,11 @@ function CountTile({
       aria-label={`${active ? "Clear" : "Show"} ${label} pursuits`}
       onClick={onClick}
       className={cn(
-        "grid gap-1 rounded-lg bg-card p-3 text-left shadow-sm transition-colors outline-none",
-        "hover:bg-muted/70 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
-        active && "bg-muted ring-2 ring-ring",
+        "grid gap-1 rounded-lg border bg-card p-3 text-left shadow-sm transition-colors outline-none",
+        "hover:bg-muted/70 focus-visible:ring-3 focus-visible:ring-ring/50",
+        active
+          ? "border-ring bg-muted ring-2 ring-ring"
+          : "border-transparent focus-visible:border-ring",
       )}
     >
       <span className="text-xs text-muted-foreground">{label}</span>
