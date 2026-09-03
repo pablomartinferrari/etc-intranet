@@ -25,6 +25,17 @@ public static class FeatureRequestPages
 
     public static bool IsValid(string? page) =>
         page is not null && Allowed.Contains(page, StringComparer.Ordinal);
+
+    public static string DisplayName(string page) => page switch
+    {
+        Chat => "Chat",
+        Lead => "Lead",
+        Sales => "Sales",
+        General => "General",
+        Opportunities => "Bids",
+        Pipeline => "Pipeline",
+        _ => page,
+    };
 }
 
 public static class FeatureRequestStatuses

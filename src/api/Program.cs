@@ -39,6 +39,13 @@ builder.Services.AddHttpClient<CleatClient>((sp, client) =>
 });
 builder.Services.AddScoped<PipelineService>();
 builder.Services.AddScoped<IFeatureRequestLlm, OllamaFeatureRequestLlm>();
+builder.Services.Configure<FeatureRequestSmsOptions>(
+    builder.Configuration.GetSection(FeatureRequestSmsOptions.SectionName));
+builder.Services.AddHttpClient<IFeatureRequestSmsClient, TwilioFeatureRequestSmsClient>((_, client) =>
+{
+    client.BaseAddress = new Uri("https://api.twilio.com/");
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
 builder.Services.AddScoped<FeatureRequestService>();
 builder.Services.AddMultifamilyLbp(builder.Configuration);
 builder.Services.AddKnowledgeBase(builder.Configuration);
