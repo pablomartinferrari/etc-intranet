@@ -95,6 +95,54 @@ public class FeatureRequestServiceTests
         Assert.Empty(db.FeatureRequests);
     }
 
+    [Theory]
+    [InlineData("chat")]
+    [InlineData("lead")]
+    [InlineData("general")]
+    public async Task CreateAcceptsIntranetWideAreas(string page)
+    {
+        await using var db = CreateDb();
+        var service = new FeatureRequestService(db, new NullLlm());
+
+        var created = await service.CreateAsync(
+            page,
+            "The home cards are hard to scan on a phone.",
+            "alex@etc.example",
+            CancellationToken.None);
+
+        Assert.Equal(page, created.Page);
+        Assert.Equal("fallback", created.StructuredBy);
+        Assert.Equal(page, Assert.Single(db.FeatureRequests).Page);
+        Assert.False(string.IsNullOrWhiteSpace(created.DataInvolved));
+        Assert.Contains(page, FeatureRequestStructurer.UserPrompt(page, "note"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CreateRejectsUnknownAreaWithoutWriting()
+    {
+        await using var db = CreateDb();
+        var service = new FeatureRequestService(db, new NullLlm());
+
+        var error = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.CreateAsync("facilities", "Please add a parking map.", "alex@etc.example", CancellationToken.None));
+
+        Assert.Contains("chat", error.Message, StringComparison.Ordinal);
+        Assert.Contains("general", error.Message, StringComparison.Ordinal);
+        Assert.Empty(db.FeatureRequests);
+    }
+
+    [Fact]
+    public void FallbackKeepsLegacySalesPagesValid()
+    {
+        foreach (var page in new[] { "sales", "opportunities", "pipeline" })
+        {
+            var ticket = FeatureRequestStructurer.FromFallback(page, "Keep existing tickets working.");
+            Assert.Equal("fallback", ticket.StructuredBy);
+            Assert.False(string.IsNullOrWhiteSpace(ticket.DataInvolved));
+            Assert.True(FeatureRequestPages.IsValid(page));
+        }
+    }
+
     [Fact]
     public async Task ListIsNewestFirstAndStatusCanChange()
     {

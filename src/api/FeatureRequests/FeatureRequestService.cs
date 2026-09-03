@@ -16,7 +16,8 @@ public sealed class FeatureRequestService(
     {
         if (!FeatureRequestPages.IsValid(page))
         {
-            throw new ArgumentException("Page must be sales, opportunities, or pipeline.");
+            throw new ArgumentException(
+                "Area must be chat, lead, sales, general, opportunities, or pipeline.");
         }
 
         var note = rawText.Trim();

@@ -12,7 +12,6 @@ export function CleatusOpportunitiesRoute(): React.JSX.Element {
         title="Bids"
         subtitle="CLEATUS-recommended SAM.gov and SLED bids"
         icon={<Building2Icon className="size-7" />}
-        requestPage="opportunities"
       >
         <OpportunitiesPage />
       </CleatusChrome>
@@ -27,7 +26,6 @@ export function CleatusPipelineRoute(): React.JSX.Element {
         title="Pipeline"
         subtitle="Pursued, won, and lost work — close-out reasons stay in the intranet"
         icon={<TrendingUpIcon className="size-7" />}
-        requestPage="pipeline"
       >
         <PipelinePage />
       </CleatusChrome>

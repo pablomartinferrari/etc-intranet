@@ -1,9 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ExternalLinkIcon } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -29,6 +38,8 @@ import {
 
 const DEFAULT_MIN_SCORE = 80;
 
+type DeadlineFilter = "all" | "overdue" | "upcoming" | "none";
+
 export function OpportunitiesPage() {
   const [items, setItems] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,6 +47,10 @@ export function OpportunitiesPage() {
   const [selected, setSelected] = useState<Opportunity | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [deadlineFilter, setDeadlineFilter] = useState<DeadlineFilter>("all");
+  const [naicsFilter, setNaicsFilter] = useState("all");
+  const [setAsideFilter, setSetAsideFilter] = useState("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +104,44 @@ export function OpportunitiesPage() {
   const missingKey = error instanceof CleatApiError && error.isMissingKey;
   const upstream = error && !missingKey;
 
+  const naicsOptions = useMemo(() => uniqueValues(items.map((item) => item.naics)), [items]);
+  const setAsideOptions = useMemo(
+    () => uniqueValues(items.map((item) => item.setAside)),
+    [items],
+  );
+
+  const query = search.trim().toLowerCase();
+  const hasActiveFilters =
+    query.length > 0 ||
+    deadlineFilter !== "all" ||
+    naicsFilter !== "all" ||
+    setAsideFilter !== "all";
+
+  const filtered = useMemo(() => {
+    return items.filter((item) => {
+      if (query && !matchesSearch(item, query)) {
+        return false;
+      }
+      if (deadlineFilter !== "all" && deadlineBucket(item.deadlineDate) !== deadlineFilter) {
+        return false;
+      }
+      if (naicsFilter !== "all" && (item.naics ?? "") !== naicsFilter) {
+        return false;
+      }
+      if (setAsideFilter !== "all" && (item.setAside ?? "") !== setAsideFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [deadlineFilter, items, naicsFilter, query, setAsideFilter]);
+
+  function clearFilters() {
+    setSearch("");
+    setDeadlineFilter("all");
+    setNaicsFilter("all");
+    setSetAsideFilter("all");
+  }
+
   return (
     <main className="mx-auto grid w-full max-w-[1100px] gap-4 px-5 py-8 pb-14">
       <PageExplainer title="Bids">
@@ -134,6 +187,94 @@ export function OpportunitiesPage() {
       )}
 
       {!loading && items.length > 0 && (
+        <div className="flex flex-col gap-3 rounded-lg bg-card p-3 shadow-sm">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-1.5">
+              <Label htmlFor="bids-search">Search</Label>
+              <Input
+                id="bids-search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Title, agency, or id"
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="bids-deadline">Deadline</Label>
+              <Select
+                value={deadlineFilter}
+                onValueChange={(value) => setDeadlineFilter(value as DeadlineFilter)}
+              >
+                <SelectTrigger id="bids-deadline">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All deadlines</SelectItem>
+                  <SelectItem value="overdue">Overdue</SelectItem>
+                  <SelectItem value="upcoming">Upcoming</SelectItem>
+                  <SelectItem value="none">No deadline</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="bids-naics">NAICS</Label>
+              <Select value={naicsFilter} onValueChange={setNaicsFilter}>
+                <SelectTrigger id="bids-naics">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All NAICS</SelectItem>
+                  {naicsOptions.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="bids-set-aside">Set-aside</Label>
+              <Select value={setAsideFilter} onValueChange={setSetAsideFilter}>
+                <SelectTrigger id="bids-set-aside">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All set-asides</SelectItem>
+                  {setAsideOptions.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">
+              Showing {filtered.length} of {items.length}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={clearFilters}
+              disabled={!hasActiveFilters}
+            >
+              Clear filters
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {!loading && items.length > 0 && filtered.length === 0 && (
+        <Alert>
+          <AlertTitle>No matching bids</AlertTitle>
+          <AlertDescription>
+            Nothing matches these filters. Clear them to see the full list.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {!loading && filtered.length > 0 && (
         <div className="overflow-x-auto rounded-lg bg-card p-2 shadow-sm">
           <Table aria-label="Recommended opportunities">
             <TableHeader>
@@ -146,7 +287,7 @@ export function OpportunitiesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((item) => (
+              {filtered.map((item) => (
                 <TableRow
                   key={item.id}
                   className="cursor-pointer"
@@ -283,6 +424,33 @@ function DetailField({ label, value }: { label: string; value: string | null }) 
       <p className="text-xs tracking-wide text-muted-foreground uppercase">{label}</p>
       <p className="text-sm">{value}</p>
     </div>
+  );
+}
+
+function matchesSearch(item: Opportunity, query: string): boolean {
+  const haystack = [item.title, item.agency, item.id, item.solicitationNumber]
+    .filter((value): value is string => Boolean(value))
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(query);
+}
+
+function deadlineBucket(value: string | null | undefined): Exclude<DeadlineFilter, "all"> {
+  if (!value) {
+    return "none";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "none";
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return date < today ? "overdue" : "upcoming";
+}
+
+function uniqueValues(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value && value.trim())))].sort(
+    (a, b) => a.localeCompare(b),
   );
 }
 

@@ -1,22 +1,18 @@
-import { HomeIcon } from "lucide-react";
+import { HomeIcon, InboxIcon } from "lucide-react";
 import { Link as RouterLink } from "react-router-dom";
 
 import { BrandBar, SignOutButton } from "@/components/brand-bar";
 import { Button } from "@/components/ui/button";
-import { RequestChangeControl } from "../sales/RequestChangeSheet";
-import type { FeatureRequestPage } from "../sales/api/featureRequests";
 
 export function CleatusChrome({
   title,
   subtitle,
   icon,
-  requestPage,
   children,
 }: {
   title: string;
   subtitle: string;
   icon: React.ReactNode;
-  requestPage: FeatureRequestPage;
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
@@ -31,11 +27,16 @@ export function CleatusChrome({
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <RequestChangeControl page={requestPage} />
+          <Button variant="ghost" asChild>
+            <RouterLink to="/requests">
+              <InboxIcon />
+              Requests
+            </RouterLink>
+          </Button>
           <Button variant="ghost" asChild>
             <RouterLink to="/sales">
               <HomeIcon />
-              Applications
+              Sales
             </RouterLink>
           </Button>
         </div>

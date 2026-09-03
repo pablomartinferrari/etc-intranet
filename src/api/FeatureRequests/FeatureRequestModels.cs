@@ -2,7 +2,26 @@ namespace Intranet.Api.FeatureRequests;
 
 public static class FeatureRequestPages
 {
-    public static readonly string[] Allowed = ["sales", "opportunities", "pipeline"];
+    public const string Chat = "chat";
+    public const string Lead = "lead";
+    public const string Sales = "sales";
+    public const string General = "general";
+    public const string Opportunities = "opportunities";
+    public const string Pipeline = "pipeline";
+
+    /// <summary>
+    /// Intranet areas staff can file against from Home, plus legacy Sales page values
+    /// that must stay valid for existing FeatureRequests rows.
+    /// </summary>
+    public static readonly string[] Allowed =
+    [
+        Chat,
+        Lead,
+        Sales,
+        General,
+        Opportunities,
+        Pipeline,
+    ];
 
     public static bool IsValid(string? page) =>
         page is not null && Allowed.Contains(page, StringComparer.Ordinal);

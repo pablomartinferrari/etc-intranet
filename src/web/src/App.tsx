@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
-import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { BrowserRouter, Link as RouterLink, Route, Routes, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BriefcaseIcon, ClipboardListIcon, SparklesIcon } from "lucide-react";
+import { BriefcaseIcon, ClipboardListIcon, InboxIcon, SparklesIcon } from "lucide-react";
 
 import { apiRequest, signInRequest } from "./authConfig";
 import MultifamilyRoutes from "./multifamily-lbp/MultifamilyRoutes";
@@ -12,6 +12,7 @@ import {
   CleatusPipelineRoute,
 } from "./cleatus/CleatusRoutes";
 import { FeatureRequestsRoute } from "./sales/FeatureRequestsPage";
+import { RequestChangeControl } from "./sales/RequestChangeSheet";
 import { SalesHubRoute } from "./sales/SalesHubPage";
 import { ApiAuthBridge } from "./multifamily-lbp/api/ApiAuthBridge";
 import {
@@ -199,7 +200,18 @@ function IntranetHome() {
 
       {isSignedIn && (
         <section className="flex flex-col gap-4">
-          <h2 className="px-1 text-base font-semibold text-muted-foreground">Applications</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+            <h2 className="text-base font-semibold text-muted-foreground">Applications</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <RequestChangeControl />
+              <Button variant="outline" asChild>
+                <RouterLink to="/requests">
+                  <InboxIcon />
+                  Requests
+                </RouterLink>
+              </Button>
+            </div>
+          </div>
           <IntranetAppGrid apps={INTRANET_APPS} />
         </section>
       )}
@@ -219,6 +231,7 @@ export default function App() {
               <Route path="/" element={<IntranetHome />} />
               <Route path="/knowledge/*" element={<KnowledgeRoutes />} />
               <Route path="/sales" element={<SalesHubRoute />} />
+              <Route path="/requests" element={<FeatureRequestsRoute />} />
               <Route path="/sales/requests" element={<FeatureRequestsRoute />} />
               <Route path="/opportunities" element={<CleatusOpportunitiesRoute />} />
               <Route path="/pipeline" element={<CleatusPipelineRoute />} />

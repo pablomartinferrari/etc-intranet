@@ -6,7 +6,6 @@ import { IntranetAppGrid, type IntranetApp } from "@/components/intranet-app-car
 import { Button } from "@/components/ui/button";
 import { RequireAuth } from "../multifamily-lbp/auth/RequireAuth";
 import { PageExplainer } from "./PageExplainer";
-import { RequestChangeControl } from "./RequestChangeSheet";
 
 const SALES_APPS: IntranetApp[] = [
   {
@@ -38,9 +37,8 @@ function SalesHubPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <RequestChangeControl page="sales" />
           <Button variant="outline" asChild>
-            <RouterLink to="/sales/requests">
+            <RouterLink to="/requests">
               <InboxIcon />
               Requests
             </RouterLink>
@@ -58,6 +56,7 @@ function SalesHubPage() {
           <p>
             This is the sales home. Pick Bids (recommended government opportunities
             from CLEATUS) or Pipeline (deals ETC is pursuing, plus close-out).
+            Request a change from Home so it can cover Chat, Lead, Sales, or General.
           </p>
         </PageExplainer>
         <IntranetAppGrid apps={SALES_APPS} />
