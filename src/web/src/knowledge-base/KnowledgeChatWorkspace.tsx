@@ -57,6 +57,8 @@ import {
   type Prompt,
   type UploadQueueItem,
 } from "./api/knowledge";
+import { AddSharePointFolderButton } from "./AddSharePointFolderSheet";
+import { AgentSourcesChatLink } from "./AgentSourcesPage";
 import { FileTypeIcon, fileKindFromFormat, fileKindFromName } from "./fileTypeIcon";
 import { ChatMarkdown } from "./ChatMarkdown";
 
@@ -488,11 +490,17 @@ export default function KnowledgeChatWorkspace() {
                   </Button>
                 )}
               </div>
-              {contextDocId && (
-                <Button variant="ghost" size="sm" onClick={() => setContextDocId(undefined)}>
-                  Focused on one file — clear
+              <div className="flex shrink-0 items-center gap-2">
+                {contextDocId && (
+                  <Button variant="ghost" size="sm" onClick={() => setContextDocId(undefined)}>
+                    Focused on one file — clear
+                  </Button>
+                )}
+                <AddSharePointFolderButton size="sm">Add SharePoint folder</AddSharePointFolderButton>
+                <Button variant="ghost" size="sm" asChild>
+                  <RouterLink to="/knowledge/sources">Manage sources</RouterLink>
                 </Button>
-              )}
+              </div>
             </header>
 
             <div
@@ -515,9 +523,19 @@ export default function KnowledgeChatWorkspace() {
                     </span>
                   )}
                   {!hasReadyDocs && (
-                    <Button variant="outline" onClick={() => openMobilePanel("files")}>
-                      Go to Files
-                    </Button>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Button variant="outline" onClick={() => openMobilePanel("files")}>
+                        Go to Files
+                      </Button>
+                      <AddSharePointFolderButton variant="outline">
+                        Add SharePoint folder
+                      </AddSharePointFolderButton>
+                    </div>
+                  )}
+                  {hasReadyDocs && (
+                    <AddSharePointFolderButton variant="outline" size="sm">
+                      Add SharePoint folder
+                    </AddSharePointFolderButton>
                   )}
                   {(promptsQuery.data ?? []).length > 0 && canChat && (
                     <div className="mt-2 flex flex-col gap-2">
@@ -590,6 +608,13 @@ export default function KnowledgeChatWorkspace() {
                     }
                   }}
                 />
+                <AddSharePointFolderButton
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 max-md:px-2"
+                >
+                  <span className="sr-only md:not-sr-only">Add SharePoint folder</span>
+                </AddSharePointFolderButton>
                 <Button
                   className="h-11 shrink-0 md:h-8"
                   disabled={!canChat || !input.trim() || chatMutation.isPending}
@@ -773,6 +798,7 @@ function ProjectRail({
           <ArrowLeft />
         </RouterLink>
       )}
+      <AgentSourcesChatLink />
       <div className="flex w-full flex-1 flex-col gap-2 overflow-y-auto">
         {projects.map((p) => (
           <button

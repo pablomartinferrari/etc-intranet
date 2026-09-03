@@ -1,3 +1,4 @@
+using Intranet.Api.KnowledgeBase.AgentSources;
 using Intranet.Api.KnowledgeBase.Data;
 using Intranet.Api.KnowledgeBase.Options;
 using Intranet.Api.KnowledgeBase.Services;
@@ -64,6 +65,19 @@ public static class KnowledgeBaseServiceExtensions
         services.AddScoped<RagService>();
         services.AddScoped<KnowledgeUploadStaging>();
         services.AddScoped<IngestService>();
+        services.AddScoped<ISharePointFolderGraph, SharePointFolderGraphClient>();
+        services.AddHttpClient<OpenAiCompatibleEmbeddingClient>((sp, client) =>
+        {
+            var embeddings = sp.GetRequiredService<IOptions<KnowledgeBaseOptions>>().Value.Embeddings;
+            var seconds = embeddings.TimeoutSeconds > 0 ? embeddings.TimeoutSeconds : 60;
+            client.Timeout = TimeSpan.FromSeconds(seconds);
+        });
+        services.AddScoped<IHostedEmbeddingClient>(sp => sp.GetRequiredService<OpenAiCompatibleEmbeddingClient>());
+        services.AddScoped<KnowledgeDocumentUpsert>();
+        services.AddScoped<IKnowledgeDocumentUpsert>(sp => sp.GetRequiredService<KnowledgeDocumentUpsert>());
+        services.AddScoped<AgentSourceService>();
+        services.AddScoped<IAgentSourceIngestRunner>(sp => sp.GetRequiredService<AgentSourceService>());
+        services.AddHostedService<AgentSourceIngestWorker>();
 
         return services;
     }

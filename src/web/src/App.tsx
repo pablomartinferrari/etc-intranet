@@ -22,6 +22,7 @@ import {
 import { BrandBar, SignOutButton } from "@/components/brand-bar";
 import { IntranetAppGrid, type IntranetApp } from "@/components/intranet-app-card";
 import { HelpAgentHost } from "@/help";
+import { AgentSourceUiProvider } from "@/knowledge-base/AddSharePointFolderSheet";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -220,18 +221,20 @@ export default function App() {
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <ApiAuthBridge>
-            <PostLoginRedirect />
-            <HelpAgentHost />
-            <Routes>
-              <Route path="/" element={<IntranetHome />} />
-              <Route path="/knowledge/*" element={<KnowledgeRoutes />} />
-              <Route path="/sales" element={<SalesHubRoute />} />
-              <Route path="/requests" element={<FeatureRequestsRoute />} />
-              <Route path="/sales/requests" element={<FeatureRequestsRoute />} />
-              <Route path="/opportunities" element={<CleatusOpportunitiesRoute />} />
-              <Route path="/pipeline" element={<CleatusPipelineRoute />} />
-              <Route path="/*" element={<MultifamilyRoutes />} />
-            </Routes>
+            <AgentSourceUiProvider>
+              <PostLoginRedirect />
+              <HelpAgentHost />
+              <Routes>
+                <Route path="/" element={<IntranetHome />} />
+                <Route path="/knowledge/*" element={<KnowledgeRoutes />} />
+                <Route path="/sales" element={<SalesHubRoute />} />
+                <Route path="/requests" element={<FeatureRequestsRoute />} />
+                <Route path="/sales/requests" element={<FeatureRequestsRoute />} />
+                <Route path="/opportunities" element={<CleatusOpportunitiesRoute />} />
+                <Route path="/pipeline" element={<CleatusPipelineRoute />} />
+                <Route path="/*" element={<MultifamilyRoutes />} />
+              </Routes>
+            </AgentSourceUiProvider>
           </ApiAuthBridge>
         </BrowserRouter>
       </QueryClientProvider>

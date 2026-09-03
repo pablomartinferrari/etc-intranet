@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMsal } from "@azure/msal-react";
-import { CircleHelpIcon, SendIcon } from "lucide-react";
+import { CircleHelpIcon, FolderPlusIcon, SendIcon } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { askHelp, type HelpAskResponse } from "./api";
 import { SUGGESTED_HELP_QUESTIONS, helpAnswerSourceLabel } from "./intranetMap";
+import { useAddSharePointFolder } from "../knowledge-base/AddSharePointFolderSheet";
 
 type Exchange = {
   question: string;
@@ -66,6 +67,7 @@ export function HelpAgentPanel({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { openAddFolder } = useAddSharePointFolder();
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,10 +115,22 @@ export function HelpAgentPanel({
           <SheetTitle>Intranet help</SheetTitle>
           <SheetDescription>
             Ask where to go. Answers use the intranet map — AI when a model is
-            available, otherwise map matching.
+            available, otherwise map matching. Use Add SharePoint folder to give
+            Chat new documents.
           </SheetDescription>
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-2">
+          <Button
+            type="button"
+            className="justify-start"
+            onClick={() => {
+              onOpenChange(false);
+              openAddFolder();
+            }}
+          >
+            <FolderPlusIcon />
+            Add SharePoint folder
+          </Button>
           {!exchange && (
             <div className="flex flex-col gap-2">
               <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">

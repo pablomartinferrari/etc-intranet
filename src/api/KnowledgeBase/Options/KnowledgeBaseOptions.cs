@@ -23,4 +23,10 @@ public sealed class KnowledgeBaseOptions
 
     /// <summary>Hosted OpenAI-compatible generation used when Ollama is down.</summary>
     public KnowledgeBaseFallbackOptions Fallback { get; set; } = new();
+
+    /// <summary>Hosted embeddings for SharePoint agent-source ingest (GPU optional).</summary>
+    public KnowledgeBaseEmbeddingsOptions Embeddings { get; set; } = new();
+
+    /// <summary>Self-serve SharePoint folder probe / ingest limits.</summary>
+    public AgentSourceOptions AgentSources { get; set; } = new();
 }
