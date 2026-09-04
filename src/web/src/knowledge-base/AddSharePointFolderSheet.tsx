@@ -176,7 +176,7 @@ export function AddSharePointFolderSheet({
               <AlertDescription>
                 {notice}{" "}
                 <RouterLink to="/knowledge/sources" className="underline underline-offset-4">
-                  Manage sources
+                  Sources
                 </RouterLink>
               </AlertDescription>
             </Alert>

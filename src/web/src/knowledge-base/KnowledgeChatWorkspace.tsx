@@ -1,8 +1,7 @@
 import { useMsal } from "@azure/msal-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Folder, Menu, Pencil } from "lucide-react";
+import { FileText, Folder, Lightbulb, Menu, Pencil, Plus, Send } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link as RouterLink } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -40,9 +40,10 @@ import {
   readChatSelection,
   writeChatSelection,
 } from "./chatSelectionStorage";
+import { ChatSidebar } from "./ChatSidebar";
 import { FileTypeIcon, fileKindFromFormat, fileKindFromName } from "./fileTypeIcon";
-import { ProjectRail, shareBadgeLabel } from "./ProjectRail";
-import { ProjectSidePanel, type ProjectPanelTab } from "./ProjectSidePanel";
+import { shareBadgeLabel } from "./projectGroups";
+import { ProjectFilesPanel, ProjectPromptsPanel } from "./ProjectSidePanel";
 import { ShareProjectDialog } from "./ShareProjectDialog";
 import {
   canEditProject,
@@ -65,6 +66,7 @@ import {
   type ChatMessage,
   type ChatSession,
   type Citation,
+  type Project,
   type Prompt,
   type UploadQueueItem,
 } from "./api/knowledge";
@@ -85,7 +87,6 @@ export default function KnowledgeChatWorkspace() {
   const hydratedRef = useRef(false);
 
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>();
-  const [panelTab, setPanelTab] = useState<ProjectPanelTab>("chats");
   const [sessionId, setSessionId] = useState<string | undefined>();
   const [pendingMessages, setPendingMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -104,8 +105,10 @@ export default function KnowledgeChatWorkspace() {
   const [renameSessionOpen, setRenameSessionOpen] = useState(false);
   const [renameSessionId, setRenameSessionId] = useState<string | undefined>();
   const [renameSessionTitle, setRenameSessionTitle] = useState("");
-  const [projectsSheetOpen, setProjectsSheetOpen] = useState(false);
-  const [panelSheetOpen, setPanelSheetOpen] = useState(false);
+  const [navSheetOpen, setNavSheetOpen] = useState(false);
+  const [filesSheetOpen, setFilesSheetOpen] = useState(false);
+  const [promptsSheetOpen, setPromptsSheetOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const scrollChatToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const container = messagesContainerRef.current;
@@ -339,7 +342,6 @@ export default function KnowledgeChatWorkspace() {
       setInput("");
       setContextDocId(undefined);
       setUploadQueue([]);
-      setPanelTab("chats");
       void queryClient.invalidateQueries({ queryKey: ["kb-projects"] });
     },
   });
@@ -379,23 +381,13 @@ export default function KnowledgeChatWorkspace() {
     },
   });
 
-  const isMobileViewport = () =>
-    typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
-
-  const openMobilePanel = (tab?: ProjectPanelTab) => {
-    if (tab) setPanelTab(tab);
-    if (isMobileViewport()) setPanelSheetOpen(true);
-  };
-
   const processFiles = useCallback(
     async (files: FileList | File[]) => {
       if (!selectedProjectId || !canEdit) return;
       const list = Array.from(files);
       if (list.length === 0) return;
-      setPanelTab("files");
-      if (typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
-        setPanelSheetOpen(true);
-      }
+      setFilesSheetOpen(true);
+      setNavSheetOpen(false);
       await uploadDocumentsAsync(list, selectedProjectId, setUploadQueue);
       void queryClient.invalidateQueries({ queryKey: ["kb-documents", selectedProjectId] });
     },
@@ -403,13 +395,12 @@ export default function KnowledgeChatWorkspace() {
   );
 
   const selectProject = (id: string) => {
-    setProjectsSheetOpen(false);
+    setNavSheetOpen(false);
     if (id === selectedProjectId) return;
     setSelectedProjectId(id);
     setInput("");
     setContextDocId(undefined);
     setUploadQueue([]);
-    setPanelTab("chats");
     setPendingMessages([]);
     setSessionId(lastSessionForProject(readChatSelection(userKey), id));
   };
@@ -418,23 +409,26 @@ export default function KnowledgeChatWorkspace() {
     setPendingMessages([]);
     setSessionId(id);
     setContextDocId(undefined);
-    setPanelSheetOpen(false);
+    setNavSheetOpen(false);
   };
 
   const startNewChat = () => {
+    if (!selectedProjectId) {
+      setNewProjectOpen(true);
+      return;
+    }
     setSessionId(undefined);
     setPendingMessages([]);
     setInput("");
     setContextDocId(undefined);
-    setPanelSheetOpen(false);
+    setNavSheetOpen(false);
   };
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 768px)");
     const onChange = () => {
       if (media.matches) {
-        setProjectsSheetOpen(false);
-        setPanelSheetOpen(false);
+        setNavSheetOpen(false);
       }
     };
     media.addEventListener("change", onChange);
@@ -447,12 +441,54 @@ export default function KnowledgeChatWorkspace() {
     setRenameSessionOpen(true);
   };
 
-  const openEditProject = () => {
-    if (!selectedProject) return;
-    setNewProjectName(selectedProject.name);
-    setNewProjectArea(selectedProject.area ?? "");
-    setNewProjectInstructions(selectedProject.instructions ?? "");
+  const ensureProjectSelected = (project: Project) => {
+    if (project.id !== selectedProjectId) {
+      selectProject(project.id);
+    }
+    return project;
+  };
+
+  const openEditProject = (project?: Project) => {
+    const target = project ?? selectedProject;
+    if (!target) return;
+    ensureProjectSelected(target);
+    setNewProjectName(target.name);
+    setNewProjectArea(target.area ?? "");
+    setNewProjectInstructions(target.instructions ?? "");
+    setNavSheetOpen(false);
     setEditProjectOpen(true);
+  };
+
+  const openShareProject = (project?: Project) => {
+    const target = project ?? selectedProject;
+    if (!target) return;
+    ensureProjectSelected(target);
+    setNavSheetOpen(false);
+    setShareOpen(true);
+  };
+
+  const openDeleteProject = (project?: Project) => {
+    const target = project ?? selectedProject;
+    if (!target) return;
+    ensureProjectSelected(target);
+    setNavSheetOpen(false);
+    setDeleteProjectOpen(true);
+  };
+
+  const openFilesSheet = (project?: Project) => {
+    const target = project ?? selectedProject;
+    if (!target) return;
+    ensureProjectSelected(target);
+    setNavSheetOpen(false);
+    setFilesSheetOpen(true);
+  };
+
+  const openPromptsSheet = (project?: Project) => {
+    const target = project ?? selectedProject;
+    if (!target) return;
+    ensureProjectSelected(target);
+    setNavSheetOpen(false);
+    setPromptsSheetOpen(true);
   };
 
   const sendMessage = () => {
@@ -472,49 +508,70 @@ export default function KnowledgeChatWorkspace() {
     [sessionsQuery.data, sessionId],
   );
   const shareLabel = selectedProject ? shareBadgeLabel(selectedProject) : null;
+  const greeting = selectedProject
+    ? `What's on your mind for ${selectedProject.name}?`
+    : "What's on your mind today?";
 
-  const sidePanelProps = {
-    selectedProject,
-    panelTab,
-    onPanelTabChange: setPanelTab,
-    onEditProject: openEditProject,
-    onShareProject: () => setShareOpen(true),
-    onDeleteProject: () => setDeleteProjectOpen(true),
+  const sidebarProps = {
+    projects: projectsQuery.data ?? [],
+    selectedProjectId,
+    onSelectProject: selectProject,
+    onNewProject: () => {
+      setNavSheetOpen(false);
+      setNewProjectOpen(true);
+    },
     onNewChat: startNewChat,
+    onEditProject: openEditProject,
+    onShareProject: openShareProject,
+    onDeleteProject: openDeleteProject,
+    onOpenFiles: openFilesSheet,
+    onOpenPrompts: openPromptsSheet,
     sessions: sessionsQuery.data ?? [],
     sessionsLoading: sessionsQuery.isPending,
     sessionId,
     onSelectSession: selectSession,
     onRenameSession: openRenameSession,
-    onPickFiles: () => fileInputRef.current?.click(),
-    onDropFiles: (files: FileList) => void processFiles(files),
-    hasActiveIngest,
-    documents: projectDocuments,
-    documentsLoading: documentsQuery.isPending,
-    contextDocId,
-    onSelectDocument: (id: string) => setContextDocId(contextDocId === id ? undefined : id),
-    onSavePrompt: () => {
-      setNewPromptContent(input);
-      setNewPromptOpen(true);
-    },
-    prompts: promptsQuery.data ?? [],
-    promptsLoading: promptsQuery.isPending,
-    onUsePrompt: (prompt: Prompt) => {
-      setInput(prompt.content);
-      setPanelTab("chats");
-      setPanelSheetOpen(false);
-    },
-    onDeletePrompt: (id: string) => {
-      void deletePrompt(id).then(() =>
-        queryClient.invalidateQueries({
-          queryKey: ["kb-prompts", selectedProjectId],
-        }),
-      );
-    },
+    loading: projectsQuery.isPending,
   };
 
+  const filesPanel = (
+    <ProjectFilesPanel
+      selectedProject={selectedProject}
+      onPickFiles={() => fileInputRef.current?.click()}
+      onDropFiles={(files) => void processFiles(files)}
+      hasActiveIngest={hasActiveIngest}
+      documents={projectDocuments}
+      documentsLoading={documentsQuery.isPending}
+      contextDocId={contextDocId}
+      onSelectDocument={(id) => setContextDocId(contextDocId === id ? undefined : id)}
+    />
+  );
+
+  const promptsPanel = (
+    <ProjectPromptsPanel
+      selectedProject={selectedProject}
+      onSavePrompt={() => {
+        setNewPromptContent(input);
+        setNewPromptOpen(true);
+      }}
+      prompts={promptsQuery.data ?? []}
+      promptsLoading={promptsQuery.isPending}
+      onUsePrompt={(prompt: Prompt) => {
+        setInput(prompt.content);
+        setPromptsSheetOpen(false);
+      }}
+      onDeletePrompt={(id) => {
+        void deletePrompt(id).then(() =>
+          queryClient.invalidateQueries({
+            queryKey: ["kb-prompts", selectedProjectId],
+          }),
+        );
+      }}
+    />
+  );
+
   return (
-    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-background md:flex-row">
+    <div className="flex h-dvh min-h-0 overflow-hidden bg-background">
       <input
         ref={fileInputRef}
         type="file"
@@ -527,26 +584,71 @@ export default function KnowledgeChatWorkspace() {
         }}
       />
 
-      <ProjectRail
-        className="hidden md:flex"
-        projects={projectsQuery.data ?? []}
-        selectedProjectId={selectedProjectId}
-        onSelectProject={selectProject}
-        onNewProject={() => setNewProjectOpen(true)}
+      <ChatSidebar
+        {...sidebarProps}
+        className="hidden border-r border-sidebar-border md:flex"
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
         showHomeLink
-        loading={projectsQuery.isPending}
+        showCollapseToggle
       />
 
-      {!hasProjects ? (
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="flex items-center gap-2 border-b px-3 py-2 md:hidden">
-            <Button variant="ghost" size="icon" asChild>
-              <RouterLink to="/" aria-label="Back to home">
-                <ArrowLeft />
-              </RouterLink>
-            </Button>
-            <h1 className="truncate text-base font-semibold">Chat</h1>
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+        <header className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background px-3 py-2 md:px-6 md:py-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="md:hidden"
+            aria-label="Open navigation"
+            onClick={() => setNavSheetOpen(true)}
+          >
+            <Menu />
+          </Button>
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            <h1 className="truncate text-base font-semibold md:text-lg">
+              {hasProjects
+                ? sessionId
+                  ? (activeSession?.title ?? (messagesLoading ? "Loading chat" : "Chat"))
+                  : "New chat"
+                : "Chat"}
+            </h1>
+            {sessionId && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Rename chat"
+                onClick={() => activeSession && openRenameSession(activeSession)}
+              >
+                <Pencil />
+              </Button>
+            )}
           </div>
+          {hasProjects && selectedProject && (
+            <div className="flex shrink-0 items-center gap-1">
+              {shareLabel && (
+                <span className="rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
+                  {shareLabel}
+                </span>
+              )}
+              {contextDocId && (
+                <Button variant="ghost" size="sm" onClick={() => setContextDocId(undefined)}>
+                  Focused on one file — clear
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={() => openFilesSheet()}>
+                <FileText />
+                Files
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => openPromptsSheet()}>
+                <Lightbulb />
+                Prompts
+              </Button>
+            </div>
+          )}
+        </header>
+
+        {!hasProjects ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center md:p-10">
             <Folder className="size-14 opacity-50" />
             <h3 className="text-lg font-semibold">Create your first project</h3>
@@ -558,80 +660,8 @@ export default function KnowledgeChatWorkspace() {
               New project
             </Button>
           </div>
-        </main>
-      ) : (
-        <>
-          <ProjectSidePanel {...sidePanelProps} className="hidden md:flex" />
-
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-            <header className="sticky top-0 z-10 flex flex-col gap-2 border-b bg-background px-3 py-2 md:flex-row md:items-center md:justify-between md:px-6 md:py-3">
-              <div className="flex items-center gap-2 md:hidden">
-                <Button variant="ghost" size="icon" asChild>
-                  <RouterLink to="/" aria-label="Back to home">
-                    <ArrowLeft />
-                  </RouterLink>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="min-w-0 flex-1 justify-start"
-                  onClick={() => setProjectsSheetOpen(true)}
-                >
-                  <Folder />
-                  <span className="truncate">{selectedProject?.name ?? "Projects"}</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  aria-label="Open chats, files, and prompts"
-                  onClick={() => setPanelSheetOpen(true)}
-                >
-                  <Menu />
-                </Button>
-              </div>
-              <div className="hidden min-w-0 md:flex md:flex-col">
-                <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-semibold">{selectedProject?.name}</p>
-                  {shareLabel && (
-                    <span className="rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
-                      {shareLabel}
-                    </span>
-                  )}
-                </div>
-                {selectedProject?.area && (
-                  <p className="truncate text-xs text-muted-foreground">{selectedProject.area}</p>
-                )}
-              </div>
-              <div className="flex min-w-0 flex-1 items-center gap-1">
-                <h3 className="truncate text-base font-semibold md:text-lg">
-                  {sessionId
-                    ? (activeSession?.title ?? (messagesLoading ? "Loading chat" : "Chat"))
-                    : "New chat"}
-                </h3>
-                {sessionId && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title="Rename chat"
-                    onClick={() => activeSession && openRenameSession(activeSession)}
-                  >
-                    <Pencil />
-                  </Button>
-                )}
-              </div>
-              <div className="hidden shrink-0 items-center gap-2 md:flex">
-                {contextDocId && (
-                  <Button variant="ghost" size="sm" onClick={() => setContextDocId(undefined)}>
-                    Focused on one file — clear
-                  </Button>
-                )}
-                <Button variant="ghost" size="sm" asChild>
-                  <RouterLink to="/knowledge/sources">Manage sources</RouterLink>
-                </Button>
-              </div>
-            </header>
-
+        ) : (
+          <>
             <div
               className="flex min-h-0 flex-1 flex-col gap-5 overflow-x-hidden overflow-y-auto p-4 md:p-6"
               ref={messagesContainerRef}
@@ -645,24 +675,19 @@ export default function KnowledgeChatWorkspace() {
               )}
 
               {!messagesLoading && messages.length === 0 && (
-                <div className="m-auto flex max-w-[480px] flex-col items-center gap-4 px-2 text-center">
-                  <p className="text-base font-semibold md:text-lg">
+                <div className="m-auto flex max-w-[520px] flex-col items-center gap-4 px-2 text-center">
+                  <p className="text-2xl font-semibold tracking-tight md:text-3xl">{greeting}</p>
+                  <p className="text-sm text-muted-foreground">
                     {hasReadyDocs
-                      ? "Ask about this project's documents"
+                      ? "Ask about this project's documents, or say “export to Excel” to generate a file."
                       : webSearchEnabled
-                        ? "Ask a question — we'll search your project files and the web when needed"
-                        : "Add files to this project to get started"}
+                        ? "We'll search your project files and the web when needed."
+                        : "Add files to this project to get started."}
                   </p>
-                  {hasReadyDocs && (
-                    <span className="text-xs text-muted-foreground">
-                      Say &quot;export to Excel&quot; or &quot;create a Word summary&quot; to generate a
-                      downloadable file from your project sources.
-                    </span>
-                  )}
                   {!hasReadyDocs && canEdit && (
                     <div className="flex flex-wrap justify-center gap-2">
-                      <Button variant="outline" onClick={() => openMobilePanel("files")}>
-                        Go to project files
+                      <Button variant="outline" onClick={() => openFilesSheet()}>
+                        Project files
                       </Button>
                       <AddSharePointFolderButton variant="outline">
                         Add SharePoint folder
@@ -702,7 +727,7 @@ export default function KnowledgeChatWorkspace() {
               <div ref={messagesEndRef} />
             </div>
 
-            <footer className="sticky bottom-0 z-10 border-t bg-background px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 md:pt-4 md:pb-6">
+            <footer className="sticky bottom-0 z-10 bg-background px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 md:pt-4 md:pb-6">
               {contextDocId && (
                 <div className="mb-2 flex justify-center md:hidden">
                   <Button variant="ghost" size="sm" onClick={() => setContextDocId(undefined)}>
@@ -727,13 +752,26 @@ export default function KnowledgeChatWorkspace() {
                   Some files still indexing — answers use completed files only
                 </span>
               )}
-              <div className="mx-auto flex w-full max-w-[800px] items-end gap-2 rounded-xl border bg-muted p-2.5 md:p-3">
+              <div className="mx-auto flex w-full max-w-[800px] items-end gap-1 rounded-[28px] border bg-muted/60 p-2 md:p-2.5">
+                {canEdit && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="mb-0.5 size-10 shrink-0 rounded-full md:size-9"
+                    title="Add files"
+                    aria-label="Add files"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Plus />
+                  </Button>
+                )}
                 <Textarea
-                  className="min-h-11 min-w-0 flex-1 resize-none md:min-h-[72px]"
+                  className="min-h-11 min-w-0 flex-1 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 md:min-h-[56px]"
                   rows={2}
                   placeholder={
                     canChat
-                      ? `Message ${selectedProject?.name ?? "project"}…`
+                      ? "Ask anything"
                       : "Add project files or enable web search to chat"
                   }
                   value={input}
@@ -747,44 +785,54 @@ export default function KnowledgeChatWorkspace() {
                   }}
                 />
                 <Button
-                  className="h-11 shrink-0 md:h-8"
+                  size="icon"
+                  className="mb-0.5 size-10 shrink-0 rounded-full md:size-9"
                   disabled={!canChat || !input.trim() || chatMutation.isPending || messagesLoading}
                   onClick={sendMessage}
+                  aria-label="Send"
                 >
-                  Send
+                  <Send />
                 </Button>
               </div>
             </footer>
-          </main>
-        </>
-      )}
+          </>
+        )}
+      </main>
 
-      <Sheet open={projectsSheetOpen} onOpenChange={setProjectsSheetOpen}>
-        <SheetContent side="left" className="w-full gap-0 p-0 sm:max-w-xs" showCloseButton>
-          <SheetHeader>
-            <SheetTitle>Projects</SheetTitle>
+      <Sheet open={navSheetOpen} onOpenChange={setNavSheetOpen}>
+        <SheetContent side="left" className="w-full gap-0 p-0 sm:max-w-[260px]" showCloseButton>
+          <SheetHeader className="sr-only">
+            <SheetTitle>Chat navigation</SheetTitle>
           </SheetHeader>
-          <ProjectRail
-            className="min-h-0 flex-1"
-            projects={projectsQuery.data ?? []}
-            selectedProjectId={selectedProjectId}
-            onSelectProject={selectProject}
-            onNewProject={() => {
-              setProjectsSheetOpen(false);
-              setNewProjectOpen(true);
-            }}
-            showHomeLink={false}
-            loading={projectsQuery.isPending}
+          <ChatSidebar
+            {...sidebarProps}
+            className="h-full min-h-0 pr-10"
+            collapsed={false}
+            showHomeLink
+            showCollapseToggle={false}
           />
         </SheetContent>
       </Sheet>
 
-      <Sheet open={panelSheetOpen} onOpenChange={setPanelSheetOpen}>
-        <SheetContent side="left" className="w-full gap-0 p-0 sm:max-w-sm" showCloseButton>
-          <SheetHeader className="sr-only">
-            <SheetTitle>Chats, files, and prompts</SheetTitle>
+      <Sheet open={filesSheetOpen} onOpenChange={setFilesSheetOpen}>
+        <SheetContent side="right" className="flex w-full flex-col sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>{selectedProject ? `${selectedProject.name} files` : "Project files"}</SheetTitle>
+            <SheetDescription>
+              Upload documents or add a SharePoint folder. Click a file to focus chat on it.
+            </SheetDescription>
           </SheetHeader>
-          <ProjectSidePanel {...sidePanelProps} compactHeader className="h-full min-h-0" />
+          <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">{filesPanel}</div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={promptsSheetOpen} onOpenChange={setPromptsSheetOpen}>
+        <SheetContent side="right" className="flex w-full flex-col sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>{selectedProject ? `${selectedProject.name} prompts` : "Prompts"}</SheetTitle>
+            <SheetDescription>Saved questions for this project.</SheetDescription>
+          </SheetHeader>
+          <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">{promptsPanel}</div>
         </SheetContent>
       </Sheet>
 
