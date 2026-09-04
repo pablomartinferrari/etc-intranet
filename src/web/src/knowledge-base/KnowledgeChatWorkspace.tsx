@@ -1,21 +1,20 @@
+import { useMsal } from "@azure/msal-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  FileText,
-  Folder,
-  Lightbulb,
-  Menu,
-  MessageSquare,
-  Pencil,
-  Plus,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import { ArrowLeft, Folder, Menu, Pencil } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link as RouterLink } from "react-router-dom";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -24,20 +23,33 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
+import { AddSharePointFolderButton } from "./AddSharePointFolderSheet";
+import { ChatMarkdown } from "./ChatMarkdown";
 import {
+  lastSessionForProject,
+  readChatSelection,
+  writeChatSelection,
+} from "./chatSelectionStorage";
+import { FileTypeIcon, fileKindFromFormat, fileKindFromName } from "./fileTypeIcon";
+import { ProjectRail, shareBadgeLabel } from "./ProjectRail";
+import { ProjectSidePanel, type ProjectPanelTab } from "./ProjectSidePanel";
+import { ShareProjectDialog } from "./ShareProjectDialog";
+import {
+  canEditProject,
   chatKnowledge,
   createProject,
   createPrompt,
+  deleteProject,
   deletePrompt,
   downloadGeneratedFile,
   getChatCapabilities,
@@ -49,39 +61,42 @@ import {
   updateProject,
   updateChatSession,
   uploadDocumentsAsync,
-  type ChatMessage,
   type ChatAttachment,
+  type ChatMessage,
   type ChatSession,
   type Citation,
-  type Project,
   type Prompt,
   type UploadQueueItem,
 } from "./api/knowledge";
-import { AddSharePointFolderButton } from "./AddSharePointFolderSheet";
-import { AgentSourcesChatLink } from "./AgentSourcesPage";
-import { FileTypeIcon, fileKindFromFormat, fileKindFromName } from "./fileTypeIcon";
-import { ChatMarkdown } from "./ChatMarkdown";
 
 const ACTIVE_INGEST = new Set(["queued", "processing", "pending"]);
 
-type ProjectPanelTab = "chats" | "files" | "prompts";
-
 export default function KnowledgeChatWorkspace() {
   const queryClient = useQueryClient();
+  const { accounts } = useMsal();
+  const userKey =
+    (accounts[0]?.idTokenClaims?.oid as string | undefined) ??
+    accounts[0]?.localAccountId ??
+    "anon";
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const hydratedRef = useRef(false);
 
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>();
   const [panelTab, setPanelTab] = useState<ProjectPanelTab>("chats");
   const [sessionId, setSessionId] = useState<string | undefined>();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [pendingMessages, setPendingMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [contextDocId, setContextDocId] = useState<string | undefined>();
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [editProjectOpen, setEditProjectOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [deleteProjectOpen, setDeleteProjectOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectArea, setNewProjectArea] = useState("");
   const [newProjectInstructions, setNewProjectInstructions] = useState("");
   const [newPromptOpen, setNewPromptOpen] = useState(false);
   const [newPromptTitle, setNewPromptTitle] = useState("");
@@ -105,10 +120,40 @@ export default function KnowledgeChatWorkspace() {
   });
 
   useEffect(() => {
-    if (!selectedProjectId && projectsQuery.data && projectsQuery.data.length > 0) {
-      setSelectedProjectId(projectsQuery.data[0].id);
+    if (!projectsQuery.data) return;
+    const ids = new Set(projectsQuery.data.map((p) => p.id));
+    if (!hydratedRef.current) {
+      hydratedRef.current = true;
+      const stored = readChatSelection(userKey);
+      if (stored.selectedProjectId && ids.has(stored.selectedProjectId)) {
+        setSelectedProjectId(stored.selectedProjectId);
+        setSessionId(lastSessionForProject(stored, stored.selectedProjectId));
+        return;
+      }
+      if (projectsQuery.data[0]) {
+        setSelectedProjectId(projectsQuery.data[0].id);
+      }
+      return;
     }
-  }, [projectsQuery.data, selectedProjectId]);
+    if (selectedProjectId && !ids.has(selectedProjectId)) {
+      const next = projectsQuery.data[0];
+      setSelectedProjectId(next?.id);
+      setSessionId(next ? lastSessionForProject(readChatSelection(userKey), next.id) : undefined);
+      setPendingMessages([]);
+    }
+  }, [projectsQuery.data, userKey, selectedProjectId]);
+
+  useEffect(() => {
+    if (!hydratedRef.current || !selectedProjectId) return;
+    const current = readChatSelection(userKey);
+    writeChatSelection(userKey, {
+      selectedProjectId,
+      sessionsByProject: {
+        ...current.sessionsByProject,
+        [selectedProjectId]: sessionId,
+      },
+    });
+  }, [userKey, selectedProjectId, sessionId]);
 
   const selectedProject = useMemo(
     () => projectsQuery.data?.find((p) => p.id === selectedProjectId),
@@ -141,6 +186,12 @@ export default function KnowledgeChatWorkspace() {
     },
   });
 
+  const messagesQuery = useQuery({
+    queryKey: ["kb-messages", sessionId],
+    queryFn: ({ signal }) => getChatMessages(sessionId!, signal),
+    enabled: !!sessionId,
+  });
+
   const projectDocuments = useMemo(() => {
     const docs = documentsQuery.data ?? [];
     const knownIds = new Set(docs.map((d) => d.id));
@@ -170,8 +221,15 @@ export default function KnowledgeChatWorkspace() {
 
   const webSearchEnabled = capabilitiesQuery.data?.webSearchEnabled ?? false;
   const hasReadyDocs = readyDocs.length > 0;
-
+  const canEdit = canEditProject(selectedProject);
   const canChat = !!selectedProjectId && (hasReadyDocs || webSearchEnabled);
+
+  const messages = useMemo(() => {
+    const history = sessionId ? (messagesQuery.data ?? []) : [];
+    return [...history, ...pendingMessages];
+  }, [sessionId, messagesQuery.data, pendingMessages]);
+
+  const messagesLoading = !!sessionId && messagesQuery.isPending;
 
   useEffect(() => {
     const docs = documentsQuery.data ?? [];
@@ -184,36 +242,55 @@ export default function KnowledgeChatWorkspace() {
   }, [documentsQuery.data]);
 
   const chatMutation = useMutation({
-    mutationFn: async (text: string) => {
-      if (!selectedProjectId) throw new Error("Select a project first.");
+    mutationFn: async (vars: {
+      text: string;
+      projectId: string;
+      sessionId?: string;
+      contextDocId?: string;
+    }) => {
+      const result = await chatKnowledge(
+        vars.text,
+        vars.sessionId,
+        vars.contextDocId,
+        vars.projectId,
+        "auto",
+      );
+      return { ...result, projectId: vars.projectId };
+    },
+    onMutate: (vars) => {
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
-        content: text,
+        content: vars.text,
         createdAt: new Date().toISOString(),
       };
-      setMessages((prev) => [...prev, userMsg]);
+      setPendingMessages((prev) => [...prev, userMsg]);
       setInput("");
-      return chatKnowledge(text, sessionId, contextDocId, selectedProjectId, "auto");
+      return { userMsg };
     },
-    onSuccess: (data) => {
-      setSessionId(data.sessionId);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: data.answer,
-          citations: data.citations,
-          attachments: data.attachments?.length ? data.attachments : undefined,
-          createdAt: new Date().toISOString(),
-          generation: data.generation ?? undefined,
-        },
-      ]);
-      void queryClient.invalidateQueries({ queryKey: ["kb-sessions", selectedProjectId] });
+    onSuccess: (data, _vars, ctx) => {
+      const assistantMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: data.answer,
+        citations: data.citations,
+        attachments: data.attachments?.length ? data.attachments : undefined,
+        createdAt: new Date().toISOString(),
+        generation: data.generation ?? undefined,
+      };
+      queryClient.setQueryData<ChatMessage[]>(["kb-messages", data.sessionId], (old) => {
+        const prior = old ?? [];
+        const withoutPendingUser = prior.filter((m) => m.id !== ctx?.userMsg.id);
+        return [...withoutPendingUser, ...(ctx ? [ctx.userMsg] : []), assistantMsg];
+      });
+      setPendingMessages([]);
+      if (selectedProjectId === data.projectId) {
+        setSessionId(data.sessionId);
+      }
+      void queryClient.invalidateQueries({ queryKey: ["kb-sessions", data.projectId] });
     },
     onError: (err: Error) => {
-      setMessages((prev) => [
+      setPendingMessages((prev) => [
         ...prev,
         {
           id: crypto.randomUUID(),
@@ -226,7 +303,7 @@ export default function KnowledgeChatWorkspace() {
   });
 
   useEffect(() => {
-    if (messages.length === 0) return;
+    if (messages.length === 0 && !chatMutation.isPending) return;
     const frame = requestAnimationFrame(() => {
       requestAnimationFrame(() => scrollChatToBottom("smooth"));
     });
@@ -245,12 +322,24 @@ export default function KnowledgeChatWorkspace() {
 
   const createProjectMutation = useMutation({
     mutationFn: () =>
-      createProject(newProjectName, undefined, newProjectInstructions || undefined),
+      createProject(
+        newProjectName,
+        undefined,
+        newProjectInstructions || undefined,
+        newProjectArea || undefined,
+      ),
     onSuccess: (project) => {
       setNewProjectOpen(false);
       setNewProjectName("");
+      setNewProjectArea("");
       setNewProjectInstructions("");
       setSelectedProjectId(project.id);
+      setSessionId(undefined);
+      setPendingMessages([]);
+      setInput("");
+      setContextDocId(undefined);
+      setUploadQueue([]);
+      setPanelTab("chats");
       void queryClient.invalidateQueries({ queryKey: ["kb-projects"] });
     },
   });
@@ -260,6 +349,7 @@ export default function KnowledgeChatWorkspace() {
       updateProject(selectedProjectId!, {
         name: newProjectName || undefined,
         instructions: newProjectInstructions,
+        area: newProjectArea,
       }),
     onSuccess: () => {
       setEditProjectOpen(false);
@@ -267,9 +357,20 @@ export default function KnowledgeChatWorkspace() {
     },
   });
 
+  const deleteProjectMutation = useMutation({
+    mutationFn: () => deleteProject(selectedProjectId!),
+    onSuccess: () => {
+      setDeleteProjectOpen(false);
+      setSelectedProjectId(undefined);
+      setSessionId(undefined);
+      setPendingMessages([]);
+      hydratedRef.current = true;
+      void queryClient.invalidateQueries({ queryKey: ["kb-projects"] });
+    },
+  });
+
   const createPromptMutation = useMutation({
-    mutationFn: () =>
-      createPrompt(newPromptTitle, newPromptContent, selectedProjectId!),
+    mutationFn: () => createPrompt(newPromptTitle, newPromptContent, selectedProjectId!),
     onSuccess: () => {
       setNewPromptOpen(false);
       setNewPromptTitle("");
@@ -288,7 +389,7 @@ export default function KnowledgeChatWorkspace() {
 
   const processFiles = useCallback(
     async (files: FileList | File[]) => {
-      if (!selectedProjectId) return;
+      if (!selectedProjectId || !canEdit) return;
       const list = Array.from(files);
       if (list.length === 0) return;
       setPanelTab("files");
@@ -298,20 +399,31 @@ export default function KnowledgeChatWorkspace() {
       await uploadDocumentsAsync(list, selectedProjectId, setUploadQueue);
       void queryClient.invalidateQueries({ queryKey: ["kb-documents", selectedProjectId] });
     },
-    [queryClient, selectedProjectId],
+    [canEdit, queryClient, selectedProjectId],
   );
 
-  const loadSession = async (id: string) => {
+  const selectProject = (id: string) => {
+    setProjectsSheetOpen(false);
+    if (id === selectedProjectId) return;
+    setSelectedProjectId(id);
+    setInput("");
+    setContextDocId(undefined);
+    setUploadQueue([]);
+    setPanelTab("chats");
+    setPendingMessages([]);
+    setSessionId(lastSessionForProject(readChatSelection(userKey), id));
+  };
+
+  const selectSession = (id: string) => {
+    setPendingMessages([]);
     setSessionId(id);
-    const history = await getChatMessages(id);
-    setMessages(history);
     setContextDocId(undefined);
     setPanelSheetOpen(false);
   };
 
   const startNewChat = () => {
     setSessionId(undefined);
-    setMessages([]);
+    setPendingMessages([]);
     setInput("");
     setContextDocId(undefined);
     setPanelSheetOpen(false);
@@ -329,15 +441,6 @@ export default function KnowledgeChatWorkspace() {
     return () => media.removeEventListener("change", onChange);
   }, []);
 
-  useEffect(() => {
-    setSessionId(undefined);
-    setMessages([]);
-    setInput("");
-    setContextDocId(undefined);
-    setUploadQueue([]);
-    setPanelTab("chats");
-  }, [selectedProjectId]);
-
   const openRenameSession = (session: ChatSession) => {
     setRenameSessionId(session.id);
     setRenameSessionTitle(session.title ?? "");
@@ -347,14 +450,20 @@ export default function KnowledgeChatWorkspace() {
   const openEditProject = () => {
     if (!selectedProject) return;
     setNewProjectName(selectedProject.name);
+    setNewProjectArea(selectedProject.area ?? "");
     setNewProjectInstructions(selectedProject.instructions ?? "");
     setEditProjectOpen(true);
   };
 
   const sendMessage = () => {
     const text = input.trim();
-    if (!text || !canChat || chatMutation.isPending) return;
-    void chatMutation.mutateAsync(text);
+    if (!text || !canChat || !selectedProjectId || chatMutation.isPending || messagesLoading) return;
+    void chatMutation.mutateAsync({
+      text,
+      projectId: selectedProjectId,
+      sessionId,
+      contextDocId,
+    });
   };
 
   const hasProjects = (projectsQuery.data?.length ?? 0) > 0;
@@ -362,29 +471,34 @@ export default function KnowledgeChatWorkspace() {
     () => sessionsQuery.data?.find((s) => s.id === sessionId),
     [sessionsQuery.data, sessionId],
   );
+  const shareLabel = selectedProject ? shareBadgeLabel(selectedProject) : null;
 
   const sidePanelProps = {
     selectedProject,
     panelTab,
     onPanelTabChange: setPanelTab,
     onEditProject: openEditProject,
+    onShareProject: () => setShareOpen(true),
+    onDeleteProject: () => setDeleteProjectOpen(true),
     onNewChat: startNewChat,
     sessions: sessionsQuery.data ?? [],
+    sessionsLoading: sessionsQuery.isPending,
     sessionId,
-    onSelectSession: (id: string) => void loadSession(id),
+    onSelectSession: selectSession,
     onRenameSession: openRenameSession,
     onPickFiles: () => fileInputRef.current?.click(),
     onDropFiles: (files: FileList) => void processFiles(files),
     hasActiveIngest,
     documents: projectDocuments,
+    documentsLoading: documentsQuery.isPending,
     contextDocId,
-    onSelectDocument: (id: string) =>
-      setContextDocId(contextDocId === id ? undefined : id),
+    onSelectDocument: (id: string) => setContextDocId(contextDocId === id ? undefined : id),
     onSavePrompt: () => {
       setNewPromptContent(input);
       setNewPromptOpen(true);
     },
     prompts: promptsQuery.data ?? [],
+    promptsLoading: promptsQuery.isPending,
     onUsePrompt: (prompt: Prompt) => {
       setInput(prompt.content);
       setPanelTab("chats");
@@ -417,9 +531,10 @@ export default function KnowledgeChatWorkspace() {
         className="hidden md:flex"
         projects={projectsQuery.data ?? []}
         selectedProjectId={selectedProjectId}
-        onSelectProject={setSelectedProjectId}
+        onSelectProject={selectProject}
         onNewProject={() => setNewProjectOpen(true)}
         showHomeLink
+        loading={projectsQuery.isPending}
       />
 
       {!hasProjects ? (
@@ -436,8 +551,8 @@ export default function KnowledgeChatWorkspace() {
             <Folder className="size-14 opacity-50" />
             <h3 className="text-lg font-semibold">Create your first project</h3>
             <p className="max-w-[420px] text-sm text-muted-foreground">
-              Projects keep documents, chats, and prompts together — like ChatGPT projects. Each
-              project is a separate knowledge space.
+              Projects keep documents, chats, and prompts together. Group them by area and share
+              with Entra users or groups when you are ready.
             </p>
             <Button size="lg" className="h-11 md:h-9" onClick={() => setNewProjectOpen(true)}>
               New project
@@ -449,7 +564,7 @@ export default function KnowledgeChatWorkspace() {
           <ProjectSidePanel {...sidePanelProps} className="hidden md:flex" />
 
           <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
-            <header className="flex flex-col gap-2 border-b px-3 py-2 md:flex-row md:items-center md:justify-between md:px-6 md:py-4">
+            <header className="sticky top-0 z-10 flex flex-col gap-2 border-b bg-background px-3 py-2 md:flex-row md:items-center md:justify-between md:px-6 md:py-3">
               <div className="flex items-center gap-2 md:hidden">
                 <Button variant="ghost" size="icon" asChild>
                   <RouterLink to="/" aria-label="Back to home">
@@ -475,9 +590,24 @@ export default function KnowledgeChatWorkspace() {
                   <Menu />
                 </Button>
               </div>
+              <div className="hidden min-w-0 md:flex md:flex-col">
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-semibold">{selectedProject?.name}</p>
+                  {shareLabel && (
+                    <span className="rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
+                      {shareLabel}
+                    </span>
+                  )}
+                </div>
+                {selectedProject?.area && (
+                  <p className="truncate text-xs text-muted-foreground">{selectedProject.area}</p>
+                )}
+              </div>
               <div className="flex min-w-0 flex-1 items-center gap-1">
                 <h3 className="truncate text-base font-semibold md:text-lg">
-                  {activeSession?.title ?? (sessionId ? "Chat" : "New conversation")}
+                  {sessionId
+                    ? (activeSession?.title ?? (messagesLoading ? "Loading chat" : "Chat"))
+                    : "New chat"}
                 </h3>
                 {sessionId && (
                   <Button
@@ -490,13 +620,12 @@ export default function KnowledgeChatWorkspace() {
                   </Button>
                 )}
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="hidden shrink-0 items-center gap-2 md:flex">
                 {contextDocId && (
                   <Button variant="ghost" size="sm" onClick={() => setContextDocId(undefined)}>
                     Focused on one file — clear
                   </Button>
                 )}
-                <AddSharePointFolderButton size="sm">Add SharePoint folder</AddSharePointFolderButton>
                 <Button variant="ghost" size="sm" asChild>
                   <RouterLink to="/knowledge/sources">Manage sources</RouterLink>
                 </Button>
@@ -507,7 +636,15 @@ export default function KnowledgeChatWorkspace() {
               className="flex min-h-0 flex-1 flex-col gap-5 overflow-x-hidden overflow-y-auto p-4 md:p-6"
               ref={messagesContainerRef}
             >
-              {messages.length === 0 && (
+              {messagesLoading && (
+                <div className="flex flex-col gap-3">
+                  <Skeleton className="h-16 w-[min(100%,420px)] self-end rounded-[18px]" />
+                  <Skeleton className="h-24 w-[min(100%,560px)] rounded-[18px]" />
+                  <Skeleton className="h-16 w-[min(100%,480px)] rounded-[18px]" />
+                </div>
+              )}
+
+              {!messagesLoading && messages.length === 0 && (
                 <div className="m-auto flex max-w-[480px] flex-col items-center gap-4 px-2 text-center">
                   <p className="text-base font-semibold md:text-lg">
                     {hasReadyDocs
@@ -522,20 +659,15 @@ export default function KnowledgeChatWorkspace() {
                       downloadable file from your project sources.
                     </span>
                   )}
-                  {!hasReadyDocs && (
+                  {!hasReadyDocs && canEdit && (
                     <div className="flex flex-wrap justify-center gap-2">
                       <Button variant="outline" onClick={() => openMobilePanel("files")}>
-                        Go to Files
+                        Go to project files
                       </Button>
                       <AddSharePointFolderButton variant="outline">
                         Add SharePoint folder
                       </AddSharePointFolderButton>
                     </div>
-                  )}
-                  {hasReadyDocs && (
-                    <AddSharePointFolderButton variant="outline" size="sm">
-                      Add SharePoint folder
-                    </AddSharePointFolderButton>
                   )}
                   {(promptsQuery.data ?? []).length > 0 && canChat && (
                     <div className="mt-2 flex flex-col gap-2">
@@ -557,9 +689,8 @@ export default function KnowledgeChatWorkspace() {
                 </div>
               )}
 
-              {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
-              ))}
+              {!messagesLoading &&
+                messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)}
 
               {chatMutation.isPending && (
                 <div className="flex justify-start">
@@ -572,6 +703,13 @@ export default function KnowledgeChatWorkspace() {
             </div>
 
             <footer className="sticky bottom-0 z-10 border-t bg-background px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 md:pt-4 md:pb-6">
+              {contextDocId && (
+                <div className="mb-2 flex justify-center md:hidden">
+                  <Button variant="ghost" size="sm" onClick={() => setContextDocId(undefined)}>
+                    Focused on one file — clear
+                  </Button>
+                </div>
+              )}
               {!selectedProjectId && (
                 <span className="mb-2 block text-center text-xs text-muted-foreground">
                   Select a project to continue
@@ -599,7 +737,7 @@ export default function KnowledgeChatWorkspace() {
                       : "Add project files or enable web search to chat"
                   }
                   value={input}
-                  disabled={!canChat || chatMutation.isPending}
+                  disabled={!canChat || chatMutation.isPending || messagesLoading}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -608,16 +746,9 @@ export default function KnowledgeChatWorkspace() {
                     }
                   }}
                 />
-                <AddSharePointFolderButton
-                  variant="ghost"
-                  size="sm"
-                  className="shrink-0 max-md:px-2"
-                >
-                  <span className="sr-only md:not-sr-only">Add SharePoint folder</span>
-                </AddSharePointFolderButton>
                 <Button
                   className="h-11 shrink-0 md:h-8"
-                  disabled={!canChat || !input.trim() || chatMutation.isPending}
+                  disabled={!canChat || !input.trim() || chatMutation.isPending || messagesLoading}
                   onClick={sendMessage}
                 >
                   Send
@@ -637,15 +768,13 @@ export default function KnowledgeChatWorkspace() {
             className="min-h-0 flex-1"
             projects={projectsQuery.data ?? []}
             selectedProjectId={selectedProjectId}
-            onSelectProject={(id) => {
-              setSelectedProjectId(id);
-              setProjectsSheetOpen(false);
-            }}
+            onSelectProject={selectProject}
             onNewProject={() => {
               setProjectsSheetOpen(false);
               setNewProjectOpen(true);
             }}
             showHomeLink={false}
+            loading={projectsQuery.isPending}
           />
         </SheetContent>
       </Sheet>
@@ -663,8 +792,10 @@ export default function KnowledgeChatWorkspace() {
         open={newProjectOpen}
         title="New project"
         name={newProjectName}
+        area={newProjectArea}
         instructions={newProjectInstructions}
         onNameChange={setNewProjectName}
+        onAreaChange={setNewProjectArea}
         onInstructionsChange={setNewProjectInstructions}
         onClose={() => setNewProjectOpen(false)}
         onSubmit={() => void createProjectMutation.mutateAsync()}
@@ -677,8 +808,10 @@ export default function KnowledgeChatWorkspace() {
         open={editProjectOpen}
         title="Edit project"
         name={newProjectName}
+        area={newProjectArea}
         instructions={newProjectInstructions}
         onNameChange={setNewProjectName}
+        onAreaChange={setNewProjectArea}
         onInstructionsChange={setNewProjectInstructions}
         onClose={() => setEditProjectOpen(false)}
         onSubmit={() => void updateProjectMutation.mutateAsync()}
@@ -686,6 +819,33 @@ export default function KnowledgeChatWorkspace() {
         pending={updateProjectMutation.isPending}
         disabled={!newProjectName.trim()}
       />
+
+      <ShareProjectDialog
+        open={shareOpen}
+        project={selectedProject}
+        onClose={() => setShareOpen(false)}
+      />
+
+      <AlertDialog open={deleteProjectOpen} onOpenChange={setDeleteProjectOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedProject?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the project for everyone it was shared with. Chat history in the project
+              is no longer listed from the sidebar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteProjectMutation.isPending}
+              onClick={() => void deleteProjectMutation.mutateAsync()}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={newPromptOpen} onOpenChange={setNewPromptOpen}>
         <DialogContent className="sm:max-w-md">
@@ -757,327 +917,14 @@ export default function KnowledgeChatWorkspace() {
   );
 }
 
-function projectSubtitle(project: Project): string {
-  const description = project.description?.trim();
-  if (description) return description;
-  const instructions = project.instructions?.trim();
-  if (instructions) {
-    return instructions.length > 72 ? `${instructions.slice(0, 72)}…` : instructions;
-  }
-  return "No description yet";
-}
-
-function ProjectRail({
-  projects,
-  selectedProjectId,
-  onSelectProject,
-  onNewProject,
-  showHomeLink,
-  className,
-}: {
-  projects: Project[];
-  selectedProjectId?: string;
-  onSelectProject: (id: string) => void;
-  onNewProject: () => void;
-  showHomeLink: boolean;
-  className?: string;
-}) {
-  return (
-    <nav
-      className={cn(
-        "flex w-full shrink-0 flex-col items-stretch gap-3 bg-muted px-2.5 py-3 md:w-[220px] md:border-r",
-        className,
-      )}
-    >
-      {showHomeLink && (
-        <RouterLink
-          className="mx-auto flex size-11 items-center justify-center rounded-md text-muted-foreground no-underline hover:bg-card"
-          to="/"
-          title="Back to home"
-        >
-          <ArrowLeft />
-        </RouterLink>
-      )}
-      <AgentSourcesChatLink />
-      <div className="flex w-full flex-1 flex-col gap-2 overflow-y-auto">
-        {projects.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            className={`flex min-h-16 w-full cursor-pointer items-start gap-2.5 rounded-lg border bg-card px-3 py-2.5 text-left hover:bg-muted ${
-              selectedProjectId === p.id ? "border-primary bg-primary/10" : ""
-            }`}
-            onClick={() => onSelectProject(p.id)}
-            title={p.name}
-          >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-base font-semibold">
-              {p.name.charAt(0).toUpperCase()}
-            </span>
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className="line-clamp-2 text-sm font-semibold leading-5">{p.name}</span>
-              <span className="line-clamp-2 text-xs leading-4 text-muted-foreground">
-                {projectSubtitle(p)}
-              </span>
-            </div>
-          </button>
-        ))}
-      </div>
-      <button
-        type="button"
-        className="flex h-11 w-full cursor-pointer items-center justify-center rounded-lg border border-dashed bg-transparent text-muted-foreground hover:bg-card"
-        onClick={onNewProject}
-        title="New project"
-      >
-        <Plus />
-      </button>
-    </nav>
-  );
-}
-
-function ProjectSidePanel({
-  selectedProject,
-  panelTab,
-  onPanelTabChange,
-  onEditProject,
-  compactHeader,
-  onNewChat,
-  sessions,
-  sessionId,
-  onSelectSession,
-  onRenameSession,
-  onPickFiles,
-  onDropFiles,
-  hasActiveIngest,
-  documents,
-  contextDocId,
-  onSelectDocument,
-  onSavePrompt,
-  prompts,
-  onUsePrompt,
-  onDeletePrompt,
-  className,
-}: {
-  selectedProject?: Project;
-  panelTab: ProjectPanelTab;
-  onPanelTabChange: (tab: ProjectPanelTab) => void;
-  onEditProject: () => void;
-  compactHeader?: boolean;
-  onNewChat: () => void;
-  sessions: ChatSession[];
-  sessionId?: string;
-  onSelectSession: (id: string) => void;
-  onRenameSession: (session: ChatSession) => void;
-  onPickFiles: () => void;
-  onDropFiles: (files: FileList) => void;
-  hasActiveIngest: boolean;
-  documents: Array<{
-    id: string;
-    title: string;
-    ingestStatus: string;
-    ingestDetail?: string | null;
-  }>;
-  contextDocId?: string;
-  onSelectDocument: (id: string) => void;
-  onSavePrompt: () => void;
-  prompts: Prompt[];
-  onUsePrompt: (prompt: Prompt) => void;
-  onDeletePrompt: (id: string) => void;
-  className?: string;
-}) {
-  return (
-    <aside className={cn("flex min-h-0 w-full shrink-0 flex-col bg-muted md:w-[300px] md:border-r", className)}>
-      <div
-        className={cn(
-          "flex items-start justify-between gap-2 px-4 pt-4 pb-2",
-          compactHeader && "pr-12",
-        )}
-      >
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-base font-semibold">{selectedProject?.name}</h2>
-          {selectedProject?.instructions && (
-            <span className="text-xs text-muted-foreground">Custom instructions</span>
-          )}
-        </div>
-        <Button variant="ghost" size="icon" onClick={onEditProject} title="Edit project">
-          <Pencil />
-        </Button>
-      </div>
-
-      <Tabs
-        value={panelTab}
-        onValueChange={(value) => {
-          if (value === "chats" || value === "files" || value === "prompts") {
-            onPanelTabChange(value);
-          }
-        }}
-        className="px-2"
-      >
-        <TabsList className="w-full">
-          <TabsTrigger value="chats">
-            <MessageSquare />
-            Chats
-          </TabsTrigger>
-          <TabsTrigger value="files">
-            <FileText />
-            Files
-          </TabsTrigger>
-          <TabsTrigger value="prompts">
-            <Lightbulb />
-            Prompts
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
-
-      <div className="flex min-h-0 flex-1 flex-col gap-2.5 p-3">
-        {panelTab === "chats" && (
-          <>
-            <Button className="h-11 w-full md:h-8" onClick={onNewChat}>
-              <Plus />
-              New chat
-            </Button>
-            <div className="flex flex-1 flex-col gap-1 overflow-y-auto">
-              {sessions.length === 0 && (
-                <span className="px-2 py-3 text-center text-xs text-muted-foreground">
-                  No chats in this project yet
-                </span>
-              )}
-              {sessions.map((s) => (
-                <ChatSessionRow
-                  key={s.id}
-                  session={s}
-                  active={sessionId === s.id}
-                  onSelect={() => onSelectSession(s.id)}
-                  onRename={() => onRenameSession(s)}
-                />
-              ))}
-            </div>
-          </>
-        )}
-
-        {panelTab === "files" && (
-          <>
-            <div
-              className="flex min-h-11 cursor-pointer flex-col items-center gap-1.5 rounded-md border-2 border-dashed bg-card px-3 py-5 text-center hover:border-primary"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                onDropFiles(e.dataTransfer.files);
-              }}
-              onClick={onPickFiles}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onPickFiles();
-                }
-              }}
-              role="button"
-              tabIndex={0}
-            >
-              <Upload />
-              <p className="text-sm">Add files to this project</p>
-              <span className="text-xs text-muted-foreground">
-                PDF, Word, Excel, text — indexes in background
-              </span>
-            </div>
-            {hasActiveIngest && (
-              <div className="flex items-center gap-2 rounded-md bg-card px-2.5 py-2">
-                <Spinner size="sm" label="Indexing… ready files are searchable now" />
-              </div>
-            )}
-            <div className="flex flex-1 flex-col gap-1 overflow-y-auto">
-              {documents.length === 0 && (
-                <span className="px-2 py-3 text-center text-xs text-muted-foreground">
-                  No files in this project
-                </span>
-              )}
-              {documents.map((doc) => (
-                <DocumentRow
-                  key={doc.id}
-                  title={doc.title}
-                  status={doc.ingestStatus}
-                  detail={doc.ingestDetail}
-                  selected={contextDocId === doc.id}
-                  onSelect={() => onSelectDocument(doc.id)}
-                />
-              ))}
-            </div>
-          </>
-        )}
-
-        {panelTab === "prompts" && (
-          <>
-            <Button variant="secondary" className="h-11 w-full md:h-8" onClick={onSavePrompt}>
-              <Plus />
-              Save prompt
-            </Button>
-            <div className="flex flex-1 flex-col gap-1 overflow-y-auto">
-              {prompts.length === 0 && (
-                <span className="px-2 py-3 text-center text-xs text-muted-foreground">
-                  Save reusable questions for this project
-                </span>
-              )}
-              {prompts.map((p) => (
-                <PromptItem
-                  key={p.id}
-                  prompt={p}
-                  onUse={() => onUsePrompt(p)}
-                  onDelete={() => onDeletePrompt(p.id)}
-                />
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-    </aside>
-  );
-}
-
-function ChatSessionRow({
-  session,
-  active,
-  onSelect,
-  onRename,
-}: {
-  session: ChatSession;
-  active: boolean;
-  onSelect: () => void;
-  onRename: () => void;
-}) {
-  return (
-    <div
-      className={`flex items-center gap-1 rounded-md hover:bg-card ${
-        active ? "bg-card outline outline-1 outline-primary" : ""
-      }`}
-    >
-      <button
-        type="button"
-        className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-2.5 border-0 bg-transparent py-2.5 pr-2 pl-3 text-left text-sm"
-        onClick={onSelect}
-      >
-        <MessageSquare className="size-4 shrink-0" />
-        <span className="flex-1 truncate">{session.title ?? "Untitled chat"}</span>
-      </button>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        title="Rename chat"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRename();
-        }}
-      >
-        <Pencil />
-      </Button>
-    </div>
-  );
-}
-
 function ProjectDialog({
   open,
   title,
   name,
+  area,
   instructions,
   onNameChange,
+  onAreaChange,
   onInstructionsChange,
   onClose,
   onSubmit,
@@ -1088,8 +935,10 @@ function ProjectDialog({
   open: boolean;
   title: string;
   name: string;
+  area: string;
   instructions: string;
   onNameChange: (v: string) => void;
+  onAreaChange: (v: string) => void;
   onInstructionsChange: (v: string) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -1109,17 +958,35 @@ function ProjectDialog({
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3">
-          <Input
-            placeholder="Project name"
-            value={name}
-            onChange={(e) => onNameChange(e.target.value)}
-          />
-          <Textarea
-            placeholder="How should the assistant behave in this project? (optional)"
-            value={instructions}
-            onChange={(e) => onInstructionsChange(e.target.value)}
-            rows={4}
-          />
+          <div className="space-y-1.5">
+            <Label htmlFor="project-name">Name</Label>
+            <Input
+              id="project-name"
+              placeholder="Project name"
+              value={name}
+              onChange={(e) => onNameChange(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="project-area">Area (optional)</Label>
+            <Input
+              id="project-area"
+              placeholder="e.g. Finance, Sales, Operations"
+              maxLength={80}
+              value={area}
+              onChange={(e) => onAreaChange(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="project-instructions">Instructions</Label>
+            <Textarea
+              id="project-instructions"
+              placeholder="How should the assistant behave in this project?"
+              value={instructions}
+              onChange={(e) => onInstructionsChange(e.target.value)}
+              rows={4}
+            />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="secondary" onClick={onClose}>
@@ -1131,77 +998,6 @@ function ProjectDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function PromptItem({
-  prompt,
-  onUse,
-  onDelete,
-}: {
-  prompt: Prompt;
-  onUse: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-1">
-      <button
-        type="button"
-        className="flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-3 py-2.5 text-left text-sm hover:bg-card"
-        onClick={onUse}
-        title={prompt.content}
-      >
-        <Lightbulb className="size-4 shrink-0" />
-        <span className="flex-1 truncate">{prompt.title}</span>
-      </button>
-      <Button variant="ghost" size="icon-sm" onClick={onDelete}>
-        <Trash2 />
-      </Button>
-    </div>
-  );
-}
-
-function DocumentRow({
-  title,
-  status,
-  detail,
-  selected,
-  onSelect,
-}: {
-  title: string;
-  status: string;
-  detail?: string | null;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const statusLabel =
-    detail && status !== "completed" && status !== "failed" ? detail : status;
-  const badgeVariant =
-    status === "failed" ? "destructive" : status === "processing" ? "secondary" : "outline";
-  const badgeClass =
-    status === "completed"
-      ? "border-green-600/40 text-green-700 dark:text-green-400"
-      : status === "failed"
-        ? ""
-        : status === "processing"
-          ? ""
-          : "border-amber-500/40 text-amber-700 dark:text-amber-400";
-
-  return (
-    <button
-      type="button"
-      className={`flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-md border-0 bg-transparent px-3 py-2.5 text-left text-sm hover:bg-card ${
-        selected ? "bg-card outline outline-1 outline-primary" : ""
-      }`}
-      onClick={onSelect}
-      title={detail ? `${status}: ${detail}` : selected ? "Chat uses this file only" : "Focus chat on this file"}
-    >
-      <FileTypeIcon kind={fileKindFromName(title)} className="size-5 shrink-0 text-muted-foreground" />
-      <span className="flex-1 truncate">{title}</span>
-      <Badge variant={badgeVariant} className={badgeClass}>
-        {statusLabel}
-      </Badge>
-    </button>
   );
 }
 

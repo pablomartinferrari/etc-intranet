@@ -12,11 +12,16 @@ public sealed class KnowledgeIngestController : ControllerBase
 {
     private readonly IngestService _ingest;
     private readonly KnowledgeDbContext _db;
+    private readonly IKbProjectAccessService _access;
 
-    public KnowledgeIngestController(IngestService ingest, KnowledgeDbContext db)
+    public KnowledgeIngestController(
+        IngestService ingest,
+        KnowledgeDbContext db,
+        IKbProjectAccessService access)
     {
         _ingest = ingest;
         _db = db;
+        _access = access;
     }
 
     [HttpPost("ingest/upload")]
@@ -37,8 +42,20 @@ public sealed class KnowledgeIngestController : ControllerBase
             return BadRequest("projectId is required. Upload files within a project.");
         }
 
-        var userOid = User.FindFirst("oid")?.Value
-            ?? User.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value;
+        var userOid = KnowledgeUser.GetOid(User);
+        if (userOid is null)
+        {
+            return Unauthorized();
+        }
+
+        try
+        {
+            await _access.RequireAsync(projectId.Value, userOid, KbProjectPermission.Edit, cancellationToken);
+        }
+        catch (KbProjectAccessException ex)
+        {
+            return StatusCode(ex.StatusCode, ex.Message);
+        }
 
         var result = await _ingest.EnqueueUploadAsync(file, userOid, projectId, cancellationToken);
         return Accepted(result);
@@ -86,12 +103,28 @@ public sealed class KnowledgeIngestController : ControllerBase
         [FromQuery] Guid? projectId,
         CancellationToken cancellationToken)
     {
-        var query = _db.Documents.AsQueryable();
-        if (projectId.HasValue)
+        var userOid = KnowledgeUser.GetOid(User);
+        if (userOid is null)
         {
-            query = query.Where(d => _db.ProjectDocuments.Any(
-                pd => pd.ProjectId == projectId.Value && pd.DocumentId == d.Id));
+            return Unauthorized();
         }
+
+        if (!projectId.HasValue)
+        {
+            return BadRequest("projectId is required.");
+        }
+
+        try
+        {
+            await _access.RequireAsync(projectId.Value, userOid, KbProjectPermission.View, cancellationToken);
+        }
+        catch (KbProjectAccessException ex)
+        {
+            return StatusCode(ex.StatusCode, ex.Message);
+        }
+
+        var query = _db.Documents.Where(d => _db.ProjectDocuments.Any(
+            pd => pd.ProjectId == projectId.Value && pd.DocumentId == d.Id));
 
         var docs = await query
             .OrderByDescending(d => d.CreatedAt)

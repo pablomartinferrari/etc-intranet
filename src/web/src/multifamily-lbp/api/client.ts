@@ -34,13 +34,17 @@ async function mergeAuthHeaders(headers: HeadersInit): Promise<HeadersInit> {
 export async function apiGet<T>(
   path: string,
   extraHeaders?: HeadersInit,
+  signal?: AbortSignal,
 ): Promise<T> {
   const headers = await mergeAuthHeaders({
     Accept: "application/json",
     ...extraHeaders,
   });
-  const res = await fetch(`${base}${path}`, { headers });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  const res = await fetch(`${base}${path}`, { headers, signal });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || `${res.status} ${res.statusText}`);
+  }
   return res.json() as Promise<T>;
 }
 

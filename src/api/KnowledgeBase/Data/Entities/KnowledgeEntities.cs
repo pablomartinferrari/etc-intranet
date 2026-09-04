@@ -30,8 +30,26 @@ public sealed class KbProject
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public string? Instructions { get; set; }
+    public string? Area { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+
+    public ICollection<KbProjectShare> Shares { get; set; } = [];
+}
+
+public sealed class KbProjectShare
+{
+    public Guid Id { get; set; }
+    public Guid ProjectId { get; set; }
+    public string PrincipalType { get; set; } = string.Empty;
+    public string PrincipalOid { get; set; } = string.Empty;
+    public string PrincipalDisplayName { get; set; } = string.Empty;
+    public string? PrincipalEmail { get; set; }
+    public string Role { get; set; } = "viewer";
+    public DateTimeOffset CreatedAt { get; set; }
+    public string CreatedByOid { get; set; } = string.Empty;
+
+    public KbProject Project { get; set; } = null!;
 }
 
 public sealed class KbProjectDocument

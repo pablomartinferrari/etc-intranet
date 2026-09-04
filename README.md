@@ -131,6 +131,16 @@ The crawl downloads allowed files, chunks them, and upserts into Knowledge Postg
 
 The same Entra app used for multifamily SharePoint import (`AzureAd__TenantId`, `AzureAd__ClientId`, `AzureAd__ClientSecret`) is used with application permissions **Sites.Read.All** and **Files.Read.All** (admin consent). A dedicated `SharePoint:SiteUrl` is **not** required — each user pastes the site they want.
 
+**Chat project sharing** (Entra users and groups) uses that same app. Grant these additional **application** permissions with admin consent:
+
+| Permission | Why |
+|------------|-----|
+| `User.Read.All` | Directory user search (`GET /api/kb/directory/search`) |
+| `Group.Read.All` | Directory group search |
+| `GroupMember.Read.All` | `checkMemberGroups` so group-shared projects appear for members |
+
+`Directory.Read.All` covers the same reads if you prefer a single role. Without these, owners can still share by object id, but search and group membership resolution return 503 / skip group shares.
+
 **Local (user secrets — preferred):**
 
 ```powershell
