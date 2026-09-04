@@ -14,17 +14,20 @@ public sealed class KnowledgeChatController : ControllerBase
     private readonly RagService _rag;
     private readonly ChatExportService _export;
     private readonly KnowledgeDbContext _db;
+    private readonly IKbProjectAccessService _access;
     private readonly ILogger<KnowledgeChatController> _logger;
 
     public KnowledgeChatController(
         RagService rag,
         ChatExportService export,
         KnowledgeDbContext db,
+        IKbProjectAccessService access,
         ILogger<KnowledgeChatController> logger)
     {
         _rag = rag;
         _export = export;
         _db = db;
+        _access = access;
         _logger = logger;
     }
 
@@ -38,10 +41,22 @@ public sealed class KnowledgeChatController : ControllerBase
         [FromQuery] Guid? projectId,
         CancellationToken cancellationToken)
     {
-        var userOid = RequireUserOid();
+        var userOid = KnowledgeUser.GetOid(User);
         if (userOid is null)
         {
             return Unauthorized();
+        }
+
+        if (projectId.HasValue)
+        {
+            try
+            {
+                await _access.RequireAsync(projectId.Value, userOid, KbProjectPermission.View, cancellationToken);
+            }
+            catch (KbProjectAccessException ex)
+            {
+                return StatusCode(ex.StatusCode, ex.Message);
+            }
         }
 
         var query = _db.ChatSessions.Where(s => s.UserOid == userOid);
@@ -70,7 +85,7 @@ public sealed class KnowledgeChatController : ControllerBase
         [FromBody] UpdateChatSessionRequestDto request,
         CancellationToken cancellationToken)
     {
-        var userOid = RequireUserOid();
+        var userOid = KnowledgeUser.GetOid(User);
         if (userOid is null)
         {
             return Unauthorized();
@@ -106,7 +121,7 @@ public sealed class KnowledgeChatController : ControllerBase
         Guid sessionId,
         CancellationToken cancellationToken)
     {
-        var userOid = RequireUserOid();
+        var userOid = KnowledgeUser.GetOid(User);
         if (userOid is null)
         {
             return Unauthorized();
@@ -160,7 +175,7 @@ public sealed class KnowledgeChatController : ControllerBase
         Guid fileId,
         CancellationToken cancellationToken)
     {
-        var userOid = RequireUserOid();
+        var userOid = KnowledgeUser.GetOid(User);
         if (userOid is null)
         {
             return Unauthorized();
@@ -186,7 +201,23 @@ public sealed class KnowledgeChatController : ControllerBase
             return BadRequest("Query is required.");
         }
 
-        var userOid = RequireUserOid();
+        var userOid = KnowledgeUser.GetOid(User);
+        if (userOid is null)
+        {
+            return Unauthorized();
+        }
+
+        if (request.ProjectId.HasValue)
+        {
+            try
+            {
+                await _access.RequireAsync(request.ProjectId.Value, userOid, KbProjectPermission.View, cancellationToken);
+            }
+            catch (KbProjectAccessException ex)
+            {
+                return StatusCode(ex.StatusCode, ex.Message);
+            }
+        }
 
         try
         {
@@ -203,7 +234,4 @@ public sealed class KnowledgeChatController : ControllerBase
         }
     }
 
-    private string? RequireUserOid() =>
-        User.FindFirst("oid")?.Value
-        ?? User.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value;
 }

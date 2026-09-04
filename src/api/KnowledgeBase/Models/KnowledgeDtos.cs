@@ -99,17 +99,44 @@ public sealed record ProjectDto(
     string? Description,
     string? Instructions,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    string? Area = null,
+    string Role = "owner",
+    bool IsShared = false);
 
 public sealed record CreateProjectRequestDto(
     string Name,
     string? Description = null,
-    string? Instructions = null);
+    string? Instructions = null,
+    string? Area = null);
 
 public sealed record UpdateProjectRequestDto(
     string? Name = null,
     string? Description = null,
-    string? Instructions = null);
+    string? Instructions = null,
+    string? Area = null);
+
+public sealed record ProjectShareDto(
+    Guid Id,
+    string PrincipalType,
+    string PrincipalOid,
+    string PrincipalDisplayName,
+    string? PrincipalEmail,
+    string Role,
+    DateTimeOffset CreatedAt);
+
+public sealed record CreateProjectShareRequestDto(
+    string PrincipalType,
+    string PrincipalOid,
+    string Role,
+    string? DisplayName = null,
+    string? Email = null);
+
+public sealed record DirectoryPrincipalDto(
+    string Type,
+    string Oid,
+    string DisplayName,
+    string? Email = null);
 
 public sealed record PromptDto(
     Guid Id,

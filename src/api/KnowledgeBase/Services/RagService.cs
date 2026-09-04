@@ -332,7 +332,9 @@ public sealed class RagService
         if (sessionId.HasValue)
         {
             var existing = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId.Value, cancellationToken);
-            if (existing is not null)
+            if (existing is not null
+                && (string.IsNullOrEmpty(userOid)
+                    || string.Equals(existing.UserOid, userOid, StringComparison.Ordinal)))
             {
                 return existing;
             }

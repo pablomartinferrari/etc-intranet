@@ -86,6 +86,8 @@ export type UploadEnqueueResponse = {
   message: string;
 };
 
+export type ProjectRole = "owner" | "editor" | "viewer";
+
 export type Project = {
   id: string;
   name: string;
@@ -93,6 +95,26 @@ export type Project = {
   instructions: string | null;
   createdAt: string;
   updatedAt: string;
+  area?: string | null;
+  role?: ProjectRole;
+  isShared?: boolean;
+};
+
+export type ProjectShare = {
+  id: string;
+  principalType: "user" | "group";
+  principalOid: string;
+  principalDisplayName: string;
+  principalEmail: string | null;
+  role: "viewer" | "editor";
+  createdAt: string;
+};
+
+export type DirectoryPrincipal = {
+  type: "user" | "group";
+  oid: string;
+  displayName: string;
+  email?: string | null;
 };
 
 export type Prompt = {
@@ -144,8 +166,8 @@ export function updateChatSession(
   return apiPatch<ChatSession>(`/kb/chat/sessions/${sessionId}`, patch);
 }
 
-export function getChatMessages(sessionId: string): Promise<ChatMessage[]> {
-  return apiGet<ChatMessage[]>(`/kb/chat/sessions/${sessionId}/messages`);
+export function getChatMessages(sessionId: string, signal?: AbortSignal): Promise<ChatMessage[]> {
+  return apiGet<ChatMessage[]>(`/kb/chat/sessions/${sessionId}/messages`, undefined, signal);
 }
 
 export async function downloadGeneratedFile(
@@ -183,15 +205,55 @@ export function createProject(
   name: string,
   description?: string,
   instructions?: string,
+  area?: string,
 ): Promise<Project> {
-  return apiPost<Project>("/kb/projects", { name, description, instructions });
+  return apiPost<Project>("/kb/projects", { name, description, instructions, area });
 }
 
 export function updateProject(
   id: string,
-  patch: { name?: string; description?: string; instructions?: string },
+  patch: { name?: string; description?: string; instructions?: string; area?: string },
 ): Promise<Project> {
   return apiPatch<Project>(`/kb/projects/${id}`, patch);
+}
+
+export function listProjectShares(projectId: string): Promise<ProjectShare[]> {
+  return apiGet<ProjectShare[]>(`/kb/projects/${projectId}/shares`);
+}
+
+export function createProjectShare(
+  projectId: string,
+  body: {
+    principalType: "user" | "group";
+    principalOid: string;
+    role: "viewer" | "editor";
+    displayName?: string;
+    email?: string;
+  },
+): Promise<ProjectShare> {
+  return apiPost<ProjectShare>(`/kb/projects/${projectId}/shares`, body);
+}
+
+export function deleteProjectShare(projectId: string, shareId: string): Promise<void> {
+  return apiDelete(`/kb/projects/${projectId}/shares/${shareId}`);
+}
+
+export function searchDirectory(q: string, signal?: AbortSignal): Promise<DirectoryPrincipal[]> {
+  if (!q.trim()) return Promise.resolve([]);
+  return apiGet<DirectoryPrincipal[]>(
+    `/kb/directory/search?q=${encodeURIComponent(q.trim())}`,
+    undefined,
+    signal,
+  );
+}
+
+export function canEditProject(project?: Project | null): boolean {
+  const role = project?.role ?? "owner";
+  return role === "owner" || role === "editor";
+}
+
+export function canManageProject(project?: Project | null): boolean {
+  return (project?.role ?? "owner") === "owner";
 }
 
 export function deleteProject(id: string): Promise<void> {

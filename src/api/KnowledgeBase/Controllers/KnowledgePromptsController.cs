@@ -1,6 +1,7 @@
 using Intranet.Api.KnowledgeBase.Data;
 using Intranet.Api.KnowledgeBase.Data.Entities;
 using Intranet.Api.KnowledgeBase.Models;
+using Intranet.Api.KnowledgeBase.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,10 +12,12 @@ namespace Intranet.Api.KnowledgeBase.Controllers;
 public sealed class KnowledgePromptsController : ControllerBase
 {
     private readonly KnowledgeDbContext _db;
+    private readonly IKbProjectAccessService _access;
 
-    public KnowledgePromptsController(KnowledgeDbContext db)
+    public KnowledgePromptsController(KnowledgeDbContext db, IKbProjectAccessService access)
     {
         _db = db;
+        _access = access;
     }
 
     [HttpGet]
@@ -22,16 +25,31 @@ public sealed class KnowledgePromptsController : ControllerBase
         [FromQuery] Guid? projectId,
         CancellationToken cancellationToken)
     {
-        var userOid = RequireUserOid();
+        var userOid = KnowledgeUser.GetOid(User);
         if (userOid is null)
         {
             return Unauthorized();
         }
 
-        var query = _db.Prompts.Where(p => p.UserOid == userOid);
+        IQueryable<KbPrompt> query;
         if (projectId.HasValue)
         {
-            query = query.Where(p => p.ProjectId == projectId.Value || p.ProjectId == null);
+            try
+            {
+                await _access.RequireAsync(projectId.Value, userOid, KbProjectPermission.View, cancellationToken);
+            }
+            catch (KbProjectAccessException ex)
+            {
+                return StatusCode(ex.StatusCode, ex.Message);
+            }
+
+            query = _db.Prompts.Where(p =>
+                p.ProjectId == projectId.Value
+                || (p.ProjectId == null && p.UserOid == userOid));
+        }
+        else
+        {
+            query = _db.Prompts.Where(p => p.UserOid == userOid);
         }
 
         var prompts = await query
@@ -53,7 +71,7 @@ public sealed class KnowledgePromptsController : ControllerBase
         [FromBody] CreatePromptRequestDto request,
         CancellationToken cancellationToken)
     {
-        var userOid = RequireUserOid();
+        var userOid = KnowledgeUser.GetOid(User);
         if (userOid is null)
         {
             return Unauthorized();
@@ -62,6 +80,18 @@ public sealed class KnowledgePromptsController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Content))
         {
             return BadRequest("Title and content are required.");
+        }
+
+        if (request.ProjectId.HasValue)
+        {
+            try
+            {
+                await _access.RequireAsync(request.ProjectId.Value, userOid, KbProjectPermission.Edit, cancellationToken);
+            }
+            catch (KbProjectAccessException ex)
+            {
+                return StatusCode(ex.StatusCode, ex.Message);
+            }
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -85,16 +115,35 @@ public sealed class KnowledgePromptsController : ControllerBase
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<PromptDto>> Get(Guid id, CancellationToken cancellationToken)
     {
-        var userOid = RequireUserOid();
+        var userOid = KnowledgeUser.GetOid(User);
         if (userOid is null)
         {
             return Unauthorized();
         }
 
-        var prompt = await _db.Prompts
-            .FirstOrDefaultAsync(p => p.Id == id && p.UserOid == userOid, cancellationToken);
+        var prompt = await _db.Prompts.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+        if (prompt is null)
+        {
+            return NotFound();
+        }
 
-        return prompt is null ? NotFound() : Ok(ToDto(prompt));
+        if (prompt.ProjectId.HasValue)
+        {
+            try
+            {
+                await _access.RequireAsync(prompt.ProjectId.Value, userOid, KbProjectPermission.View, cancellationToken);
+            }
+            catch (KbProjectAccessException ex)
+            {
+                return StatusCode(ex.StatusCode, ex.Message);
+            }
+        }
+        else if (!string.Equals(prompt.UserOid, userOid, StringComparison.Ordinal))
+        {
+            return NotFound();
+        }
+
+        return Ok(ToDto(prompt));
     }
 
     [HttpPatch("{id:guid}")]
@@ -103,16 +152,30 @@ public sealed class KnowledgePromptsController : ControllerBase
         [FromBody] UpdatePromptRequestDto request,
         CancellationToken cancellationToken)
     {
-        var userOid = RequireUserOid();
+        var userOid = KnowledgeUser.GetOid(User);
         if (userOid is null)
         {
             return Unauthorized();
         }
 
-        var prompt = await _db.Prompts
-            .FirstOrDefaultAsync(p => p.Id == id && p.UserOid == userOid, cancellationToken);
-
+        var prompt = await _db.Prompts.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
         if (prompt is null)
+        {
+            return NotFound();
+        }
+
+        if (prompt.ProjectId.HasValue)
+        {
+            try
+            {
+                await _access.RequireAsync(prompt.ProjectId.Value, userOid, KbProjectPermission.Edit, cancellationToken);
+            }
+            catch (KbProjectAccessException ex)
+            {
+                return StatusCode(ex.StatusCode, ex.Message);
+            }
+        }
+        else if (!string.Equals(prompt.UserOid, userOid, StringComparison.Ordinal))
         {
             return NotFound();
         }
@@ -136,16 +199,30 @@ public sealed class KnowledgePromptsController : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
-        var userOid = RequireUserOid();
+        var userOid = KnowledgeUser.GetOid(User);
         if (userOid is null)
         {
             return Unauthorized();
         }
 
-        var prompt = await _db.Prompts
-            .FirstOrDefaultAsync(p => p.Id == id && p.UserOid == userOid, cancellationToken);
-
+        var prompt = await _db.Prompts.FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
         if (prompt is null)
+        {
+            return NotFound();
+        }
+
+        if (prompt.ProjectId.HasValue)
+        {
+            try
+            {
+                await _access.RequireAsync(prompt.ProjectId.Value, userOid, KbProjectPermission.Edit, cancellationToken);
+            }
+            catch (KbProjectAccessException ex)
+            {
+                return StatusCode(ex.StatusCode, ex.Message);
+            }
+        }
+        else if (!string.Equals(prompt.UserOid, userOid, StringComparison.Ordinal))
         {
             return NotFound();
         }
@@ -154,10 +231,6 @@ public sealed class KnowledgePromptsController : ControllerBase
         await _db.SaveChangesAsync(cancellationToken);
         return NoContent();
     }
-
-    private string? RequireUserOid() =>
-        User.FindFirst("oid")?.Value
-        ?? User.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value;
 
     private static PromptDto ToDto(KbPrompt prompt) =>
         new(prompt.Id, prompt.ProjectId, prompt.Title, prompt.Content, prompt.CreatedAt, prompt.UpdatedAt);

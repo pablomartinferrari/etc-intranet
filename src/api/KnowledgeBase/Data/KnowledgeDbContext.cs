@@ -14,6 +14,7 @@ public sealed class KnowledgeDbContext : DbContext
     public DbSet<KbDocument> Documents => Set<KbDocument>();
     public DbSet<KbIngestRun> IngestRuns => Set<KbIngestRun>();
     public DbSet<KbProject> Projects => Set<KbProject>();
+    public DbSet<KbProjectShare> ProjectShares => Set<KbProjectShare>();
     public DbSet<KbProjectDocument> ProjectDocuments => Set<KbProjectDocument>();
     public DbSet<KbPrompt> Prompts => Set<KbPrompt>();
     public DbSet<KbChatSession> ChatSessions => Set<KbChatSession>();
@@ -22,7 +23,10 @@ public sealed class KnowledgeDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.HasPostgresExtension("vector");
+        if (Database.IsNpgsql())
+        {
+            modelBuilder.HasPostgresExtension("vector");
+        }
 
         modelBuilder.Entity<KbDocument>(e =>
         {
@@ -56,8 +60,26 @@ public sealed class KnowledgeDbContext : DbContext
             e.Property(x => x.Name).HasColumnName("name");
             e.Property(x => x.Description).HasColumnName("description");
             e.Property(x => x.Instructions).HasColumnName("instructions");
+            e.Property(x => x.Area).HasColumnName("area").HasMaxLength(80);
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
             e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+            e.HasMany(x => x.Shares).WithOne(x => x.Project).HasForeignKey(x => x.ProjectId);
+        });
+
+        modelBuilder.Entity<KbProjectShare>(e =>
+        {
+            e.ToTable("kb_project_shares");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.ProjectId).HasColumnName("project_id");
+            e.Property(x => x.PrincipalType).HasColumnName("principal_type").HasMaxLength(16);
+            e.Property(x => x.PrincipalOid).HasColumnName("principal_oid").HasMaxLength(64);
+            e.Property(x => x.PrincipalDisplayName).HasColumnName("principal_display_name").HasMaxLength(256);
+            e.Property(x => x.PrincipalEmail).HasColumnName("principal_email").HasMaxLength(256);
+            e.Property(x => x.Role).HasColumnName("role").HasMaxLength(16);
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.CreatedByOid).HasColumnName("created_by_oid").HasMaxLength(64);
+            e.HasIndex(x => new { x.ProjectId, x.PrincipalType, x.PrincipalOid }).IsUnique();
         });
 
         modelBuilder.Entity<KbProjectDocument>(e =>

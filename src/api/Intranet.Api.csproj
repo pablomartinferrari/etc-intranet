@@ -34,6 +34,10 @@
     <InternalsVisibleTo Include="Intranet.Api.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="KnowledgeBase\Migrations\*.sql" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- Set BuildReactApp=true after running npm run build in src/web -->
   <Target Name="PublishReactApp" BeforeTargets="ComputeFilesToPublish" Condition="'$(BuildReactApp)' == 'true'">
     <Exec WorkingDirectory="$(SpaRoot)" Command="npm run build" />

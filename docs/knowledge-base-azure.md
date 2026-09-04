@@ -40,6 +40,11 @@ Blob Storage → raw files (574 MB+ belongs here, not on App Service disk)
 - Azure CLI logged in: `az login`
 - Quota for **GPU VM** (e.g. `Standard_NC4as_T4_v3`) in your region
 - Entra app registrations configured (same as local)
+- For **project sharing** (users and groups), grant the API app these **Microsoft Graph application permissions** with admin consent:
+  - `User.Read.All` — directory user search (`GET /api/kb/directory/search`)
+  - `Group.Read.All` — directory group search
+  - `GroupMember.Read.All` — `checkMemberGroups` so group-shared projects appear for members
+  (`Directory.Read.All` covers the same reads if you prefer a single role.)
 
 ---
 

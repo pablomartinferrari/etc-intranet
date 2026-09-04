@@ -78,6 +78,8 @@ public static class KnowledgeBaseServiceExtensions
         services.AddScoped<AgentSourceService>();
         services.AddScoped<IAgentSourceIngestRunner>(sp => sp.GetRequiredService<AgentSourceService>());
         services.AddHostedService<AgentSourceIngestWorker>();
+        services.AddScoped<IGraphDirectoryClient, GraphDirectoryClient>();
+        services.AddScoped<IKbProjectAccessService, KbProjectAccessService>();
 
         return services;
     }
@@ -108,22 +110,22 @@ public static class KnowledgeBaseServiceExtensions
 
         try
         {
+            await using var conn = new NpgsqlConnection(connectionString);
+            await conn.OpenAsync();
+
             var migrationDir = ResolveMigrationsDirectory(app, options);
             if (Directory.Exists(migrationDir))
             {
-                await using var conn = new NpgsqlConnection(connectionString);
-                await conn.OpenAsync();
-                foreach (var migrationPath in Directory.GetFiles(migrationDir, "*.sql").OrderBy(f => f))
-                {
-                    var sql = await File.ReadAllTextAsync(migrationPath);
-                    await using var cmd = new NpgsqlCommand(sql, conn);
-                    await cmd.ExecuteNonQueryAsync();
-                    logger.LogInformation("Knowledge database schema applied from {Path}", migrationPath);
-                }
+                await ApplySqlFilesAsync(conn, migrationDir, logger);
             }
             else
             {
                 logger.LogWarning("Knowledge migrations directory not found at {Path}", migrationDir);
+            }
+
+            foreach (var extraDir in ResolveIntranetKnowledgeMigrations(app))
+            {
+                await ApplySqlFilesAsync(conn, extraDir, logger);
             }
 
             using var scope = app.Services.CreateScope();
@@ -134,6 +136,44 @@ public static class KnowledgeBaseServiceExtensions
         catch (Exception ex)
         {
             logger.LogError(ex, "Knowledge database initialization failed. KB endpoints may be unavailable.");
+        }
+    }
+
+    private static async Task ApplySqlFilesAsync(NpgsqlConnection conn, string directory, ILogger logger)
+    {
+        if (!Directory.Exists(directory))
+        {
+            return;
+        }
+
+        foreach (var migrationPath in Directory.GetFiles(directory, "*.sql").OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+        {
+            var sql = await File.ReadAllTextAsync(migrationPath);
+            if (string.IsNullOrWhiteSpace(sql))
+            {
+                continue;
+            }
+
+            await using var cmd = new NpgsqlCommand(sql, conn);
+            await cmd.ExecuteNonQueryAsync();
+            logger.LogInformation("Knowledge database schema applied from {Path}", migrationPath);
+        }
+    }
+
+    private static IEnumerable<string> ResolveIntranetKnowledgeMigrations(WebApplication app)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in new[]
+        {
+            Path.Combine(app.Environment.ContentRootPath, "KnowledgeBase", "Migrations"),
+            Path.Combine(AppContext.BaseDirectory, "KnowledgeBase", "Migrations"),
+        })
+        {
+            var full = Path.GetFullPath(candidate);
+            if (Directory.Exists(full) && seen.Add(full))
+            {
+                yield return full;
+            }
         }
     }
 
