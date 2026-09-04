@@ -1,7 +1,7 @@
 import { useMsal } from "@azure/msal-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Folder, Lightbulb, Menu, Pencil, Plus, Send } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -41,6 +41,11 @@ import {
   writeChatSelection,
 } from "./chatSelectionStorage";
 import { ChatSidebar } from "./ChatSidebar";
+import {
+  CHAT_SOURCES_PANEL_ID,
+  ChatSourcesPanel,
+  ChatSourcesTrigger,
+} from "./ChatSourcesPanel";
 import { FileTypeIcon, fileKindFromFormat, fileKindFromName } from "./fileTypeIcon";
 import { shareBadgeLabel } from "./projectGroups";
 import { ProjectFilesPanel, ProjectPromptsPanel } from "./ProjectSidePanel";
@@ -109,6 +114,10 @@ export default function KnowledgeChatWorkspace() {
   const [filesSheetOpen, setFilesSheetOpen] = useState(false);
   const [promptsSheetOpen, setPromptsSheetOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [sourcesMessageId, setSourcesMessageId] = useState<string | undefined>();
+  const [sourcesCitations, setSourcesCitations] = useState<Citation[]>([]);
+  const sourcesTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const scrollChatToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const container = messagesContainerRef.current;
@@ -424,6 +433,20 @@ export default function KnowledgeChatWorkspace() {
     setNavSheetOpen(false);
   };
 
+  const openMessageSources = (
+    message: ChatMessage,
+    event: MouseEvent<HTMLButtonElement>,
+  ) => {
+    sourcesTriggerRef.current = event.currentTarget;
+    if (sourcesOpen && sourcesMessageId === message.id) {
+      setSourcesOpen(false);
+      return;
+    }
+    setSourcesMessageId(message.id);
+    setSourcesCitations(message.citations ?? []);
+    setSourcesOpen(true);
+  };
+
   useEffect(() => {
     const media = window.matchMedia("(min-width: 768px)");
     const onChange = () => {
@@ -715,7 +738,15 @@ export default function KnowledgeChatWorkspace() {
               )}
 
               {!messagesLoading &&
-                messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)}
+                messages.map((msg) => (
+                  <MessageBubble
+                    key={msg.id}
+                    message={msg}
+                    sourcesOpen={sourcesOpen}
+                    sourcesMessageId={sourcesMessageId}
+                    onOpenSources={openMessageSources}
+                  />
+                ))}
 
               {chatMutation.isPending && (
                 <div className="flex justify-start">
@@ -798,6 +829,14 @@ export default function KnowledgeChatWorkspace() {
           </>
         )}
       </main>
+
+      <ChatSourcesPanel
+        open={sourcesOpen}
+        onOpenChange={setSourcesOpen}
+        citations={sourcesCitations}
+        returnFocusRef={sourcesTriggerRef}
+        panelId={CHAT_SOURCES_PANEL_ID}
+      />
 
       <Sheet open={navSheetOpen} onOpenChange={setNavSheetOpen}>
         <SheetContent side="left" className="w-full gap-0 p-0 sm:max-w-[260px]" showCloseButton>
@@ -1049,44 +1088,55 @@ function ProjectDialog({
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+  sourcesOpen,
+  sourcesMessageId,
+  onOpenSources,
+}: {
+  message: ChatMessage;
+  sourcesOpen: boolean;
+  sourcesMessageId?: string;
+  onOpenSources: (message: ChatMessage, event: MouseEvent<HTMLButtonElement>) => void;
+}) {
   const isUser = message.role === "user";
+  const citationCount = message.citations?.length ?? 0;
+  const sourcesExpanded = sourcesOpen && sourcesMessageId === message.id;
 
   return (
     <div className={isUser ? "flex justify-end" : "flex justify-start"}>
-      <div
-        className={`min-w-0 max-w-[min(100%,720px)] break-words rounded-[18px] px-3.5 py-3 leading-normal md:px-[18px] md:py-3.5 ${
-          isUser ? "bg-primary text-primary-foreground" : "border bg-muted"
-        }`}
-      >
-        {isUser ? (
-          <p className="whitespace-pre-wrap break-words text-sm">{message.content}</p>
-        ) : (
-          <ChatMarkdown content={message.content} className="w-full min-w-0" />
-        )}
-        {!isUser && message.generation?.isFallback && (
-          <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
-            Answered by hosted {message.generation.provider} ({message.generation.model}) —
-            local KB model was offline
-          </p>
-        )}
-        {!isUser && message.attachments && message.attachments.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {message.attachments.map((attachment) => (
-              <AttachmentDownload key={attachment.id} attachment={attachment} />
-            ))}
-          </div>
-        )}
-        {!isUser && message.citations && message.citations.length > 0 && (
-          <div className="mt-3.5 flex flex-col gap-2">
-            <span className="text-xs font-semibold">Sources</span>
-            {message.citations.map((c, i) => (
-              <CitationChip
-                key={c.documentId ?? c.url ?? `${c.title}-${i}`}
-                citation={c}
-              />
-            ))}
-          </div>
+      <div className="flex min-w-0 max-w-[min(100%,720px)] flex-col">
+        <div
+          className={`min-w-0 break-words rounded-[18px] px-3.5 py-3 leading-normal md:px-[18px] md:py-3.5 ${
+            isUser ? "bg-primary text-primary-foreground" : "border bg-muted"
+          }`}
+        >
+          {isUser ? (
+            <p className="whitespace-pre-wrap break-words text-sm">{message.content}</p>
+          ) : (
+            <ChatMarkdown content={message.content} className="w-full min-w-0" />
+          )}
+          {!isUser && message.generation?.isFallback && (
+            <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
+              Answered by hosted {message.generation.provider} ({message.generation.model}) —
+              local KB model was offline
+            </p>
+          )}
+          {!isUser && message.attachments && message.attachments.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {message.attachments.map((attachment) => (
+                <AttachmentDownload key={attachment.id} attachment={attachment} />
+              ))}
+            </div>
+          )}
+        </div>
+        {!isUser && citationCount > 0 && (
+          <ChatSourcesTrigger
+            count={citationCount}
+            expanded={sourcesExpanded}
+            controlsId={CHAT_SOURCES_PANEL_ID}
+            onClick={(event) => onOpenSources(message, event)}
+          />
         )}
       </div>
     </div>
@@ -1112,28 +1162,3 @@ function AttachmentDownload({ attachment }: { attachment: ChatAttachment }) {
   );
 }
 
-function CitationChip({ citation }: { citation: Citation }) {
-  const isWeb = citation.type === "web" || !!citation.url;
-  const iconKind = isWeb ? "web" : fileKindFromName(citation.title);
-
-  return (
-    <div className="rounded-md bg-card px-3 py-2.5">
-      <div className="flex min-w-0 items-center gap-2">
-        <FileTypeIcon kind={iconKind} className="size-5 shrink-0 text-muted-foreground" />
-        {isWeb && citation.url ? (
-          <a
-            href={citation.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="min-w-0 break-words text-xs font-semibold text-primary"
-          >
-            {citation.title}
-          </a>
-        ) : (
-          <p className="min-w-0 break-words text-xs font-semibold">{citation.title}</p>
-        )}
-      </div>
-      <span className="ml-7 break-words text-xs text-muted-foreground">{citation.snippet}</span>
-    </div>
-  );
-}
