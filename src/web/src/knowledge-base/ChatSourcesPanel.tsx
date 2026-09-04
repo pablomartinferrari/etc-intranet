@@ -61,7 +61,7 @@ export function ChatSourcesTrigger({
       type="button"
       variant="outline"
       size="sm"
-      className="mt-2 h-7 rounded-full px-2.5 text-xs"
+      className="mt-2 h-7 w-fit self-start rounded-full px-2.5 text-xs"
       aria-expanded={expanded}
       aria-controls={controlsId}
       onClick={onClick}
