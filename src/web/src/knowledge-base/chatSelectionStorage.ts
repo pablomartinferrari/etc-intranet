@@ -2,7 +2,8 @@ const PREFIX = "etc-kb-chat-selection:";
 
 export type ChatSelection = {
   selectedProjectId?: string;
-  sessionsByProject: Record<string, string | undefined>;
+  /** Session id for the project, or `null` when New chat (draft) is active. */
+  sessionsByProject: Record<string, string | null>;
 };
 
 function storageKey(userKey: string): string {
@@ -35,6 +36,25 @@ export function writeChatSelection(userKey: string, selection: ChatSelection): v
   }
 }
 
+/** Persist the current project + session. `null`/`undefined` session means a New chat draft. */
+export function persistChatSelection(
+  userKey: string,
+  selectedProjectId: string | undefined,
+  sessionId: string | undefined | null,
+): void {
+  if (!selectedProjectId) return;
+  const current = readChatSelection(userKey);
+  writeChatSelection(userKey, {
+    selectedProjectId,
+    sessionsByProject: {
+      ...current.sessionsByProject,
+      [selectedProjectId]: sessionId ?? null,
+    },
+  });
+}
+
 export function lastSessionForProject(selection: ChatSelection, projectId: string): string | undefined {
-  return selection.sessionsByProject[projectId];
+  const value = selection.sessionsByProject[projectId];
+  if (value == null || value === "") return undefined;
+  return value;
 }

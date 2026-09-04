@@ -116,8 +116,9 @@ export function ShareProjectDialog({
         </DialogHeader>
         <div className="flex flex-col gap-4">
           <p className="text-sm text-muted-foreground">
-            Owners can share this project with Entra users or groups. Editors can chat and upload;
-            viewers can chat and read files.
+            Sharing is the whole project — its files and the ability to chat — not a single thread
+            export. Owners add Entra users or groups. Editors can chat and upload; viewers can chat
+            and read files.
           </p>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
             <div className="min-w-0 flex-1 space-y-1.5">

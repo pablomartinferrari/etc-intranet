@@ -41,11 +41,16 @@ public static class IntranetMap
         new(
             "chat",
             "Chat",
-            ["chatgpt", "knowledge", "kb", "rag", "conversation", "company chatgpt", "knowledge base", "documents", "prompts", "project", "new chat", "sharepoint folder", "add sharepoint folder"],
+            [
+                "chatgpt", "knowledge", "kb", "rag", "conversation", "company chatgpt", "knowledge base",
+                "documents", "prompts", "project", "projects", "chats", "new chat", "multiple chats",
+                "second chat", "share project", "share chat", "share", "project files",
+                "sharepoint folder", "add sharepoint folder",
+            ],
             "/knowledge",
             ["/knowledge"],
-            "From Home, open the Chat card. Click New project if you do not have one yet, then New chat. Projects have Chats, Files, and Prompts tabs. Use Add SharePoint folder to connect a SharePoint folder for Chat context.",
-            "Company ChatGPT / knowledge-base RAG. Create a project, start a chat, upload files, and save prompts. Answers use project documents and connected SharePoint folders (Add SharePoint folder). Local Ollama is used when the GPU VM is up; otherwise a hosted OpenAI-compatible model when KnowledgeBase Fallback is configured. This is not the floating Help panel.",
+            "From Home, open the Chat card. Use New project if you do not have one. The ChatGPT-style sidebar lists areas and projects; expand a project to see its chats underneath. Click New chat (or + New chat under the project) to start a blank thread in the selected project — a New chat draft shows under the project, and after the first message it is listed there. Project files and Prompts open in sheets. Sources in the sidebar opens SharePoint folders at /knowledge/sources. Project owners share the project (files plus the ability to chat, not a single-thread export) with Entra users or groups from the Share control on the project row or the chat header.",
+            "Company ChatGPT / knowledge-base RAG with a single ChatGPT-style sidebar. Yes: a project can have many chats. New chat starts a blank thread in the selected project; after the first message it appears under that project. Upload files and save prompts via sheets. Answers use project documents and connected SharePoint folders. A compact N-sources chip on an answer opens an optional citation side panel — that is not the Sources nav. Owners share the whole project with Entra users or groups (viewer or editor). Local Ollama when the GPU VM is up; otherwise a hosted OpenAI-compatible model when KnowledgeBase Fallback is configured. This is not the floating Help panel.",
             ["home", "help", "requests", "agent-sources"],
             [
                 "Where is Chat?",
@@ -57,10 +62,19 @@ public static class IntranetMap
                 "Add SharePoint folder",
                 "Index this SharePoint folder",
                 "How do I add a SharePoint folder?",
+                "Can I have multiple chats in one project?",
+                "How do I start a second chat in a project?",
+                "How do I share a Chat project?",
+                "Can I add multiple chats to a single project?",
             ],
             ["Postgres knowledge DB (pgvector)", "uploaded project files", "SharePoint folders via Microsoft Graph", "Ollama and/or hosted OpenAI-compatible chat"],
             "Every ETC employee. Separate from Help — Help only knows the intranet map.",
-            "Open Chat from Home (the ChatGPT / knowledge-base card). Create a project with New project if you do not have one, then click New chat. Use Files to upload documents and Prompts to save reusable instructions. Use Add SharePoint folder (also in Help) to give Chat documents from SharePoint. Chat is for company documents and Q&A — not this Help guide."),
+            "Yes — one Chat project can have many chats. Open Chat from Home, select the project, and click New chat (or + New chat under that project). A New chat draft appears under the project; after you send the first message it becomes a listed thread. Files and Prompts are sheets, not tabs. Sources in the sidebar is SharePoint folders, not the answer citation panel (that is the compact \"N sources\" control). Owners share the project — files and the ability to chat — with Entra users or groups from Share; it is not a single-thread export.",
+            [
+                "Yes, you can add multiple chats to a single project. New chat starts a blank thread in the selected project.",
+                "Share is project-level (files plus the ability to chat), not a single-thread export. Owners open Share from the project row or the chat header.",
+                "Project files and Prompts open in sheets. Sources in the Chat sidebar is SharePoint folders — not the citation side panel.",
+            ]),
         new(
             "lead",
             "Lead",
@@ -160,19 +174,20 @@ public static class IntranetMap
             ["agent sources", "sources", "sharepoint", "add knowledge", "chat context", "ingest", "manage sources", "connect sharepoint", "chat sources"],
             "/knowledge/sources",
             ["/knowledge/sources"],
-            "From Chat, click Add SharePoint folder. Help has the same button. Manage connected folders from Manage sources (database icon in the Chat rail, or Manage sources in the Chat header).",
-            "Connected SharePoint folders used as intranet-wide Chat context. Add a folder from Chat or Help, review the size estimate, and connect. Huge folders file a Feature Request instead of ingesting automatically. This page shows job status and disconnect.",
+            "From Chat, click Sources in the sidebar (or open /knowledge/sources). Help also has Add SharePoint folder. This page lists connected SharePoint folders — it is not the compact \"N sources\" citation panel on a Chat answer.",
+            "Connected SharePoint folders used as intranet-wide Chat context. Add a folder from Chat or Help, review the size estimate, and connect. Huge folders file a Feature Request instead of ingesting automatically. This page shows job status and disconnect. It is not the optional citation side panel.",
             ["chat", "help", "requests"],
             [
                 "How do I add knowledge?",
                 "How do I connect SharePoint?",
                 "Where are agent sources?",
                 "Where is Manage sources?",
+                "Where is Sources?",
                 "How do I disconnect a SharePoint folder?",
             ],
             ["Microsoft Graph (Sites.Read.All, Files.Read.All)", "Postgres knowledge documents", "hosted embeddings"],
             "Every signed-in ETC employee. Add is self-serve within size limits.",
-            "In Chat, click Add SharePoint folder (Help has the same button). Paste a site URL and folder path, review the size estimate, and connect. Manage connected folders from Manage sources. Huge folders file an admin request instead of ingesting automatically."),
+            "In Chat, open Sources in the sidebar (Help also has Add SharePoint folder). Paste a site URL and folder path, review the size estimate, and connect. Manage connected folders on this page. Huge folders file an admin request instead of ingesting automatically. The compact \"N sources\" chip on a Chat answer is a different citation panel."),
         new(
             "help",
             "Help",
@@ -450,7 +465,8 @@ public static class IntranetMap
         var haystack = Normalize(string.Join(
             ' ',
             new[] { place.Purpose, place.HowToGetThere, place.AudienceNotes ?? "", place.FallbackAnswer }
-                .Concat(place.DataSources)));
+                .Concat(place.DataSources)
+                .Concat(place.Tips ?? [])));
         var hayTokens = Tokenize(haystack);
         foreach (var token in tokens)
         {
@@ -556,6 +572,8 @@ public static class IntranetMap
             commonQuestions = p.CommonQuestions,
             dataSources = p.DataSources,
             audienceNotes = p.AudienceNotes,
+            fallbackAnswer = p.FallbackAnswer,
+            tips = p.Tips is { Count: > 0 } ? p.Tips : null,
         });
         return JsonSerializer.Serialize(payload, PromptJsonOptions);
     }

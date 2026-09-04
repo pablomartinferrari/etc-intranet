@@ -39,7 +39,8 @@ public sealed record IntranetPlace(
     IReadOnlyList<string> CommonQuestions,
     IReadOnlyList<string> DataSources,
     string? AudienceNotes,
-    string FallbackAnswer);
+    string FallbackAnswer,
+    IReadOnlyList<string>? Tips = null);
 
 public sealed record HelpMapAnswer(
     string Answer,

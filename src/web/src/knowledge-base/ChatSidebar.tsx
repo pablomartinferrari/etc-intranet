@@ -223,51 +223,14 @@ export function ChatSidebar({
                       onOpenPrompts={() => onOpenPrompts(project)}
                     />
                     {expanded && (
-                      <div className="mb-1 ml-3 flex flex-col border-l border-sidebar-border pl-2">
-                        {sessionsLoading && (
-                          <div className="flex flex-col gap-1 px-1 py-1">
-                            <Skeleton className="h-7 w-full" />
-                            <Skeleton className="h-7 w-5/6" />
-                          </div>
-                        )}
-                        {!sessionsLoading && sessions.length === 0 && (
-                          <p className="px-2 py-1.5 text-[11px] text-muted-foreground">
-                            No chats yet
-                          </p>
-                        )}
-                        {!sessionsLoading &&
-                          sessions.map((session) => (
-                            <div
-                              key={session.id}
-                              className={cn(
-                                "group/chat flex min-h-8 items-center rounded-md hover:bg-sidebar-accent",
-                                sessionId === session.id && "bg-sidebar-accent font-medium",
-                              )}
-                            >
-                              <button
-                                type="button"
-                                className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-[13px]"
-                                onClick={() => onSelectSession(session.id)}
-                              >
-                                <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />
-                                <span className="min-w-0 flex-1 truncate">
-                                  {session.title ?? "Untitled chat"}
-                                </span>
-                              </button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-sm"
-                                className="mr-0.5 opacity-0 group-hover/chat:opacity-100 group-focus-within/chat:opacity-100 max-md:opacity-100"
-                                title="Rename chat"
-                                aria-label={`Rename ${session.title ?? "chat"}`}
-                                onClick={() => onRenameSession(session)}
-                              >
-                                <Pencil />
-                              </Button>
-                            </div>
-                          ))}
-                      </div>
+                      <ProjectChats
+                        sessions={sessions}
+                        sessionsLoading={!!sessionsLoading}
+                        sessionId={sessionId}
+                        onSelectSession={onSelectSession}
+                        onRenameSession={onRenameSession}
+                        onNewChat={onNewChat}
+                      />
                     )}
                   </div>
                 );
@@ -374,6 +337,88 @@ function SidebarRow({
   );
 }
 
+function ProjectChats({
+  sessions,
+  sessionsLoading,
+  sessionId,
+  onSelectSession,
+  onRenameSession,
+  onNewChat,
+}: {
+  sessions: ChatSession[];
+  sessionsLoading: boolean;
+  sessionId?: string;
+  onSelectSession: (id: string) => void;
+  onRenameSession: (session: ChatSession) => void;
+  onNewChat: () => void;
+}) {
+  const showDraft = !sessionId;
+
+  return (
+    <div className="mb-1 ml-3 flex flex-col border-l border-sidebar-border pl-2">
+      {showDraft && (
+        <div
+          className="flex min-h-8 items-center rounded-md bg-sidebar-accent font-medium italic text-sidebar-foreground"
+          aria-current="true"
+        >
+          <span className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-[13px]">
+            <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">New chat</span>
+          </span>
+        </div>
+      )}
+      {sessionsLoading && (
+        <div className="flex flex-col gap-1 px-1 py-1">
+          <Skeleton className="h-7 w-full" />
+          <Skeleton className="h-7 w-5/6" />
+        </div>
+      )}
+      {!sessionsLoading && sessions.length === 0 && !showDraft && (
+        <p className="px-2 py-1.5 text-[11px] text-muted-foreground">No chats yet</p>
+      )}
+      {!sessionsLoading &&
+        sessions.map((session) => (
+          <div
+            key={session.id}
+            className={cn(
+              "group/chat flex min-h-8 items-center rounded-md hover:bg-sidebar-accent",
+              sessionId === session.id && "bg-sidebar-accent font-medium",
+            )}
+          >
+            <button
+              type="button"
+              className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-[13px]"
+              onClick={() => onSelectSession(session.id)}
+            >
+              <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate">{session.title ?? "Untitled chat"}</span>
+            </button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="mr-0.5 opacity-0 group-hover/chat:opacity-100 group-focus-within/chat:opacity-100 max-md:opacity-100"
+              title="Rename chat"
+              aria-label={`Rename ${session.title ?? "chat"}`}
+              onClick={() => onRenameSession(session)}
+            >
+              <Pencil />
+            </Button>
+          </div>
+        ))}
+      {!showDraft && (
+        <button
+          type="button"
+          className="px-2 py-1.5 text-left text-[11px] text-muted-foreground hover:text-foreground"
+          onClick={onNewChat}
+        >
+          + New chat
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ProjectRow({
   project,
   selected,
@@ -452,6 +497,28 @@ function ProjectRow({
         )}
       </button>
       <div className="flex shrink-0 items-center pr-0.5 opacity-0 group-hover/project:opacity-100 group-focus-within/project:opacity-100 max-md:opacity-100">
+        {canManage && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                title="Share project with coworkers (Entra users or groups)"
+                aria-label={`Share ${project.name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShare();
+                }}
+              >
+                <Share2 />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              Share project with coworkers (Entra users or groups)
+            </TooltipContent>
+          </Tooltip>
+        )}
         {canManage && (
           <Button
             type="button"
