@@ -1,10 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { DatabaseIcon, UnplugIcon } from "lucide-react";
+import { ArrowLeft, FolderOpen, UnplugIcon } from "lucide-react";
 import { useMemo } from "react";
 import { Link as RouterLink } from "react-router-dom";
 
-import { BrandBar, SignOutButton } from "@/components/brand-bar";
-import { PageBreadcrumb } from "@/components/page-breadcrumb";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -71,30 +69,30 @@ function AgentSourcesPage() {
   );
 
   return (
-    <div className="flex min-h-svh flex-col bg-muted/40">
-      <BrandBar actions={<SignOutButton outlineOnBlack />} />
-      <div className="flex flex-col gap-3 border-b bg-background px-6 py-4">
-        <PageBreadcrumb
-          items={[
-            { label: "Home", to: "/" },
-            { label: "Chat", to: "/knowledge" },
-            { label: "Manage sources" },
-          ]}
-        />
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <DatabaseIcon className="size-7" />
+    <div className="flex min-h-svh flex-col bg-background">
+      <header className="border-b px-4 py-4 md:px-6">
+        <Button variant="ghost" size="sm" className="-ml-2 mb-3" asChild>
+          <RouterLink to="/knowledge">
+            <ArrowLeft />
+            Back to Chat
+          </RouterLink>
+        </Button>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+              <FolderOpen className="size-4" />
+            </span>
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Manage sources</h1>
-              <p className="text-sm text-muted-foreground">
-                Job status and disconnect for SharePoint folders Chat already knows about. To add a
-                folder, use Add SharePoint folder in Chat or Help.
+              <h1 className="text-2xl font-semibold tracking-tight">Sources</h1>
+              <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+                Connected SharePoint folders Chat can search. Disconnect stops future sync; indexed
+                chunks stay in v1.
               </p>
             </div>
           </div>
           <AddSharePointFolderButton>Add SharePoint folder</AddSharePointFolderButton>
         </div>
-      </div>
+      </header>
 
       <main className="mx-auto flex w-full max-w-[960px] flex-1 flex-col gap-6 p-6">
         {disconnectMutation.isError && (
@@ -105,17 +103,16 @@ function AgentSourcesPage() {
           </p>
         )}
         <section className="flex flex-col gap-3">
-          <h2 className="text-base font-semibold">Connected folders</h2>
+          <h2 className="text-base font-semibold">Connected SharePoint folders</h2>
           <p className="text-xs text-muted-foreground">
-            Disconnect stops future sync and hides those documents from Chat. Indexed chunks are kept
-            in v1 (not deleted).
+            Disconnect hides those documents from Chat. Indexed chunks are kept in v1 (not deleted).
           </p>
           {sourcesQuery.isLoading ? (
             <Spinner label="Loading sources…" />
           ) : connected.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No SharePoint folders are connected yet. Use Add SharePoint folder in Chat (or Help) to
-              paste a site URL and path.
+              No SharePoint folders are connected yet. Use Add SharePoint folder to paste a site URL
+              and path.
             </p>
           ) : (
             <div className="flex flex-col gap-3">
@@ -189,17 +186,5 @@ export function AgentSourcesRoute(): React.JSX.Element {
     <RequireAuth>
       <AgentSourcesPage />
     </RequireAuth>
-  );
-}
-
-export function AgentSourcesChatLink() {
-  return (
-    <RouterLink
-      to="/knowledge/sources"
-      className="mx-auto flex size-10 items-center justify-center rounded-md text-muted-foreground no-underline hover:bg-card"
-      title="Manage sources — connected SharePoint folders"
-    >
-      <DatabaseIcon className="size-5" />
-    </RouterLink>
   );
 }
