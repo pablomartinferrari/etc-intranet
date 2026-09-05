@@ -20,6 +20,10 @@ public class HelpAskServiceTests
     [InlineData("connect sharepoint", "/knowledge/sources", "Agent sources")]
     [InlineData("index this SharePoint folder", "/knowledge", "Chat")]
     [InlineData("add sharepoint folder", "/knowledge", "Chat")]
+    [InlineData("Can I have multiple chats in one project?", "/knowledge", "Chat")]
+    [InlineData("How do I start a second chat in a project?", "/knowledge", "Chat")]
+    [InlineData("How do I share a Chat project?", "/knowledge", "Chat")]
+    [InlineData("can i add multiple chats to a single project?", "/knowledge", "Chat")]
     public async Task MapAnswersKnownNavigationQuestions(string question, string path, string label)
     {
         var service = CreateService(new NullLlm());
@@ -236,6 +240,40 @@ public class HelpAskServiceTests
     }
 
     [Fact]
+    public async Task MultiChatHowToUsesChatMapAnswer()
+    {
+        var result = await CreateService(new NullLlm())
+            .AskAsync("can i add multiple chats to a single project?", CancellationToken.None);
+
+        Assert.Equal(HelpAskService.SourceMap, result.Source);
+        Assert.Contains(result.Links, link => link.Path == "/knowledge" && link.Label == "Chat");
+        Assert.Contains("New chat", result.Answer, StringComparison.Ordinal);
+        Assert.Contains("many chats", result.Answer, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("I can only help with finding intranet apps", result.Answer, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SystemPromptTellsModelToAnswerMappedHowTo()
+    {
+        var llm = new ScriptedLlm(
+            """
+            { "answer": "Yes. Select the project and click New chat.", "placeIds": ["chat"] }
+            """);
+
+        var result = await CreateService(llm)
+            .AskAsync("can i add multiple chats to a single project?", CancellationToken.None);
+
+        Assert.Equal(HelpAskService.SourceLlm, result.Source);
+        Assert.Contains("how-to", llm.LastSystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("capability", llm.LastSystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("mapped place", llm.LastSystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Do not use the refuse line", llm.LastSystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("fallbackAnswer", llm.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("multiple chats", llm.LastUserPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(result.Links, link => link.Path == "/knowledge");
+    }
+
+    [Fact]
     public void MapDoesNotInventApps()
     {
         var paths = IntranetMap.Places
@@ -286,11 +324,13 @@ public class HelpAskServiceTests
     {
         public bool IsHostedFallbackConfigured { get; } = isHostedFallbackConfigured;
         public string LastUserPrompt { get; private set; } = string.Empty;
+        public string LastSystemPrompt { get; private set; } = string.Empty;
         public int CallCount { get; private set; }
 
         public Task<HelpLlmTurn?> ChatAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken)
         {
             CallCount++;
+            LastSystemPrompt = systemPrompt;
             LastUserPrompt = userPrompt;
             if (reply is null)
             {

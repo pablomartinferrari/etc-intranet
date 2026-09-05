@@ -1,6 +1,6 @@
 import { useMsal } from "@azure/msal-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Folder, Lightbulb, Menu, Pencil, Plus, Send } from "lucide-react";
+import { FileText, Folder, Lightbulb, Menu, Pencil, Plus, Send, Share2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -37,8 +37,8 @@ import { AddSharePointFolderButton } from "./AddSharePointFolderSheet";
 import { ChatMarkdown } from "./ChatMarkdown";
 import {
   lastSessionForProject,
+  persistChatSelection,
   readChatSelection,
-  writeChatSelection,
 } from "./chatSelectionStorage";
 import { ChatSidebar } from "./ChatSidebar";
 import {
@@ -52,6 +52,7 @@ import { ProjectFilesPanel, ProjectPromptsPanel } from "./ProjectSidePanel";
 import { ShareProjectDialog } from "./ShareProjectDialog";
 import {
   canEditProject,
+  canManageProject,
   chatKnowledge,
   createProject,
   createPrompt,
@@ -157,14 +158,7 @@ export default function KnowledgeChatWorkspace() {
 
   useEffect(() => {
     if (!hydratedRef.current || !selectedProjectId) return;
-    const current = readChatSelection(userKey);
-    writeChatSelection(userKey, {
-      selectedProjectId,
-      sessionsByProject: {
-        ...current.sessionsByProject,
-        [selectedProjectId]: sessionId,
-      },
-    });
+    persistChatSelection(userKey, selectedProjectId, sessionId);
   }, [userKey, selectedProjectId, sessionId]);
 
   const selectedProject = useMemo(
@@ -234,6 +228,7 @@ export default function KnowledgeChatWorkspace() {
   const webSearchEnabled = capabilitiesQuery.data?.webSearchEnabled ?? false;
   const hasReadyDocs = readyDocs.length > 0;
   const canEdit = canEditProject(selectedProject);
+  const canManage = canManageProject(selectedProject);
   const canChat = !!selectedProjectId && (hasReadyDocs || webSearchEnabled);
 
   const messages = useMemo(() => {
@@ -298,7 +293,24 @@ export default function KnowledgeChatWorkspace() {
       setPendingMessages([]);
       if (selectedProjectId === data.projectId) {
         setSessionId(data.sessionId);
+        persistChatSelection(userKey, data.projectId, data.sessionId);
       }
+      const title = _vars.text.trim().slice(0, 80) || "Untitled chat";
+      const now = new Date().toISOString();
+      queryClient.setQueryData<ChatSession[]>(["kb-sessions", data.projectId], (old) => {
+        const prior = old ?? [];
+        if (prior.some((session) => session.id === data.sessionId)) return prior;
+        return [
+          {
+            id: data.sessionId,
+            projectId: data.projectId,
+            title,
+            createdAt: now,
+            updatedAt: now,
+          },
+          ...prior,
+        ];
+      });
       void queryClient.invalidateQueries({ queryKey: ["kb-sessions", data.projectId] });
     },
     onError: (err: Error) => {
@@ -427,6 +439,7 @@ export default function KnowledgeChatWorkspace() {
       return;
     }
     setSessionId(undefined);
+    persistChatSelection(userKey, selectedProjectId, null);
     setPendingMessages([]);
     setInput("");
     setContextDocId(undefined);
@@ -653,6 +666,17 @@ export default function KnowledgeChatWorkspace() {
                 <span className="rounded-full border px-2 py-0.5 text-[10px] text-muted-foreground">
                   {shareLabel}
                 </span>
+              )}
+              {canManage && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title="Share project with coworkers (Entra users or groups)"
+                  onClick={() => openShareProject()}
+                >
+                  <Share2 />
+                  Share
+                </Button>
               )}
               {contextDocId && (
                 <Button variant="ghost" size="sm" onClick={() => setContextDocId(undefined)}>

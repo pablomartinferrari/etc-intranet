@@ -18,6 +18,10 @@ public class IntranetMapTests
     [InlineData("add knowledge", "agent-sources")]
     [InlineData("connect sharepoint", "agent-sources")]
     [InlineData("add sharepoint folder", "chat")]
+    [InlineData("Can I have multiple chats in one project?", "chat")]
+    [InlineData("How do I start a second chat in a project?", "chat")]
+    [InlineData("How do I share a Chat project?", "chat")]
+    [InlineData("can i add multiple chats to a single project?", "chat")]
     public void RankPutsExpectedPlaceFirst(string question, string placeId)
     {
         var ranked = IntranetMap.Rank(question);
@@ -64,8 +68,33 @@ public class IntranetMapTests
         Assert.Contains("howToGetThere", IntranetMap.PromptJson, StringComparison.Ordinal);
         Assert.Contains("commonQuestions", IntranetMap.PromptJson, StringComparison.Ordinal);
         Assert.Contains("dataSources", IntranetMap.PromptJson, StringComparison.Ordinal);
+        Assert.Contains("fallbackAnswer", IntranetMap.PromptJson, StringComparison.Ordinal);
+        Assert.Contains("tips", IntranetMap.PromptJson, StringComparison.Ordinal);
         Assert.Contains("/knowledge", IntranetMap.PromptJson, StringComparison.Ordinal);
         Assert.Contains("Entra", IntranetMap.PromptJson, StringComparison.Ordinal);
+        Assert.Contains("multiple chats", IntranetMap.PromptJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Chats, Files, and Prompts tabs", IntranetMap.PromptJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("database icon", IntranetMap.PromptJson, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ChatPlaceDocumentsMultiChatAndShare()
+    {
+        var chat = Assert.Single(IntranetMap.Places, p => p.Id == "chat");
+        Assert.Contains("many chats", chat.Purpose, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("New chat", chat.HowToGetThere, StringComparison.Ordinal);
+        Assert.Contains("Share", chat.HowToGetThere, StringComparison.Ordinal);
+        Assert.Contains(chat.CommonQuestions, q => q.Contains("multiple chats", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(chat.CommonQuestions, q => q.Contains("share a Chat project", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("many chats", chat.FallbackAnswer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("New chat", chat.FallbackAnswer, StringComparison.Ordinal);
+        Assert.DoesNotContain("Chats, Files, and Prompts tabs", chat.HowToGetThere, StringComparison.Ordinal);
+        Assert.DoesNotContain("database icon", string.Join(' ', chat.HowToGetThere, chat.Purpose, chat.FallbackAnswer), StringComparison.OrdinalIgnoreCase);
+
+        var mapped = IntranetMap.Match("can i add multiple chats to a single project?");
+        Assert.Contains("chat", mapped.PlaceIds);
+        Assert.Contains("New chat", mapped.Answer, StringComparison.Ordinal);
+        Assert.Contains("many chats", mapped.Answer, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-import type { Project } from "./api/knowledge";
+import { projectRole, type Project } from "./api/knowledge";
 
 const PROJECT_ICON_TONES = [
   "bg-orange-100 text-orange-800",
@@ -22,7 +22,7 @@ export function projectSubtitle(project: Project): string {
 }
 
 export function shareBadgeLabel(project: Project): string | null {
-  if ((project.role ?? "owner") !== "owner") return "Shared with me";
+  if (projectRole(project) !== "owner") return "Shared with me";
   if (project.isShared) return "Shared";
   return null;
 }

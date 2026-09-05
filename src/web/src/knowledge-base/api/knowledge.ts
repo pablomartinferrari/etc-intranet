@@ -247,13 +247,20 @@ export function searchDirectory(q: string, signal?: AbortSignal): Promise<Direct
   );
 }
 
+/** Missing/blank role is treated as owner so creators still see Share. */
+export function projectRole(project?: Project | null): ProjectRole {
+  const raw = project?.role?.trim().toLowerCase();
+  if (raw === "editor" || raw === "viewer") return raw;
+  return "owner";
+}
+
 export function canEditProject(project?: Project | null): boolean {
-  const role = project?.role ?? "owner";
+  const role = projectRole(project);
   return role === "owner" || role === "editor";
 }
 
 export function canManageProject(project?: Project | null): boolean {
-  return (project?.role ?? "owner") === "owner";
+  return projectRole(project) === "owner";
 }
 
 export function deleteProject(id: string): Promise<void> {
