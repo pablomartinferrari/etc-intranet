@@ -70,7 +70,7 @@ A ChatGPT-style **Workspace** lives at http://localhost:5173/workspace and is is
 
 | URL | Screen |
 |-----|--------|
-| `/workspace` | Your day (meetings, tasks, follow-ups, agent suggestions) |
+| `/workspace` | Your day (Outlook meetings for the signed-in user, tasks, follow-ups, agent brief) |
 | `/workspace/chats/{id}` | Chat thread (citations, Share, presence) |
 | `/workspace/projects/{id}` | Project instructions, linked repository files, chats |
 | `/workspace/repo/{folderId}` | Public indexed repository browse + upload |
@@ -100,12 +100,26 @@ Repository search is a **local inverted index** over extracted document text (`I
 
 | Capability | POC behavior |
 |------------|----------------|
-| Your day | **Mock** meetings/tasks/follow-ups/suggestions via `IDayDataSource`. Optional **Microsoft Graph calendar** overlay when `UseGraphCalendar=true` and Graph app-only `Calendars.Read` is configured; failures fall back to mock meetings. |
+| Your day | **Signed-in user's Outlook calendar** via delegated Graph `GET /me/calendarView` when Entra is configured (see below). **Mock** `IDayDataSource` for local/demo and when Graph is off. Tasks/follow-ups/suggestions stay mock. Agent brief uses the same LLM router as `/knowledge`, with a deterministic fallback. |
 | Projects, chats, shares | **Real** rows in IntranetDb (`Agentic*` tables). Seeded demo catalog matches the wireframes. |
 | Entra share search | Reuses existing Graph directory search when configured, plus **local demo principals** (User B/C/D, Group X) so Share works without admin consent. |
 | Collaborative chat | **Real** SignalR presence/typing and persisted messages. The agent answers the group from the repository index (templated cited answers — not the production `/knowledge` LLM unless you later wire `RagService`). |
 | Repository | **Real** folder tree, upload to `App_Data/agentic-repo` (gitignored), text/PDF extract, local index. Seeded “quarterly report” docs. Not SharePoint and not Azure Blob. |
 | Auth | Development demo identity when anonymous is allowed. Signed-in Entra users work; `ShareDemoCatalog` shows them the seeded workspace so the POC is reviewable after login. |
+
+**Your day calendar (Microsoft Graph, delegated)**
+
+When Entra is configured (`AzureAd__TenantId`, `AzureAd__ClientId`, `AzureAd__ClientSecret`), Workspace Home reads **only the signed-in user's** Outlook calendar with an **on-behalf-of** call to `GET /me/calendarView` for today in that user's time zone (`X-User-Timezone` from the browser, mailbox timezone if the header is missing). It never queries `/users/{other-oid}`. Results are cached briefly per user (`oid` + date + timezone, ~90 seconds).
+
+Grant this **delegated** permission on the **API** app registration and **admin-consent** it:
+
+| Permission | Type | Why |
+|------------|------|-----|
+| `Calendars.Read` | Delegated | Read the signed-in user's events (subject, time, organizer, attendees, location / Teams join URL, `bodyPreview`) for Your day |
+
+This is **not** the application (app-only) `Calendars.Read` used for other mailboxes. Missing consent or scope returns a clear message on Home and **does not** mix sample meetings into a real mailbox. Local/demo (`AllowAnonymous`, `dev-*` identities) and `Features:AgenticWorkspace:UseGraphCalendar=false` keep the mock meetings source.
+
+The meeting brief uses the same Ollama → hosted Azure OpenAI / OpenAI router as `/knowledge` (`KnowledgeBase__Fallback__*`). If no model is configured, a deterministic summary covers what's next, back-to-back/conflicts, prep, and free blocks.
 
 This POC extends the Chat work in PRs #19–#22 (project areas, Entra share, ChatGPT sidebar, multi-chat drafts). It does **not** change `/knowledge`.
 

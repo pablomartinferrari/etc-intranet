@@ -49,14 +49,19 @@ public sealed class WorkspaceDayController(
     IOptions<AgenticOptions> options) : WorkspaceControllerBase(options)
 {
     [HttpGet("day")]
-    public async Task<IActionResult> Get(CancellationToken cancellationToken)
+    public async Task<IActionResult> Get(
+        [FromHeader(Name = DayTimeZones.HeaderName)] string? timeZone,
+        CancellationToken cancellationToken)
     {
         if (GuardEnabled() is { } disabled)
         {
             return disabled;
         }
 
-        var summary = await day.GetAsync(Actor(), DateOnly.FromDateTime(DateTime.Now), cancellationToken);
+        var tz = DayTimeZones.Normalize(timeZone);
+        var now = DayTimeZones.Now(tz);
+        var date = DateOnly.FromDateTime(now.DateTime);
+        var summary = await day.GetAsync(new DayQuery(Actor(), date, tz, now), cancellationToken);
         return Ok(summary);
     }
 }

@@ -16,16 +16,32 @@ public sealed record DayItemDto(
     string Title,
     string? Detail,
     DateTimeOffset? When,
-    string? Href);
+    string? Href,
+    DateTimeOffset? End,
+    string? Organizer,
+    IReadOnlyList<string>? Attendees,
+    string? Location,
+    string? TeamsLink,
+    string? BodyPreview);
 
 public sealed record DaySectionDto(string Id, string Title, IReadOnlyList<DayItemDto> Items);
+
+public sealed record MeetingBriefDto(
+    string Text,
+    string Source,
+    IReadOnlyList<string> Highlights);
+
+public sealed record CalendarStatusDto(string State, string? Message);
 
 public sealed record DaySummaryDto(
     string Greeting,
     string UserDisplayName,
     DateOnly Date,
+    string TimeZone,
     IReadOnlyList<DaySectionDto> Sections,
-    IReadOnlyList<string> Sources);
+    IReadOnlyList<string> Sources,
+    MeetingBriefDto? Brief,
+    CalendarStatusDto Calendar);
 
 public sealed record WorkspaceProjectDto(
     Guid Id,

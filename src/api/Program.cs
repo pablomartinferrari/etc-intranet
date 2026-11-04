@@ -28,8 +28,11 @@ builder.Services.AddDbContext<IntranetDbContext>(options =>
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<IntranetDbContext>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
+    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"))
+    .EnableTokenAcquisitionToCallDownstreamApi()
+    .AddInMemoryTokenCaches();
 builder.Services.AddAuthorization();
+builder.Services.AddMemoryCache();
 builder.Services.Configure<CleatOptions>(builder.Configuration.GetSection(CleatOptions.SectionName));
 builder.Services.AddHttpClient<CleatClient>((sp, client) =>
 {

@@ -22,8 +22,12 @@ public sealed class AgenticOptions
     /// </summary>
     public bool ShareDemoCatalog { get; set; }
 
-    /// <summary>When true and Graph is configured, overlay the signed-in user's calendar on Your Day.</summary>
-    public bool UseGraphCalendar { get; set; }
+    /// <summary>
+    /// When true (the default) and Entra is configured with a confidential client,
+    /// Your Day reads the signed-in user's Outlook calendar via delegated Graph
+    /// <c>GET /me/calendarView</c>. Demo/anonymous still uses the mock source.
+    /// </summary>
+    public bool UseGraphCalendar { get; set; } = true;
 
     /// <summary>Disk root for uploaded repository files. Relative paths are under ContentRoot.</summary>
     public string RepositoryRoot { get; set; } = "App_Data/agentic-repo";

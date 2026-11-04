@@ -1,14 +1,27 @@
-using Azure.Identity;
-using Intranet.Api.MultifamilyLbp.Options;
-using Microsoft.Extensions.Options;
-using Microsoft.Graph;
-using Microsoft.Graph.Models;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace Intranet.Api.Agentic.Day;
 
-public sealed record DayItem(string Id, string Title, string? Detail, DateTimeOffset? When, string? Href);
+public sealed record DayItem(
+    string Id,
+    string Title,
+    string? Detail,
+    DateTimeOffset? When,
+    string? Href,
+    DateTimeOffset? End = null,
+    string? Organizer = null,
+    IReadOnlyList<string>? Attendees = null,
+    string? Location = null,
+    string? TeamsLink = null,
+    string? BodyPreview = null);
 
 public sealed record DaySection(string Id, string Title, IReadOnlyList<DayItem> Items);
+
+public sealed record DayQuery(
+    WorkspaceActor Actor,
+    DateOnly Date,
+    string TimeZoneId,
+    DateTimeOffset Now);
 
 /// <summary>
 /// Pluggable Your Day source. Add a new implementation and register it in
@@ -21,12 +34,12 @@ public interface IDayDataSource
 
     bool IsEnabled { get; }
 
-    Task<IReadOnlyList<DaySection>> GetAsync(WorkspaceActor actor, DateOnly date, CancellationToken cancellationToken);
+    Task<IReadOnlyList<DaySection>> GetAsync(DayQuery query, CancellationToken cancellationToken);
 }
 
 public interface IDayAggregator
 {
-    Task<DaySummaryDto> GetAsync(WorkspaceActor actor, DateOnly date, CancellationToken cancellationToken);
+    Task<DaySummaryDto> GetAsync(DayQuery query, CancellationToken cancellationToken);
 }
 
 public sealed class MockDayDataSource : IDayDataSource
@@ -35,19 +48,64 @@ public sealed class MockDayDataSource : IDayDataSource
 
     public bool IsEnabled => true;
 
-    public Task<IReadOnlyList<DaySection>> GetAsync(
-        WorkspaceActor actor,
-        DateOnly date,
-        CancellationToken cancellationToken)
+    public Task<IReadOnlyList<DaySection>> GetAsync(DayQuery query, CancellationToken cancellationToken)
     {
-        var morning = date.ToDateTime(new TimeOnly(9, 0), DateTimeKind.Local);
+        var tz = DayTimeZones.Resolve(query.TimeZoneId);
+        DateTimeOffset At(int hour, int minute) => DayTimeZones.At(query.Date, hour, minute, tz);
+        var you = string.IsNullOrWhiteSpace(query.Actor.DisplayName) ? "You" : query.Actor.DisplayName;
+
         var sections = new DaySection[]
         {
             new("meetings", "Meetings",
             [
-                new DayItem("m1", "Pipeline standup", "Teams · 9:00–9:30", new DateTimeOffset(morning), null),
-                new DayItem("m2", "Project Alpha review", "Conference A · 11:00–12:00", new DateTimeOffset(morning.AddHours(2)), null),
-                new DayItem("m3", "1:1 with User B", "15:00–15:30", new DateTimeOffset(morning.AddHours(6)), null),
+                new DayItem(
+                    "m1",
+                    "Pipeline standup",
+                    "Microsoft Teams · 9:00–9:30",
+                    At(9, 0),
+                    null,
+                    End: At(9, 30),
+                    Organizer: you,
+                    Attendees: ["User B", "User C"],
+                    Location: "Microsoft Teams",
+                    TeamsLink: "https://teams.microsoft.com/l/meetup-join/demo-standup",
+                    BodyPreview: "Daily pipeline blockers and CLEATUS pursuits."),
+                new DayItem(
+                    "m2",
+                    "Handoff after standup",
+                    "Microsoft Teams · 9:30–10:00",
+                    At(9, 30),
+                    null,
+                    End: At(10, 0),
+                    Organizer: "User B",
+                    Attendees: [you],
+                    Location: "Microsoft Teams",
+                    TeamsLink: "https://teams.microsoft.com/l/meetup-join/demo-handoff",
+                    BodyPreview: null),
+                new DayItem(
+                    "m3",
+                    "Project Alpha review",
+                    "Conference A · 11:00–12:00",
+                    At(11, 0),
+                    "/workspace/projects/" + WorkspaceIds.ProjectAlpha,
+                    End: At(12, 0),
+                    Organizer: "User B",
+                    Attendees: [you, "User C", "User D"],
+                    Location: "Conference A",
+                    TeamsLink: null,
+                    BodyPreview: "Walk the quarterly report draft and close-out reasons. Bring inspection photos."),
+                new DayItem(
+                    "m4",
+                    "1:1 with User B",
+                    "15:00–15:30",
+                    At(15, 0),
+                    null,
+                    End: At(15, 30),
+                    Organizer: you,
+                    Attendees: ["User B"],
+                    Location: null,
+                    TeamsLink: null,
+                    BodyPreview: null),
             ]),
             new("tasks", "Tasks",
             [
@@ -73,120 +131,35 @@ public sealed class MockDayDataSource : IDayDataSource
     }
 }
 
-/// <summary>
-/// Optional Microsoft Graph calendar overlay. Requires application permission
-/// Calendars.Read and <c>Features:AgenticWorkspace:UseGraphCalendar=true</c>.
-/// Failures fall back to no meetings — mock tasks still show.
-/// </summary>
-public sealed class GraphCalendarDayDataSource : IDayDataSource
-{
-    private readonly AzureAdOptions _azureAd;
-    private readonly AgenticOptions _options;
-    private readonly ILogger<GraphCalendarDayDataSource> _logger;
-
-    public GraphCalendarDayDataSource(
-        IOptions<AzureAdOptions> azureAd,
-        IOptions<AgenticOptions> options,
-        ILogger<GraphCalendarDayDataSource> logger)
-    {
-        _azureAd = azureAd.Value;
-        _options = options.Value;
-        _logger = logger;
-    }
-
-    public string Name => "graph-calendar";
-
-    public bool IsEnabled =>
-        _options.UseGraphCalendar
-        && HasValue(_azureAd.TenantId)
-        && !string.Equals(_azureAd.TenantId, "common", StringComparison.OrdinalIgnoreCase)
-        && HasValue(_azureAd.ClientId)
-        && !_azureAd.ClientId.Contains("placeholder", StringComparison.OrdinalIgnoreCase)
-        && HasValue(_azureAd.ClientSecret);
-
-    public async Task<IReadOnlyList<DaySection>> GetAsync(
-        WorkspaceActor actor,
-        DateOnly date,
-        CancellationToken cancellationToken)
-    {
-        if (!IsEnabled || actor.Oid.StartsWith("dev-", StringComparison.OrdinalIgnoreCase))
-        {
-            return [];
-        }
-
-        try
-        {
-            var credential = new ClientSecretCredential(_azureAd.TenantId, _azureAd.ClientId, _azureAd.ClientSecret);
-            var client = new GraphServiceClient(credential, ["https://graph.microsoft.com/.default"]);
-            var start = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
-            var end = start.AddDays(1);
-            var page = await client.Users[actor.Oid].CalendarView.GetAsync(config =>
-            {
-                config.QueryParameters.StartDateTime = start.ToString("o");
-                config.QueryParameters.EndDateTime = end.ToString("o");
-                config.QueryParameters.Select = ["id", "subject", "start", "end", "location", "webLink"];
-                config.QueryParameters.Top = 8;
-                config.QueryParameters.Orderby = ["start/dateTime"];
-            }, cancellationToken);
-
-            var items = new List<DayItem>();
-            foreach (var ev in page?.Value ?? [])
-            {
-                if (string.IsNullOrWhiteSpace(ev.Id))
-                {
-                    continue;
-                }
-
-                var when = ParseGraphTime(ev.Start);
-                var endAt = ParseGraphTime(ev.End);
-                var window = when is null
-                    ? ev.Location?.DisplayName
-                    : endAt is null
-                        ? when.Value.ToString("t")
-                        : $"{when.Value.ToString("t")}–{endAt.Value.ToString("t")}";
-                items.Add(new DayItem(
-                    ev.Id,
-                    ev.Subject ?? "Untitled meeting",
-                    string.Join(" · ", new[] { ev.Location?.DisplayName, window }.Where(s => !string.IsNullOrWhiteSpace(s))),
-                    when,
-                    ev.WebLink));
-            }
-
-            return items.Count == 0
-                ? []
-                : [new DaySection("meetings", "Meetings", items)];
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Graph calendar unavailable for {Oid}; using mock meetings.", actor.Oid);
-            return [];
-        }
-    }
-
-    private static DateTimeOffset? ParseGraphTime(DateTimeTimeZone? value)
-    {
-        if (value?.DateTime is null)
-        {
-            return null;
-        }
-
-        return DateTimeOffset.TryParse(value.DateTime, out var parsed) ? parsed : null;
-    }
-
-    private static bool HasValue(string? value) => !string.IsNullOrWhiteSpace(value);
-}
-
 public sealed class DayAggregator : IDayAggregator
 {
-    private readonly IEnumerable<IDayDataSource> _sources;
+    public static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(90);
 
-    public DayAggregator(IEnumerable<IDayDataSource> sources)
+    private readonly IEnumerable<IDayDataSource> _sources;
+    private readonly IUserGraphCalendarClient _calendar;
+    private readonly IMeetingBriefGenerator _brief;
+    private readonly IMemoryCache _cache;
+
+    public DayAggregator(
+        IEnumerable<IDayDataSource> sources,
+        IUserGraphCalendarClient calendar,
+        IMeetingBriefGenerator brief,
+        IMemoryCache cache)
     {
         _sources = sources;
+        _calendar = calendar;
+        _brief = brief;
+        _cache = cache;
     }
 
-    public async Task<DaySummaryDto> GetAsync(WorkspaceActor actor, DateOnly date, CancellationToken cancellationToken)
+    public async Task<DaySummaryDto> GetAsync(DayQuery query, CancellationToken cancellationToken)
     {
+        var cacheKey = CacheKey(query);
+        if (_cache.TryGetValue(cacheKey, out DaySummaryDto? cached) && cached is not null)
+        {
+            return cached;
+        }
+
         var sections = new Dictionary<string, DaySection>(StringComparer.OrdinalIgnoreCase);
         var used = new List<string>();
         foreach (var source in _sources)
@@ -196,7 +169,7 @@ public sealed class DayAggregator : IDayAggregator
                 continue;
             }
 
-            var batch = await source.GetAsync(actor, date, cancellationToken);
+            var batch = await source.GetAsync(query, cancellationToken);
             if (batch.Count == 0)
             {
                 continue;
@@ -209,24 +182,122 @@ public sealed class DayAggregator : IDayAggregator
             }
         }
 
+        var calendar = await ResolveCalendarAsync(query, sections, used, cancellationToken);
+        var meetings = MeetingsFrom(sections);
+        var brief = await _brief.GenerateAsync(meetings, query, cancellationToken);
+
         var ordered = new[] { "meetings", "tasks", "follow-ups", "suggestions" }
             .Where(sections.ContainsKey)
             .Select(id => ToDto(sections[id]))
             .ToList();
 
-        var hour = DateTimeOffset.Now.Hour;
+        var hour = query.Now.Hour;
         var greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-        return new DaySummaryDto(
+        var summary = new DaySummaryDto(
             greeting,
-            actor.DisplayName,
-            date,
+            query.Actor.DisplayName,
+            query.Date,
+            query.TimeZoneId,
             ordered,
-            used);
+            used,
+            brief,
+            calendar);
+
+        _cache.Set(cacheKey, summary, CacheDuration);
+        return summary;
     }
+
+    public static string CacheKey(DayQuery query) =>
+        $"agentic:day:{query.Actor.Oid}:{query.Date:yyyy-MM-dd}:{query.TimeZoneId}";
+
+    private async Task<CalendarStatusDto> ResolveCalendarAsync(
+        DayQuery query,
+        Dictionary<string, DaySection> sections,
+        List<string> used,
+        CancellationToken cancellationToken)
+    {
+        var useGraph = _calendar.IsEnabled && !query.Actor.IsDemoIdentity;
+        if (!useGraph)
+        {
+            return new CalendarStatusDto(CalendarReadStates.Mock, null);
+        }
+
+        var result = await _calendar.GetTodaysMeetingsAsync(query, cancellationToken);
+        if (!used.Contains("graph-calendar", StringComparer.OrdinalIgnoreCase))
+        {
+            used.Insert(0, "graph-calendar");
+        }
+
+        sections["meetings"] = result.State == CalendarReadStates.Ok
+            ? ToSection(result.Meetings)
+            : new DaySection("meetings", "Meetings", []);
+        return new CalendarStatusDto(result.State, result.Message);
+    }
+
+    private static IReadOnlyList<DayMeeting> MeetingsFrom(IReadOnlyDictionary<string, DaySection> sections)
+    {
+        if (!sections.TryGetValue("meetings", out var section))
+        {
+            return [];
+        }
+
+        return section.Items.Select(ToMeeting).ToList();
+    }
+
+    private static DaySection ToSection(IReadOnlyList<DayMeeting> meetings) =>
+        new("meetings", "Meetings", meetings.Select(ToItem).ToList());
+
+    public static DayItem ToItem(DayMeeting meeting)
+    {
+        var window = meeting.Start is null
+            ? meeting.Location
+            : DayTimeZones.FormatWindow(meeting.Start, meeting.End);
+        var detail = string.Join(
+            " · ",
+            new[] { meeting.Location, window }
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Distinct(StringComparer.OrdinalIgnoreCase));
+        return new DayItem(
+            meeting.Id,
+            meeting.Subject,
+            string.IsNullOrWhiteSpace(detail) ? null : detail,
+            meeting.Start,
+            meeting.WebLink,
+            End: meeting.End,
+            Organizer: meeting.Organizer,
+            Attendees: meeting.Attendees,
+            Location: meeting.Location,
+            TeamsLink: meeting.TeamsLink,
+            BodyPreview: meeting.BodyPreview);
+    }
+
+    public static DayMeeting ToMeeting(DayItem item) =>
+        new(
+            item.Id,
+            item.Title,
+            item.When,
+            item.End,
+            item.Organizer,
+            item.Attendees ?? [],
+            item.Location,
+            item.TeamsLink,
+            item.BodyPreview,
+            item.Href);
 
     private static DaySectionDto ToDto(DaySection section) =>
         new(
             section.Id,
             section.Title,
-            section.Items.Select(i => new DayItemDto(i.Id, i.Title, i.Detail, i.When, i.Href)).ToList());
+            section.Items.Select(i => new DayItemDto(
+                i.Id,
+                i.Title,
+                i.Detail,
+                i.When,
+                i.Href,
+                i.End,
+                i.Organizer,
+                i.Attendees,
+                i.Location,
+                i.TeamsLink,
+                i.BodyPreview)).ToList());
 }

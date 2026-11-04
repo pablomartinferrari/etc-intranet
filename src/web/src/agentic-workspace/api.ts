@@ -20,16 +20,36 @@ export type DayItem = {
   detail?: string | null;
   when?: string | null;
   href?: string | null;
+  end?: string | null;
+  organizer?: string | null;
+  attendees?: string[] | null;
+  location?: string | null;
+  teamsLink?: string | null;
+  bodyPreview?: string | null;
 };
 
 export type DaySection = { id: string; title: string; items: DayItem[] };
+
+export type MeetingBrief = {
+  text: string;
+  source: string;
+  highlights: string[];
+};
+
+export type CalendarStatus = {
+  state: string;
+  message?: string | null;
+};
 
 export type DaySummary = {
   greeting: string;
   userDisplayName: string;
   date: string;
+  timeZone: string;
   sections: DaySection[];
   sources: string[];
+  brief?: MeetingBrief | null;
+  calendar: CalendarStatus;
 };
 
 export type WorkspaceProject = {
@@ -160,16 +180,29 @@ export type PresenceUser = {
   typing: boolean;
 };
 
+function userTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
 async function authHeaders(extra?: HeadersInit): Promise<HeadersInit> {
+  const defaults = {
+    Accept: "application/json",
+    "X-User-Timezone": userTimezone(),
+    ...extra,
+  };
   if (hasApiAuth()) {
     try {
       const auth = await getApiAuthHeaders();
-      return { Accept: "application/json", ...auth, ...extra };
+      return { ...defaults, ...auth, ...extra };
     } catch {
       /* fall through to anonymous POC mode */
     }
   }
-  return { Accept: "application/json", ...extra };
+  return defaults;
 }
 
 async function readError(res: Response): Promise<string> {

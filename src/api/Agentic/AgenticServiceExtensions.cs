@@ -20,8 +20,10 @@ public static class AgenticServiceExtensions
                 : local;
         });
         services.AddSingleton<IDayDataSource, MockDayDataSource>();
-        services.AddSingleton<IDayDataSource, GraphCalendarDayDataSource>();
-        services.AddSingleton<IDayAggregator, DayAggregator>();
+        services.AddScoped<IUserGraphTokenProvider, ObOUserGraphTokenProvider>();
+        services.AddScoped<IUserGraphCalendarClient, GraphUserCalendarClient>();
+        services.AddScoped<IMeetingBriefGenerator, MeetingBriefGenerator>();
+        services.AddScoped<IDayAggregator, DayAggregator>();
         services.AddScoped<IWorkspaceDirectory, WorkspaceDirectory>();
         services.AddScoped<IWorkspaceService, WorkspaceService>();
         services.AddScoped<WorkspaceSeeder>();

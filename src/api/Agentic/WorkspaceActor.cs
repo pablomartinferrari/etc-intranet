@@ -5,6 +5,10 @@ namespace Intranet.Api.Agentic;
 
 public sealed record WorkspaceActor(string Oid, string DisplayName, string? Email)
 {
+    /// <summary>Local POC identities (dev-you, …). Never used as a Graph /me target.</summary>
+    public bool IsDemoIdentity =>
+        Oid.StartsWith("dev-", StringComparison.OrdinalIgnoreCase);
+
     public static WorkspaceActor Demo(AgenticOptions options) =>
         new(options.DemoUserOid, options.DemoUserName, options.DemoUserEmail);
 
