@@ -1,3 +1,4 @@
+using Intranet.Api.Agentic;
 using Intranet.Api.Cleat;
 using Intranet.Api.Data;
 using Intranet.Api.Data.Entities;
@@ -57,6 +58,7 @@ builder.Services.AddScoped<FeatureRequestService>();
 builder.Services.AddMultifamilyLbp(builder.Configuration);
 builder.Services.AddKnowledgeBase(builder.Configuration);
 builder.Services.AddHelpAgent();
+builder.Services.AddAgenticWorkspace(builder.Configuration);
 
 var enableSwagger = builder.Environment.IsDevelopment()
     || builder.Configuration.GetValue("Swagger:Enabled", false);
@@ -97,7 +99,8 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins("http://localhost:5173")
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod()
+            .AllowCredentials();
     });
 });
 
@@ -118,8 +121,23 @@ try
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<IntranetDbContext>();
     await db.Database.MigrateAsync();
-    await app.MigrateMultifamilyDatabaseAsync();
-    await app.InitializeKnowledgeDatabaseAsync();
+    try
+    {
+        await app.MigrateMultifamilyDatabaseAsync();
+    }
+    catch (Exception mfEx)
+    {
+        startupLogger.LogWarning(mfEx, "Multifamily database init skipped.");
+    }
+    try
+    {
+        await app.InitializeKnowledgeDatabaseAsync();
+    }
+    catch (Exception kbEx)
+    {
+        startupLogger.LogWarning(kbEx, "Knowledge database init skipped; Chat at /knowledge needs KnowledgeDb. Agentic workspace still seeds.");
+    }
+    await app.SeedAgenticWorkspaceAsync();
 
     if (!await db.SiteMessages.AnyAsync())
     {
@@ -169,6 +187,7 @@ else
 
 app.UseHttpsRedirection();
 app.UseAuthentication();
+app.UseAgenticDevIdentity();
 app.UseAuthorization();
 
 // Liveness: no DB — used by Azure App Service health check (see app-service.bicep).
@@ -202,6 +221,7 @@ app.MapGet("/api/messages", async (IntranetDbContext db, CancellationToken cance
 }).RequireAuthorization();
 
 app.MapControllers().RequireAuthorization();
+app.MapAgenticWorkspace();
 
 app.MapGet("/api/cleat/recommendations", async (
     CleatClient cleat,

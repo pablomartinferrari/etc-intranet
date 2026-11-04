@@ -64,6 +64,51 @@ The SPA uses **shadcn/ui** (Tailwind CSS + Radix, Nova style) rather than Fluent
 
 After `dotnet run`, the **http** profile opens Swagger automatically. Use **Authorize** in Swagger and paste a Bearer token from the SPA (or Entra) to call protected endpoints.
 
+### Agentic workspace POC (`/workspace`)
+
+A ChatGPT-style **Workspace** lives at http://localhost:5173/workspace and is isolated from production Chat (`/knowledge`). Existing Chat, Share, and Entra directory search are reused; this POC does not replace them.
+
+| URL | Screen |
+|-----|--------|
+| `/workspace` | Your day (meetings, tasks, follow-ups, agent suggestions) |
+| `/workspace/chats/{id}` | Chat thread (citations, Share, presence) |
+| `/workspace/projects/{id}` | Project instructions, linked repository files, chats |
+| `/workspace/repo/{folderId}` | Public indexed repository browse + upload |
+| `/workspace/search?q=` | Folder-scoped repository search with snippets |
+
+**How to run locally**
+
+1. `docker compose up -d`
+2. `cd src/api && dotnet ef database update && dotnet run`
+3. `cd src/web && npm install && npm run dev`
+4. Open http://localhost:5173/workspace — Development allows the demo user without Entra (`Features:AgenticWorkspace:AllowAnonymous=true`). The Home **Workspace** card also appears after sign-in.
+
+Hide it without touching other pages:
+
+- API: `Features__AgenticWorkspace__Enabled=false`
+- SPA: `VITE_FEATURE_AGENTIC_WORKSPACE=false` (then rebuild)
+
+**Realtime**
+
+Shared chats use **ASP.NET Core SignalR** at `/hubs/workspace` (Vite proxies `/hubs` with WebSockets). Presence, typing, and new messages are broadcast per chat. No Azure resource is required for local dev. Production can point the same hub at **Azure Web PubSub for SignalR** — event names (`presence`, `typing`, `message`, `agent`) stay the same.
+
+**Search**
+
+Repository search is a **local inverted index** over extracted document text (`IRepositorySearch` / `LocalRepositorySearch`). Set `Features:AgenticWorkspace:SearchProvider=azure` plus `AzureSearchEndpoint` / `AzureSearchApiKey` (user secrets — never commit keys) when an Azure AI Search index is ready. The azure adapter falls back to the local index until those settings exist.
+
+**What is mocked vs real**
+
+| Capability | POC behavior |
+|------------|----------------|
+| Your day | **Mock** meetings/tasks/follow-ups/suggestions via `IDayDataSource`. Optional **Microsoft Graph calendar** overlay when `UseGraphCalendar=true` and Graph app-only `Calendars.Read` is configured; failures fall back to mock meetings. |
+| Projects, chats, shares | **Real** rows in IntranetDb (`Agentic*` tables). Seeded demo catalog matches the wireframes. |
+| Entra share search | Reuses existing Graph directory search when configured, plus **local demo principals** (User B/C/D, Group X) so Share works without admin consent. |
+| Collaborative chat | **Real** SignalR presence/typing and persisted messages. The agent answers the group from the repository index (templated cited answers — not the production `/knowledge` LLM unless you later wire `RagService`). |
+| Repository | **Real** folder tree, upload to `App_Data/agentic-repo` (gitignored), text/PDF extract, local index. Seeded “quarterly report” docs. Not SharePoint and not Azure Blob. |
+| Auth | Development demo identity when anonymous is allowed. Signed-in Entra users work; `ShareDemoCatalog` shows them the seeded workspace so the POC is reviewable after login. |
+
+This POC extends the Chat work in PRs #19–#22 (project areas, Entra share, ChatGPT sidebar, multi-chat drafts). It does **not** change `/knowledge`.
+
 ### Multifamily lead inspection (from SharePoint)
 
 The full workflow from `multifamily-lbp` design docs is hosted in this app:

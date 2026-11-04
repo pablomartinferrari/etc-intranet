@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { useMsal } from "@azure/msal-react";
 import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BriefcaseIcon, ClipboardListIcon, LightbulbIcon, SparklesIcon } from "lucide-react";
+import { BriefcaseIcon, ClipboardListIcon, LightbulbIcon, SparklesIcon, LayoutDashboardIcon } from "lucide-react";
 
 import { apiRequest, signInRequest } from "./authConfig";
 import MultifamilyRoutes from "./multifamily-lbp/MultifamilyRoutes";
 import KnowledgeRoutes from "./knowledge-base/KnowledgeRoutes";
+import AgenticRoutes from "./agentic-workspace/AgenticRoutes";
+import { isAgenticEnabled } from "./agentic-workspace/api";
 import {
   CleatusOpportunitiesRoute,
   CleatusPipelineRoute,
@@ -62,6 +64,17 @@ function PostLoginRedirect(): null {
 }
 
 const INTRANET_APPS: IntranetApp[] = [
+  ...(isAgenticEnabled()
+    ? [
+        {
+          to: "/workspace",
+          title: "Workspace",
+          description: "Your day, shared chats, and the common repository.",
+          Icon: LayoutDashboardIcon,
+          accent: "border-zinc-900",
+        } satisfies IntranetApp,
+      ]
+    : []),
   {
     to: "/knowledge",
     title: "Chat",
@@ -226,6 +239,9 @@ export default function App() {
               <HelpAgentHost />
               <Routes>
                 <Route path="/" element={<IntranetHome />} />
+                {isAgenticEnabled() ? (
+                  <Route path="/workspace/*" element={<AgenticRoutes />} />
+                ) : null}
                 <Route path="/knowledge/*" element={<KnowledgeRoutes />} />
                 <Route path="/sales" element={<SalesHubRoute />} />
                 <Route path="/requests" element={<FeatureRequestsRoute />} />

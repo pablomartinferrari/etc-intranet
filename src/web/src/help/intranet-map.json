@@ -244,7 +244,29 @@
         "Is Help the same as Chat?",
         "Where is the Help button?"
       ],
-      "fallbackAnswer": "Help is this side panel (the floating Help button), not Chat. It only knows the intranet map: Home, Chat, Lead, Sales, Bids, Pipeline, Feature Requests, Agent sources, and sign-in. Chat is the knowledge-base ChatGPT under the Chat card on Home. Use Add SharePoint folder at the top of this panel to connect documents for Chat."
+      "fallbackAnswer": "Help is this side panel (the floating Help button), not Chat. It only knows the intranet map: Home, Chat, Lead, Sales, Bids, Pipeline, Feature Requests, Agent sources, Workspace POC, and sign-in. Chat is the knowledge-base ChatGPT under the Chat card on Home. Use Add SharePoint folder at the top of this panel to connect documents for Chat."
+    },
+    {
+      "id": "workspace",
+      "title": "Workspace",
+      "path": "/workspace",
+      "aliases": [
+        "agentic workspace",
+        "your day",
+        "workspace poc",
+        "common repository",
+        "repository search",
+        "collaborative chat",
+        "my day"
+      ],
+      "purpose": "Proof-of-concept agentic workspace isolated from production Chat at /knowledge. Your day uses a pluggable data-source interface (mock meetings/tasks/follow-ups/suggestions; optional Microsoft Graph calendar behind Features:AgenticWorkspace:UseGraphCalendar). Chats can be shared with Entra users or groups. Realtime presence and typing use SignalR locally (Azure Web PubSub is the documented production swap). The common repository is hierarchical, public, and indexed with a local search seam for Azure AI Search.",
+      "commonQuestions": [
+        "Where is the agentic workspace?",
+        "What is Your day?",
+        "How do I search the repository?",
+        "How do I share a collaborative chat?"
+      ],
+      "fallbackAnswer": "Open Workspace from Home (or go to /workspace). Your day is the home summary. Use projects for instructions and linked files, Share on a chat for Entra users/groups, and the repository sidebar to browse or search. Chat answers can cite repository documents. This is a POC and does not replace Chat."
     },
     {
       "id": "signin",
