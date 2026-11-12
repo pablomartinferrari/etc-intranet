@@ -90,7 +90,19 @@ public sealed class WorkspaceCatalogController(
             return disabled;
         }
 
-        return Ok(await directory.SearchAsync(q ?? "", cancellationToken));
+        try
+        {
+            return Ok(await directory.SearchAsync(q ?? "", cancellationToken));
+        }
+        catch (Intranet.Api.KnowledgeBase.Services.GraphDirectoryException ex)
+        {
+            return StatusCode(ex.StatusCode, new
+            {
+                error = "directory_search_failed",
+                message = ex.Message,
+                graphErrorCode = ex.GraphErrorCode,
+            });
+        }
     }
 
     [HttpGet("projects")]
@@ -353,6 +365,7 @@ public sealed class WorkspaceChatSendController(
 
 public sealed class WorkspaceRepositoryController(
     IWorkspaceService workspace,
+    IHubContext<WorkspaceHub> hub,
     IOptions<AgenticOptions> options) : WorkspaceControllerBase(options)
 {
     [HttpGet("repo")]
@@ -366,6 +379,150 @@ public sealed class WorkspaceRepositoryController(
         try
         {
             return Ok(await workspace.BrowseAsync(Actor(), folderId, documentId, cancellationToken));
+        }
+        catch (AgenticException ex)
+        {
+            return MapError(ex);
+        }
+    }
+
+    [HttpGet("repo/{folderId:guid}/chats")]
+    public async Task<IActionResult> FolderChats(Guid folderId, CancellationToken cancellationToken)
+    {
+        if (GuardEnabled() is { } disabled)
+        {
+            return disabled;
+        }
+
+        try
+        {
+            return Ok(await workspace.ListFolderChatsAsync(Actor(), folderId, cancellationToken));
+        }
+        catch (AgenticException ex)
+        {
+            return MapError(ex);
+        }
+    }
+
+    [HttpPost("repo/{parentId:guid}/folders")]
+    public async Task<IActionResult> CreateFolder(Guid parentId, [FromBody] CreateFolderRequestDto body, CancellationToken cancellationToken)
+    {
+        if (GuardEnabled() is { } disabled)
+        {
+            return disabled;
+        }
+
+        try
+        {
+            var folder = await workspace.CreateFolderAsync(Actor(), parentId, body.Name, cancellationToken);
+            await NotifyRepositoryChanged(cancellationToken);
+            return Ok(folder);
+        }
+        catch (AgenticException ex)
+        {
+            return MapError(ex);
+        }
+    }
+
+    [HttpPatch("repo/folders/{folderId:guid}")]
+    public async Task<IActionResult> UpdateFolder(
+        Guid folderId,
+        [FromBody] RenameRepoItemRequestDto? rename,
+        [FromQuery] Guid? parentId,
+        CancellationToken cancellationToken)
+    {
+        if (GuardEnabled() is { } disabled)
+        {
+            return disabled;
+        }
+
+        try
+        {
+            RepoFolderDto folder;
+            if (parentId is { } destination)
+            {
+                folder = await workspace.MoveFolderAsync(Actor(), folderId, destination, cancellationToken);
+            }
+            else
+            {
+                folder = await workspace.RenameFolderAsync(Actor(), folderId, rename?.Name ?? "", cancellationToken);
+            }
+
+            await NotifyRepositoryChanged(cancellationToken);
+            return Ok(folder);
+        }
+        catch (AgenticException ex)
+        {
+            return MapError(ex);
+        }
+    }
+
+    [HttpDelete("repo/folders/{folderId:guid}")]
+    public async Task<IActionResult> DeleteFolder(Guid folderId, [FromQuery] bool recursive = false, CancellationToken cancellationToken = default)
+    {
+        if (GuardEnabled() is { } disabled)
+        {
+            return disabled;
+        }
+
+        try
+        {
+            await workspace.DeleteFolderAsync(Actor(), folderId, recursive, cancellationToken);
+            await NotifyRepositoryChanged(cancellationToken);
+            return NoContent();
+        }
+        catch (AgenticException ex)
+        {
+            return MapError(ex);
+        }
+    }
+
+    [HttpPatch("repo/documents/{documentId:guid}")]
+    public async Task<IActionResult> UpdateDocument(
+        Guid documentId,
+        [FromBody] RenameRepoItemRequestDto? rename,
+        [FromQuery] Guid? folderId,
+        CancellationToken cancellationToken)
+    {
+        if (GuardEnabled() is { } disabled)
+        {
+            return disabled;
+        }
+
+        try
+        {
+            RepoDocumentDto document;
+            if (folderId is { } destination)
+            {
+                document = await workspace.MoveDocumentAsync(Actor(), documentId, destination, cancellationToken);
+            }
+            else
+            {
+                document = await workspace.RenameDocumentAsync(Actor(), documentId, rename?.Name ?? "", cancellationToken);
+            }
+
+            await NotifyRepositoryChanged(cancellationToken);
+            return Ok(document);
+        }
+        catch (AgenticException ex)
+        {
+            return MapError(ex);
+        }
+    }
+
+    [HttpDelete("repo/documents/{documentId:guid}")]
+    public async Task<IActionResult> DeleteDocument(Guid documentId, CancellationToken cancellationToken)
+    {
+        if (GuardEnabled() is { } disabled)
+        {
+            return disabled;
+        }
+
+        try
+        {
+            await workspace.DeleteDocumentAsync(Actor(), documentId, cancellationToken);
+            await NotifyRepositoryChanged(cancellationToken);
+            return NoContent();
         }
         catch (AgenticException ex)
         {
@@ -390,13 +547,21 @@ public sealed class WorkspaceRepositoryController(
         try
         {
             await using var stream = file.OpenReadStream();
-            return Ok(await workspace.UploadAsync(Actor(), folderId, file.FileName, file.ContentType ?? "application/octet-stream", stream, cancellationToken));
+            var document = await workspace.UploadAsync(Actor(), folderId, file.FileName, file.ContentType ?? "application/octet-stream", stream, cancellationToken);
+            await NotifyRepositoryChanged(cancellationToken);
+            return Ok(document);
         }
         catch (AgenticException ex)
         {
             return MapError(ex);
         }
     }
+
+    private Task NotifyRepositoryChanged(CancellationToken cancellationToken) =>
+        hub.Clients.Group(WorkspaceHub.RepositoryGroup).SendAsync(
+            "repositoryChanged",
+            new { at = DateTimeOffset.UtcNow },
+            cancellationToken);
 
     [HttpGet("search")]
     public async Task<IActionResult> Search(

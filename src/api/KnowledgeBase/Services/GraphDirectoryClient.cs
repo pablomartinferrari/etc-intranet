@@ -11,7 +11,6 @@ namespace Intranet.Api.KnowledgeBase.Services;
 
 public sealed class GraphDirectoryClient : IGraphDirectoryClient
 {
-    private const int SearchTop = 8;
     private const int CheckMemberBatch = 20;
 
     private readonly AzureAdOptions _azureAd;
@@ -42,63 +41,48 @@ public sealed class GraphDirectoryClient : IGraphDirectoryClient
 
         EnsureConfigured();
         q = q.Length > 64 ? q[..64] : q;
-        var escaped = q.Replace("'", "''", StringComparison.Ordinal);
-        var client = CreateClient();
+        var search = new Intranet.Api.Agentic.GraphPeopleSearch(CreateClient(), _logger);
+        var usersTask = search.SearchUsersAsync(q, cancellationToken);
+        var groupsTask = search.SearchGroupsAsync(q, cancellationToken);
+        await Task.WhenAll(usersTask, groupsTask);
 
-        try
+        var results = new List<DirectoryPrincipalDto>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Exception? error = null;
+        foreach (var attempt in new[] { usersTask.Result, groupsTask.Result })
         {
-            var usersTask = client.Users.GetAsync(config =>
+            foreach (var item in attempt.Results)
             {
-                config.QueryParameters.Filter =
-                    $"startswith(displayName,'{escaped}') or startswith(mail,'{escaped}') or startswith(userPrincipalName,'{escaped}')";
-                config.QueryParameters.Select = ["id", "displayName", "mail", "userPrincipalName"];
-                config.QueryParameters.Top = SearchTop;
-            }, cancellationToken);
-
-            var groupsTask = client.Groups.GetAsync(config =>
-            {
-                config.QueryParameters.Filter = $"startswith(displayName,'{escaped}')";
-                config.QueryParameters.Select = ["id", "displayName", "mail"];
-                config.QueryParameters.Top = SearchTop;
-            }, cancellationToken);
-
-            await Task.WhenAll(usersTask, groupsTask);
-
-            var results = new List<DirectoryPrincipalDto>();
-            foreach (var user in usersTask.Result?.Value ?? [])
-            {
-                if (string.IsNullOrWhiteSpace(user.Id))
+                if (seen.Add(item.Oid))
                 {
-                    continue;
+                    results.Add(item);
                 }
-
-                results.Add(new DirectoryPrincipalDto(
-                    KbProjectRoles.User,
-                    user.Id,
-                    user.DisplayName ?? user.UserPrincipalName ?? user.Id,
-                    FirstEmail(user.Mail, user.UserPrincipalName)));
             }
 
-            foreach (var group in groupsTask.Result?.Value ?? [])
-            {
-                if (string.IsNullOrWhiteSpace(group.Id))
-                {
-                    continue;
-                }
+            error ??= attempt.Error;
+        }
 
-                results.Add(new DirectoryPrincipalDto(
-                    KbProjectRoles.Group,
-                    group.Id,
-                    group.DisplayName ?? group.Id,
-                    FirstEmail(group.Mail)));
+        if (Intranet.Api.Agentic.GraphPeopleQueries.LooksLikeEmail(q)
+            && results.All(p => !string.Equals(p.Email, q, StringComparison.OrdinalIgnoreCase)))
+        {
+            var resolved = await search.ResolveUserAsync(q, cancellationToken);
+            foreach (var item in resolved.Results)
+            {
+                if (seen.Add(item.Oid))
+                {
+                    results.Add(item);
+                }
             }
 
-            return results;
+            error ??= resolved.Error;
         }
-        catch (Exception ex) when (ex is not GraphDirectoryException and not OperationCanceledException)
+
+        if (results.Count == 0 && error is not null)
         {
-            throw MapGraphError(ex, "Could not search Microsoft Entra users and groups.");
+            throw MapGraphError(error, "Could not search Microsoft Entra users and groups.");
         }
+
+        return results;
     }
 
     public async Task<IReadOnlySet<string>> CheckMemberGroupsAsync(
@@ -167,18 +151,17 @@ public sealed class GraphDirectoryClient : IGraphDirectoryClient
 
     private GraphDirectoryException MapGraphError(Exception ex, string fallback)
     {
-        _logger.LogWarning(ex, "Graph directory call failed: {Message}", fallback);
-        if (ex is ODataError odata)
+        var code = Intranet.Api.Agentic.GraphPeopleQueries.ErrorCode(ex);
+        _logger.LogWarning(ex, "Graph directory call failed. Code={Code}. {Message}", code ?? "(none)", fallback);
+        if (ex is GraphDirectoryException existing)
         {
-            var detail = odata.Error?.Message ?? fallback;
-            return new GraphDirectoryException(detail, StatusCodes.Status502BadGateway);
+            return existing;
         }
 
-        return new GraphDirectoryException(fallback, StatusCodes.Status502BadGateway);
+        var detail = ex is ODataError odata ? odata.Error?.Message ?? fallback : ex.Message;
+        var message = string.IsNullOrWhiteSpace(code) ? detail : $"{detail} (Graph {code})";
+        return new GraphDirectoryException(message, StatusCodes.Status502BadGateway, code);
     }
-
-    private static string? FirstEmail(params string?[] values) =>
-        values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
     private static bool HasValue(string? value) => !string.IsNullOrWhiteSpace(value);
 }

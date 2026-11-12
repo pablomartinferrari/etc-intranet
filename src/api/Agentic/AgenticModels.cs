@@ -66,6 +66,9 @@ public sealed record WorkspaceChatDto(
     Guid Id,
     Guid? ProjectId,
     string? ProjectName,
+    Guid? FolderId,
+    string? FolderName,
+    string? FolderPath,
     string Title,
     string Visibility,
     bool RealtimeCollaboration,
@@ -80,6 +83,7 @@ public sealed record WorkspaceSidebarDto(
     IReadOnlyList<WorkspaceChatDto> MyChats,
     IReadOnlyList<WorkspaceChatDto> SharedWithMe,
     IReadOnlyList<WorkspaceChatDto> SharedByMe,
+    IReadOnlyList<WorkspaceChatDto> ScopedChats,
     IReadOnlyList<RepoFolderDto> Repository);
 
 public sealed record WorkspaceCitationDto(
@@ -102,9 +106,9 @@ public sealed record WorkspaceMessageDto(
 
 public sealed record SendChatRequestDto(string Text);
 
-public sealed record CreateChatRequestDto(string? Title, Guid? ProjectId, bool RealtimeCollaboration);
+public sealed record CreateChatRequestDto(string? Title, Guid? ProjectId, Guid? FolderId, bool RealtimeCollaboration);
 
-public sealed record UpdateChatRequestDto(string? Title, Guid? ProjectId, bool? RealtimeCollaboration);
+public sealed record UpdateChatRequestDto(string? Title, Guid? ProjectId, Guid? FolderId, bool? RealtimeCollaboration);
 
 public sealed record CreateProjectRequestDto(string Name, string? Instructions);
 
@@ -135,7 +139,16 @@ public sealed record RepoFolderDto(
     string Path,
     bool IsPublic,
     bool IsIndexed,
-    int ChildCount);
+    int ChildCount,
+    int ChatCount = 0,
+    string? CreatedByName = null,
+    DateTimeOffset? UpdatedAt = null);
+
+public sealed record CreateFolderRequestDto(string Name);
+
+public sealed record RenameRepoItemRequestDto(string Name);
+
+public sealed record MoveRepoItemRequestDto(Guid ParentId);
 
 public sealed record RepoDocumentDto(
     Guid Id,
@@ -170,6 +183,8 @@ public sealed record RepoSearchHitDto(
 public sealed record RepoSearchResponseDto(
     string Query,
     Guid? FolderId,
+    string? FolderPath,
+    bool Scoped,
     int Total,
     IReadOnlyList<RepoSearchHitDto> Hits);
 

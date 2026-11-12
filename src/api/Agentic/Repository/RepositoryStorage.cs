@@ -31,4 +31,37 @@ public static class RepositoryStorage
 
         return Path.GetFullPath(Path.Combine(environment.ContentRootPath, configured));
     }
+
+    public static string FolderDirectory(string root, Data.AgenticRepoFolder folder)
+    {
+        var segments = RepositoryNames.PathSegments(folder.Path);
+        var parts = new List<string> { root };
+        parts.AddRange(segments);
+        var full = Path.GetFullPath(Path.Combine(parts.ToArray()));
+        EnsureUnderRoot(root, full);
+        return full;
+    }
+
+    public static string CombineUnderRoot(string root, string relative)
+    {
+        var full = Path.GetFullPath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
+        EnsureUnderRoot(root, full);
+        return full;
+    }
+
+    public static void EnsureUnderRoot(string root, string candidate)
+    {
+        var rootFull = Path.GetFullPath(root);
+        if (!rootFull.EndsWith(Path.DirectorySeparatorChar))
+        {
+            rootFull += Path.DirectorySeparatorChar;
+        }
+
+        var full = Path.GetFullPath(candidate);
+        if (!full.Equals(rootFull.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+            && !full.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new AgenticException("Repository path is outside the repository root.", StatusCodes.Status400BadRequest);
+        }
+    }
 }

@@ -9,6 +9,7 @@ export type WorkspaceRealtimeHandlers = {
   onTyping?: (event: { oid: string; displayName: string; typing: boolean }) => void;
   onMessage?: (message: ChatMessage) => void;
   onAgent?: (event: { status: string }) => void;
+  onRepositoryChanged?: () => void;
 };
 
 export async function connectWorkspaceHub(
@@ -38,9 +39,34 @@ export async function connectWorkspaceHub(
   );
   connection.on("message", (message: ChatMessage) => handlers.onMessage?.(message));
   connection.on("agent", (event: { status: string }) => handlers.onAgent?.(event));
+  connection.on("repositoryChanged", () => handlers.onRepositoryChanged?.());
 
   await connection.start();
   await connection.invoke("JoinChat", chatId);
+  return connection;
+}
+
+export async function connectRepositoryHub(onRepositoryChanged: () => void): Promise<HubConnection> {
+  const connection = new HubConnectionBuilder()
+    .withUrl(hubUrl, {
+      accessTokenFactory: async () => {
+        if (!hasApiAuth()) return "";
+        try {
+          const headers = await getApiAuthHeaders();
+          const raw = (headers as Record<string, string>).Authorization ?? "";
+          return raw.replace(/^Bearer\s+/i, "");
+        } catch {
+          return "";
+        }
+      },
+    })
+    .withAutomaticReconnect()
+    .configureLogging(LogLevel.Warning)
+    .build();
+
+  connection.on("repositoryChanged", () => onRepositoryChanged());
+  await connection.start();
+  await connection.invoke("JoinRepository");
   return connection;
 }
 

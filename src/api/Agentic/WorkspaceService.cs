@@ -48,12 +48,28 @@ public interface IWorkspaceService
 
     Task<RepoBrowseDto> BrowseAsync(WorkspaceActor actor, Guid? folderId, Guid? documentId, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<WorkspaceChatDto>> ListFolderChatsAsync(WorkspaceActor actor, Guid folderId, CancellationToken cancellationToken);
+
+    Task<RepoFolderDto> CreateFolderAsync(WorkspaceActor actor, Guid parentId, string name, CancellationToken cancellationToken);
+
+    Task<RepoFolderDto> RenameFolderAsync(WorkspaceActor actor, Guid folderId, string name, CancellationToken cancellationToken);
+
+    Task<RepoFolderDto> MoveFolderAsync(WorkspaceActor actor, Guid folderId, Guid parentId, CancellationToken cancellationToken);
+
+    Task DeleteFolderAsync(WorkspaceActor actor, Guid folderId, bool recursive, CancellationToken cancellationToken);
+
+    Task<RepoDocumentDto> RenameDocumentAsync(WorkspaceActor actor, Guid documentId, string name, CancellationToken cancellationToken);
+
+    Task<RepoDocumentDto> MoveDocumentAsync(WorkspaceActor actor, Guid documentId, Guid folderId, CancellationToken cancellationToken);
+
+    Task DeleteDocumentAsync(WorkspaceActor actor, Guid documentId, CancellationToken cancellationToken);
+
     Task<RepoDocumentDto> UploadAsync(WorkspaceActor actor, Guid folderId, string fileName, string contentType, Stream content, CancellationToken cancellationToken);
 
     Task<RepoSearchResponseDto> SearchAsync(WorkspaceActor actor, string query, Guid? folderId, IReadOnlyList<string> types, string? modified, CancellationToken cancellationToken);
 }
 
-public sealed class WorkspaceService : IWorkspaceService
+public sealed partial class WorkspaceService : IWorkspaceService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -106,13 +122,19 @@ public sealed class WorkspaceService : IWorkspaceService
         var chats = await VisibleChats(actor, cancellationToken);
         var repo = await _db.AgenticRepoFolders.AsNoTracking().OrderBy(f => f.Path).ToListAsync(cancellationToken);
         var childCounts = repo.GroupBy(f => f.ParentId).ToDictionary(g => g.Key ?? Guid.Empty, g => g.Count());
+        var chatCounts = chats
+            .Where(c => c.FolderId is not null)
+            .GroupBy(c => c.FolderId!.Value)
+            .ToDictionary(g => g.Key, g => g.Count());
+        var owned = chats.Where(c => c.Role == AgenticRoles.Owner).ToList();
         return new WorkspaceSidebarDto(
             new WorkspaceMeDto(actor.Oid, actor.DisplayName, actor.Email),
             projects,
-            chats.Where(c => c.Role == AgenticRoles.Owner && !c.Visibility.Equals("shared", StringComparison.Ordinal)).ToList(),
+            owned.Where(c => c.ProjectId is null && c.FolderId is null && !c.Visibility.Equals("shared", StringComparison.Ordinal)).ToList(),
             chats.Where(c => c.Role != AgenticRoles.Owner).ToList(),
-            chats.Where(c => c.Role == AgenticRoles.Owner && c.Visibility.Equals("shared", StringComparison.Ordinal)).ToList(),
-            repo.Select(f => ToFolderDto(f, childCounts.GetValueOrDefault(f.Id))).ToList());
+            owned.Where(c => c.Visibility.Equals("shared", StringComparison.Ordinal)).ToList(),
+            owned.Where(c => c.ProjectId is not null || c.FolderId is not null).ToList(),
+            repo.Select(f => ToFolderDto(f, childCounts.GetValueOrDefault(f.Id), chatCounts.GetValueOrDefault(f.Id))).ToList());
     }
 
     public async Task<IReadOnlyList<WorkspaceProjectDto>> ListProjectsAsync(WorkspaceActor actor, CancellationToken cancellationToken)
@@ -231,12 +253,19 @@ public sealed class WorkspaceService : IWorkspaceService
             await RequireProject(actor, projectId, view: true, cancellationToken: cancellationToken);
         }
 
+        if (request.FolderId is { } folderId)
+        {
+            _ = await _db.AgenticRepoFolders.AsNoTracking().FirstOrDefaultAsync(f => f.Id == folderId, cancellationToken)
+                ?? throw new AgenticException("Folder not found.", StatusCodes.Status404NotFound);
+        }
+
         var now = DateTimeOffset.UtcNow;
         var chat = new AgenticChat
         {
             Id = Guid.NewGuid(),
             OwnerOid = actor.Oid,
             ProjectId = request.ProjectId,
+            FolderId = request.FolderId,
             Title = string.IsNullOrWhiteSpace(request.Title) ? "New chat" : request.Title.Trim(),
             RealtimeCollaboration = request.RealtimeCollaboration,
             CreatedAt = now,
@@ -271,6 +300,21 @@ public sealed class WorkspaceService : IWorkspaceService
             {
                 await RequireProject(actor, request.ProjectId.Value, view: true, cancellationToken: cancellationToken);
                 chat.ProjectId = request.ProjectId;
+            }
+        }
+
+        if (request.FolderId.HasValue)
+        {
+            if (request.FolderId.Value == Guid.Empty)
+            {
+                chat.FolderId = null;
+            }
+            else
+            {
+                _ = await _db.AgenticRepoFolders.AsNoTracking()
+                        .FirstOrDefaultAsync(f => f.Id == request.FolderId.Value, cancellationToken)
+                    ?? throw new AgenticException("Folder not found.", StatusCodes.Status404NotFound);
+                chat.FolderId = request.FolderId;
             }
         }
 
@@ -435,10 +479,11 @@ public sealed class WorkspaceService : IWorkspaceService
         }
 
         var childCounts = folders.GroupBy(f => f.ParentId).ToDictionary(g => g.Key ?? Guid.Empty, g => g.Count());
+        var chatCounts = await ChatCountsByFolderAsync(cancellationToken);
         var children = folders
             .Where(f => f.ParentId == folder.Id)
             .OrderBy(f => f.Name)
-            .Select(f => ToFolderDto(f, childCounts.GetValueOrDefault(f.Id)))
+            .Select(f => ToFolderDto(f, childCounts.GetValueOrDefault(f.Id), chatCounts.GetValueOrDefault(f.Id)))
             .ToList();
         var documents = await _db.AgenticRepoDocuments
             .AsNoTracking()
@@ -448,8 +493,8 @@ public sealed class WorkspaceService : IWorkspaceService
             .ToListAsync(cancellationToken);
         var selected = documentId is { } id ? documents.FirstOrDefault(d => d.Id == id) : documents.FirstOrDefault();
         return new RepoBrowseDto(
-            ToFolderDto(folder, childCounts.GetValueOrDefault(folder.Id)),
-            BuildBreadcrumbs(folder, folders, childCounts),
+            ToFolderDto(folder, childCounts.GetValueOrDefault(folder.Id), chatCounts.GetValueOrDefault(folder.Id)),
+            BuildBreadcrumbs(folder, folders, childCounts, chatCounts),
             children,
             documents.Select(d => ToDocumentDto(d, d.Folder.Path)).ToList(),
             selected is null ? null : ToDocumentDto(selected, selected.Folder.Path));
@@ -463,13 +508,11 @@ public sealed class WorkspaceService : IWorkspaceService
         Stream content,
         CancellationToken cancellationToken)
     {
+        RequireSignedIn(actor);
         var folder = await _db.AgenticRepoFolders.FirstOrDefaultAsync(f => f.Id == folderId, cancellationToken)
             ?? throw new AgenticException("Folder not found.", StatusCodes.Status404NotFound);
-        var safeName = Path.GetFileName(fileName);
-        if (string.IsNullOrWhiteSpace(safeName))
-        {
-            throw new AgenticException("A file name is required.", StatusCodes.Status400BadRequest);
-        }
+        var safeName = RepositoryNames.NormalizeFileName(fileName);
+        await EnsureUniqueDocumentNameAsync(folder.Id, safeName, excludeId: null, cancellationToken);
 
         await using var buffer = new MemoryStream();
         await content.CopyToAsync(buffer, cancellationToken);
@@ -477,24 +520,30 @@ public sealed class WorkspaceService : IWorkspaceService
         var extracted = RepositoryTextExtractor.Extract(safeName, contentType, buffer);
         buffer.Position = 0;
         var id = Guid.NewGuid();
-        var relative = $"{id:N}{Path.GetExtension(safeName)}";
         var root = RepositoryStorage.ResolveRoot(_options, _environment);
-        Directory.CreateDirectory(root);
-        var full = Path.Combine(root, relative);
+        var folderDir = RepositoryStorage.FolderDirectory(root, folder);
+        Directory.CreateDirectory(folderDir);
+        var storedName = $"{id:N}{Path.GetExtension(safeName)}";
+        var full = Path.Combine(folderDir, storedName);
         await using (var file = File.Create(full))
         {
             await buffer.CopyToAsync(file, cancellationToken);
         }
 
+        var relative = Path.GetRelativePath(root, full).Replace('\\', '/');
         var document = new AgenticRepoDocument
         {
             Id = id,
             FolderId = folder.Id,
+            FolderPath = folder.Path,
             Name = safeName,
             FileType = RepositoryTextExtractor.DetectFileType(safeName, contentType),
             MimeType = string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType,
             SizeBytes = buffer.Length,
             OwnerName = actor.DisplayName,
+            CreatedByOid = actor.Oid,
+            UpdatedByOid = actor.Oid,
+            UpdatedByName = actor.DisplayName,
             StoragePath = relative,
             ExtractedText = extracted,
             IsIndexed = false,
@@ -520,10 +569,21 @@ public sealed class WorkspaceService : IWorkspaceService
             .Select(t => t.Trim().ToLowerInvariant())
             .Where(t => t is "document" or "spreadsheet" or "image")
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        string? folderPath = null;
+        if (folderId is { } scopeId)
+        {
+            folderPath = await _db.AgenticRepoFolders.AsNoTracking()
+                .Where(f => f.Id == scopeId)
+                .Select(f => f.Path)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
         var hits = await _search.SearchAsync(new RepoSearchQuery(query, folderId, typeSet, modified), cancellationToken);
         return new RepoSearchResponseDto(
             query,
             folderId,
+            folderPath,
+            folderId is not null,
             hits.Count,
             hits.Select(h => new RepoSearchHitDto(h.DocumentId, h.FolderId, h.Title, h.FileType, h.Path, h.Snippet, h.Highlights)).ToList());
     }
@@ -532,6 +592,7 @@ public sealed class WorkspaceService : IWorkspaceService
     {
         var chats = await _db.AgenticChats
             .Include(c => c.Shares)
+            .Include(c => c.Folder)
             .Include(c => c.Project)!.ThenInclude(p => p!.Shares)
             .ToListAsync(cancellationToken);
         var oid = EffectiveOid(actor);
@@ -561,6 +622,7 @@ public sealed class WorkspaceService : IWorkspaceService
     {
         var chat = await _db.AgenticChats
             .Include(c => c.Shares)
+            .Include(c => c.Folder)
             .Include(c => c.Project)!.ThenInclude(p => p!.Shares)
             .Include(c => c.Project)!.ThenInclude(p => p!.Files).ThenInclude(f => f.Document).ThenInclude(d => d.Folder)
             .FirstOrDefaultAsync(c => c.Id == chatId, cancellationToken)
@@ -654,6 +716,9 @@ public sealed class WorkspaceService : IWorkspaceService
             chat.Id,
             chat.ProjectId,
             chat.Project?.Name,
+            chat.FolderId,
+            chat.Folder?.Name,
+            chat.Folder?.Path,
             chat.Title,
             visibility,
             chat.RealtimeCollaboration,
@@ -677,8 +742,26 @@ public sealed class WorkspaceService : IWorkspaceService
     private static ChatShareDto ToShareDto(AgenticChatShare share) =>
         new(share.Id, share.PrincipalType, share.PrincipalOid, share.PrincipalDisplayName, share.PrincipalEmail, share.Role, share.CreatedAt);
 
-    private static RepoFolderDto ToFolderDto(AgenticRepoFolder folder, int childCount) =>
-        new(folder.Id, folder.ParentId, folder.Name, folder.Path, folder.IsPublic, folder.IsIndexed, childCount);
+    private static RepoFolderDto ToFolderDto(AgenticRepoFolder folder, int childCount, int chatCount = 0) =>
+        new(
+            folder.Id,
+            folder.ParentId,
+            folder.Name,
+            folder.Path,
+            folder.IsPublic,
+            folder.IsIndexed,
+            childCount,
+            chatCount,
+            string.IsNullOrWhiteSpace(folder.CreatedByName) ? null : folder.CreatedByName,
+            folder.UpdatedAt == default ? folder.CreatedAt : folder.UpdatedAt);
+
+    internal static void RequireSignedIn(WorkspaceActor actor)
+    {
+        if (string.IsNullOrWhiteSpace(actor.Oid) || actor.Oid.Equals("unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new AgenticException("Sign in to change the repository.", StatusCodes.Status401Unauthorized);
+        }
+    }
 
     private static RepoDocumentDto ToDocumentDto(AgenticRepoDocument document, string folderPath) =>
         new(
@@ -695,10 +778,19 @@ public sealed class WorkspaceService : IWorkspaceService
             document.ModifiedAt,
             Trim(document.ExtractedText, 400));
 
+    private async Task<Dictionary<Guid, int>> ChatCountsByFolderAsync(CancellationToken cancellationToken)
+    {
+        return await _db.AgenticChats.AsNoTracking()
+            .Where(c => c.FolderId != null)
+            .GroupBy(c => c.FolderId!.Value)
+            .ToDictionaryAsync(g => g.Key, g => g.Count(), cancellationToken);
+    }
+
     private static List<RepoFolderDto> BuildBreadcrumbs(
         AgenticRepoFolder folder,
         IReadOnlyList<AgenticRepoFolder> all,
-        IReadOnlyDictionary<Guid, int> childCounts)
+        IReadOnlyDictionary<Guid, int> childCounts,
+        IReadOnlyDictionary<Guid, int>? chatCounts = null)
     {
         var map = all.ToDictionary(f => f.Id);
         var stack = new List<AgenticRepoFolder>();
@@ -715,7 +807,7 @@ public sealed class WorkspaceService : IWorkspaceService
         }
 
         stack.Reverse();
-        return stack.Select(f => ToFolderDto(f, childCounts.GetValueOrDefault(f.Id))).ToList();
+        return stack.Select(f => ToFolderDto(f, childCounts.GetValueOrDefault(f.Id), chatCounts?.GetValueOrDefault(f.Id) ?? 0)).ToList();
     }
 
     private static IReadOnlyList<WorkspaceCitationDto> ParseCitations(string? json)

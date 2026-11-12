@@ -7,6 +7,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
+using Microsoft.Graph.Models.ODataErrors;
 using Microsoft.Identity.Web;
 
 namespace Intranet.Api.Agentic.Day;
@@ -64,11 +65,18 @@ public sealed class MailConsentException : Exception
 
 /// <summary>
 /// Follow-up sources (documented, keep the heuristic simple):
-/// 1. Flagged messages: <c>GET /me/messages?$filter=flag/flagStatus eq 'flagged'</c>.
-/// 2. Inbox messages from the last <see cref="InboxLookbackDays"/> days that look like they
-///    await a reply: not a draft, not sent by the user, the user is on the To line
-///    (not only CC), and Sent Items in the same window has no later message in that
-///    conversation. Only metadata + <c>bodyPreview</c> are read; bodies are not stored.
+/// 1. Flagged messages: <c>GET /me/messages?$filter=flag/flagStatus eq 'flagged'&amp;$select=...&amp;$top=25</c>
+///    with <b>no $orderby</b> (Graph ErrorInefficientFilter if flag filter is combined with
+///    $orderby or extra properties). Sorted client-side. If that is rejected, try the same
+///    filter on <c>/me/mailFolders/inbox/messages</c>; if still rejected, take recent inbox
+///    messages and keep those with <c>flag/flagStatus == flagged</c> client-side.
+/// 2. Inbox messages from the last <see cref="InboxLookbackDays"/> days:
+///    <c>GET /me/mailFolders/inbox/messages?$filter=receivedDateTime ge {iso}&amp;$orderby=receivedDateTime desc</c>
+///    (the $orderby property is first in $filter). To-line / not-from-me / not-draft checks
+///    run client-side. Sent Items:
+///    <c>GET /me/mailFolders/sentitems/messages?$filter=sentDateTime ge {iso}&amp;$orderby=sentDateTime desc</c>,
+///    matched on <c>conversationId</c> client-side (never conversationId+date in $filter).
+///    Each sub-query fails independently. Only metadata + <c>bodyPreview</c> are read.
 /// </summary>
 public static class OutlookFollowUpHeuristic
 {
@@ -167,6 +175,76 @@ public static class OutlookFollowUpHeuristic
         {
             return trimmed;
         }
+    }
+}
+
+/// <summary>
+/// Graph mail query shapes that avoid ErrorInefficientFilter.
+/// Combining $filter and $orderby requires the $orderby properties to appear in $filter
+/// first, in the same order. <c>flag/flagStatus</c> must not be combined with $orderby
+/// or extra $filter properties.
+/// </summary>
+public static class GraphMailQueries
+{
+    public const string FlaggedFilter = "flag/flagStatus eq 'flagged'";
+    public const int FlaggedTop = 25;
+    public const int InboxTop = 50;
+    public const int SentTop = 100;
+
+    public static readonly string[] InboxOrderBy = ["receivedDateTime desc"];
+    public static readonly string[] SentOrderBy = ["sentDateTime desc"];
+    public static readonly string[] SentSelect = ["conversationId", "sentDateTime"];
+
+    public static string InboxFilter(string sinceIso) => $"receivedDateTime ge {sinceIso}";
+
+    public static string SentFilter(string sinceIso) => $"sentDateTime ge {sinceIso}";
+
+    public static string OrderByProperty(string orderByClause)
+    {
+        var property = orderByClause.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries)[0];
+        return property;
+    }
+
+    public static bool OrderByPropertyIsFirstInFilter(string filter, string orderByClause)
+    {
+        var property = OrderByProperty(orderByClause);
+        var trimmed = filter.TrimStart();
+        if (!trimmed.StartsWith(property, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return trimmed.Length == property.Length || !char.IsLetterOrDigit(trimmed[property.Length]);
+    }
+
+    public static bool IsFlagged(Message message) =>
+        message.Flag?.FlagStatus == FollowupFlagStatus.Flagged;
+
+    public static string? ErrorCode(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is ODataError odata && !string.IsNullOrWhiteSpace(odata.Error?.Code))
+            {
+                return odata.Error.Code;
+            }
+        }
+
+        return null;
+    }
+
+    public static bool IsInefficientFilter(Exception ex)
+    {
+        var code = ErrorCode(ex);
+        if (string.Equals(code, "ErrorInefficientFilter", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(code, "InefficientFilter", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return (ex.Message ?? "").Contains(
+            "restriction or sort order is too complex",
+            StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -308,13 +386,24 @@ public sealed class GraphUserMailClient : IUserGraphMailClient
             var since = query.Now.ToUniversalTime().AddDays(-OutlookFollowUpHeuristic.InboxLookbackDays);
             var sinceIso = since.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
 
-            var flaggedTask = LoadFlaggedAsync(client, cancellationToken);
-            var inboxTask = LoadInboxAsync(client, sinceIso, cancellationToken);
-            var sentTask = LoadSentAsync(client, sinceIso, cancellationToken);
-            await Task.WhenAll(flaggedTask, inboxTask, sentTask);
+            var loaded = await new GraphMailLoader(client, _logger).LoadAsync(sinceIso, cancellationToken);
+            if (loaded.MailboxUnreachable)
+            {
+                var error = loaded.FirstError!;
+                if (error is MailConsentException || GraphMailMapper.IsConsentError(error))
+                {
+                    _logger.LogInformation(error, "Mail.Read consent missing for {Oid}.", query.Actor.Oid);
+                    return new MailDayResult(MailReadStates.ConsentRequired, MailConsentException.UserMessage, []);
+                }
+
+                return new MailDayResult(
+                    MailReadStates.Unavailable,
+                    GraphFailureMessage(error),
+                    []);
+            }
 
             var latestSent = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
-            foreach (var sent in sentTask.Result)
+            foreach (var sent in loaded.Sent.Messages)
             {
                 if (string.IsNullOrWhiteSpace(sent.ConversationId) || sent.SentDateTime is null)
                 {
@@ -328,12 +417,12 @@ public sealed class GraphUserMailClient : IUserGraphMailClient
             }
 
             var userEmail = query.Actor.Email;
-            var flagged = flaggedTask.Result
+            var flagged = loaded.Flagged.Messages
                 .Select(m => GraphMailMapper.ToFollowUp(m, "flagged"))
                 .Where(i => i is not null)
                 .Cast<MailFollowUp>()
                 .ToList();
-            var awaiting = inboxTask.Result
+            var awaiting = loaded.Inbox.Messages
                 .Where(m => OutlookFollowUpHeuristic.AwaitsReply(
                     OutlookFollowUpHeuristic.NormalizeEmail(m.From?.EmailAddress?.Address),
                     GraphMailMapper.ToAddresses(m),
@@ -364,49 +453,6 @@ public sealed class GraphUserMailClient : IUserGraphMailClient
                 GraphFailureMessage(ex),
                 []);
         }
-    }
-
-    private static async Task<List<Message>> LoadFlaggedAsync(
-        GraphServiceClient client,
-        CancellationToken cancellationToken)
-    {
-        var page = await client.Me.Messages.GetAsync(config =>
-        {
-            config.QueryParameters.Filter = "flag/flagStatus eq 'flagged'";
-            config.QueryParameters.Select = GraphMailMapper.SelectFields;
-            config.QueryParameters.Top = OutlookFollowUpHeuristic.MaxItems;
-            config.QueryParameters.Orderby = ["receivedDateTime desc"];
-        }, cancellationToken);
-        return page?.Value?.ToList() ?? [];
-    }
-
-    private static async Task<List<Message>> LoadInboxAsync(
-        GraphServiceClient client,
-        string sinceIso,
-        CancellationToken cancellationToken)
-    {
-        var page = await client.Me.MailFolders["inbox"].Messages.GetAsync(config =>
-        {
-            config.QueryParameters.Filter = $"receivedDateTime ge {sinceIso} and isDraft eq false";
-            config.QueryParameters.Select = GraphMailMapper.SelectFields;
-            config.QueryParameters.Top = 50;
-            config.QueryParameters.Orderby = ["receivedDateTime desc"];
-        }, cancellationToken);
-        return page?.Value?.ToList() ?? [];
-    }
-
-    private static async Task<List<Message>> LoadSentAsync(
-        GraphServiceClient client,
-        string sinceIso,
-        CancellationToken cancellationToken)
-    {
-        var page = await client.Me.MailFolders["sentitems"].Messages.GetAsync(config =>
-        {
-            config.QueryParameters.Filter = $"sentDateTime ge {sinceIso}";
-            config.QueryParameters.Select = ["id", "conversationId", "sentDateTime"];
-            config.QueryParameters.Top = 50;
-        }, cancellationToken);
-        return page?.Value?.ToList() ?? [];
     }
 
     private async Task<IReadOnlyList<MailFollowUp>> AttachNeedLinesAsync(
@@ -502,12 +548,16 @@ public sealed class GraphUserMailClient : IUserGraphMailClient
 
     private static string GraphFailureMessage(Exception ex)
     {
-        var detail = ex.Message;
+        var code = GraphMailQueries.ErrorCode(ex);
+        var detail = ex is ODataError odata
+            ? odata.Error?.Message ?? odata.Message
+            : ex.Message;
         if (detail.Length > 180)
         {
             detail = detail[..177] + "...";
         }
 
-        return "Outlook mail is temporarily unavailable (" + detail + "). Follow-ups are hidden rather than showing sample items.";
+        var inner = string.IsNullOrWhiteSpace(code) ? detail : code + ": " + detail;
+        return "Outlook mail is temporarily unavailable (" + inner + "). Follow-ups are hidden rather than showing sample items.";
     }
 }

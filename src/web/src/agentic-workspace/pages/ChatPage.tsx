@@ -167,6 +167,11 @@ export function WorkspaceChatPage() {
                 {chat.projectName}
               </Link>
             ) : null}
+            {chat?.folderId ? (
+              <Link to={`/workspace/repo/${chat.folderId}`} className="text-xs text-muted-foreground hover:underline">
+                {chat.folderPath ?? chat.folderName}
+              </Link>
+            ) : null}
             {shareLine ? <span className="text-xs text-muted-foreground">{shareLine}</span> : null}
           </div>
           {others.length > 0 ? (

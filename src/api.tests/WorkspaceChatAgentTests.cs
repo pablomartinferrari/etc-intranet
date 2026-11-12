@@ -162,6 +162,7 @@ public class WorkspaceChatAgentTests
             Id = Guid.NewGuid(),
             FolderId = folder.Id,
             Folder = folder,
+            FolderPath = folder.Path,
             Name = "Document 1",
             FileType = "document",
             MimeType = "text/plain",

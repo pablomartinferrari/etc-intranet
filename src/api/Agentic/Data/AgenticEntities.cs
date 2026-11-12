@@ -41,11 +41,13 @@ public sealed class AgenticChat
     public Guid Id { get; set; }
     public string OwnerOid { get; set; } = "";
     public Guid? ProjectId { get; set; }
+    public Guid? FolderId { get; set; }
     public string Title { get; set; } = "New chat";
     public bool RealtimeCollaboration { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public AgenticProject? Project { get; set; }
+    public AgenticRepoFolder? Folder { get; set; }
     public ICollection<AgenticChatMessage> Messages { get; set; } = new List<AgenticChatMessage>();
     public ICollection<AgenticChatShare> Shares { get; set; } = new List<AgenticChatShare>();
 }
@@ -86,20 +88,31 @@ public sealed class AgenticRepoFolder
     public bool IsPublic { get; set; } = true;
     public bool IsIndexed { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; }
+    public string CreatedByOid { get; set; } = "";
+    public string CreatedByName { get; set; } = "";
+    public DateTimeOffset UpdatedAt { get; set; }
+    public string UpdatedByOid { get; set; } = "";
+    public string UpdatedByName { get; set; } = "";
     public AgenticRepoFolder? Parent { get; set; }
     public ICollection<AgenticRepoFolder> Children { get; set; } = new List<AgenticRepoFolder>();
     public ICollection<AgenticRepoDocument> Documents { get; set; } = new List<AgenticRepoDocument>();
+    public ICollection<AgenticChat> Chats { get; set; } = new List<AgenticChat>();
 }
 
 public sealed class AgenticRepoDocument
 {
     public Guid Id { get; set; }
     public Guid FolderId { get; set; }
+    /// <summary>Copy of <see cref="AgenticRepoFolder.Path"/> for prefix-scoped search. Updated on rename/move without re-chunking.</summary>
+    public string FolderPath { get; set; } = "";
     public string Name { get; set; } = "";
     public string FileType { get; set; } = "document";
     public string MimeType { get; set; } = "text/plain";
     public long SizeBytes { get; set; }
     public string OwnerName { get; set; } = "ETC";
+    public string CreatedByOid { get; set; } = "";
+    public string UpdatedByOid { get; set; } = "";
+    public string UpdatedByName { get; set; } = "";
     public string StoragePath { get; set; } = "";
     public string? ExtractedText { get; set; }
     public bool IsIndexed { get; set; }
