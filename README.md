@@ -416,13 +416,15 @@ dotnet user-secrets set "FeatureRequests:Email:FromAddress" "intranet@etc.exampl
 | `FeatureRequests__Email__Smtp__Password` | SMTP password. Store in Key Vault in Azure. |
 | `FeatureRequests__Email__Smtp__UseSsl` | Default `true`. |
 
+Recommendations are not stored in Postgres. **Close-out reasons are** (table `PursuitCloseouts`) because CLEATUS has no documented win/loss-reason field. Do not put reasons in git or in CLEATUS tags.
+
 A pursuit **needs close-out** when it is not won, lost, or archived, and any of:
 
 1. Opportunity response/deadline is in the past
 2. Phase is triage / preparing / submitted and last-activity is 21+ days old, **if** CLEATUS sends an updated-at / last-activity field
-3. If there is no last-activity field, use deadline-only, and flag **no deadline on file** so those rows still appear
+3. If there is no last-activity field (current public OpenAPI/Zapier payloads do not document one), use deadline-only, and flag **no deadline on file** so those rows still appear
 
-Close-out PATCHes CLEATUS with `column_id` **Won** / **Lost**, or `archived: true` for no longer pursuing. There is no `phase` field on that PATCH.
+Close-out PATCHes CLEATUS with `column_id` **Won** / **Lost**, or `archived: true` for no longer pursuing. There is no `phase` field on that PATCH. No email is sent; visibility on the Pipeline page is enough.
 
 ## Build for production
 
