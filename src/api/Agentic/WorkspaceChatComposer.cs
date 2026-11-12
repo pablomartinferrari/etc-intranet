@@ -61,9 +61,20 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
         IReadOnlyList<AgenticChatMessage> history,
         CancellationToken cancellationToken)
     {
+        var emptyTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var hits = await _search.SearchAsync(
-            new RepoSearchQuery(question, null, new HashSet<string>(StringComparer.OrdinalIgnoreCase), Take: 5),
+            new RepoSearchQuery(question, chat.FolderId, emptyTypes, Take: 5),
             cancellationToken);
+        var widened = false;
+        if (chat.FolderId is not null && LocalRepositorySearch.IsWeak(hits))
+        {
+            var wider = await _search.SearchAsync(
+                new RepoSearchQuery(question, FolderId: null, emptyTypes, Take: 5),
+                cancellationToken);
+            hits = MergePreferringScoped(hits, wider);
+            widened = wider.Count > 0;
+        }
+
         var citations = hits.Select(ToCitation).ToList();
         var projectFiles = chat.Project?.Files
             .Select(f => f.Document)
@@ -88,7 +99,7 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
                 document.Name,
                 snippet,
                 document.Id,
-                document.Folder?.Path,
+                RepositoryNames.DocumentPath(document.Folder?.Path ?? document.FolderPath, document.Name),
                 $"/workspace/repo/{document.FolderId}?doc={document.Id}"));
         }
 
@@ -97,7 +108,7 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
         {
             var result = await _chat.CompleteAsync(
                 SystemPrompt,
-                UserPrompt(chat, question, history, citations, projectFiles),
+                UserPrompt(chat, question, history, citations, projectFiles, widened),
                 cancellationToken);
             var text = result.Content?.Trim();
             if (string.IsNullOrWhiteSpace(text))
@@ -167,12 +178,23 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
         string question,
         IReadOnlyList<AgenticChatMessage> history,
         IReadOnlyList<WorkspaceCitationDto> citations,
-        IReadOnlyList<AgenticRepoDocument> projectFiles)
+        IReadOnlyList<AgenticRepoDocument> projectFiles,
+        bool widenedFromFolderScope)
     {
         var sb = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(chat.Project?.Name))
         {
             sb.AppendLine($"Project: {chat.Project.Name}");
+        }
+
+        if (chat.Folder is not null)
+        {
+            sb.AppendLine($"Repository folder: {chat.Folder.Path}");
+            sb.AppendLine("Prefer files in this folder and its subfolders.");
+            if (widenedFromFolderScope)
+            {
+                sb.AppendLine("Folder search was weak; additional excerpts below come from the rest of the repository.");
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(chat.Project?.Instructions))
@@ -226,6 +248,23 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
 
         sb.AppendLine($"Question: {question}");
         return sb.ToString();
+    }
+
+    internal static IReadOnlyList<RepoSearchHit> MergePreferringScoped(
+        IReadOnlyList<RepoSearchHit> scoped,
+        IReadOnlyList<RepoSearchHit> wider)
+    {
+        var merged = new List<RepoSearchHit>(scoped);
+        var seen = new HashSet<Guid>(scoped.Select(h => h.DocumentId));
+        foreach (var hit in wider)
+        {
+            if (seen.Add(hit.DocumentId))
+            {
+                merged.Add(hit);
+            }
+        }
+
+        return merged.Take(5).ToList();
     }
 
     private static string? Trim(string? value, int max) =>

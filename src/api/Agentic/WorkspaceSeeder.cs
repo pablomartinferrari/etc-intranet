@@ -258,6 +258,7 @@ public sealed class WorkspaceSeeder
         {
             Id = id,
             FolderId = folderId,
+            FolderPath = _db.AgenticRepoFolders.Local.FirstOrDefault(f => f.Id == folderId)?.Path ?? "",
             Name = name,
             FileType = fileType,
             MimeType = fileType == "spreadsheet" ? "text/csv" : fileType == "image" ? "image/png" : "text/plain",

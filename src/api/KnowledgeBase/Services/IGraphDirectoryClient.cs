@@ -22,9 +22,15 @@ public sealed class GraphDirectoryException : Exception
 {
     public int StatusCode { get; }
 
-    public GraphDirectoryException(string message, int statusCode = StatusCodes.Status503ServiceUnavailable)
+    public string? GraphErrorCode { get; }
+
+    public GraphDirectoryException(
+        string message,
+        int statusCode = StatusCodes.Status503ServiceUnavailable,
+        string? graphErrorCode = null)
         : base(message)
     {
         StatusCode = statusCode;
+        GraphErrorCode = graphErrorCode;
     }
 }

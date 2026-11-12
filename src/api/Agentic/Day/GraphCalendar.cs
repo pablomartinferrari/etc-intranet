@@ -1,5 +1,6 @@
 using System.Globalization;
 using Azure.Core;
+using Intranet.Api.KnowledgeBase.Services;
 using Intranet.Api.MultifamilyLbp.Options;
 using Microsoft.Extensions.Options;
 using Microsoft.Graph;
@@ -54,6 +55,16 @@ public interface IUserGraphTokenProvider
     /// Mail.Read consent cannot fail the calendar token.
     /// </summary>
     Task<string> AcquireMailTokenAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Separate OBO request so missing directory consent cannot fail calendar or mail.
+    /// </summary>
+    Task<string> AcquireDirectoryUserTokenAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Separate OBO request for groups so missing Group.Read.All cannot fail user search.
+    /// </summary>
+    Task<string> AcquireDirectoryGroupTokenAsync(CancellationToken cancellationToken);
 }
 
 public sealed class CalendarConsentException : Exception
@@ -81,6 +92,8 @@ public sealed class ObOUserGraphTokenProvider : IUserGraphTokenProvider
 {
     public static readonly string[] CalendarScopes = ["https://graph.microsoft.com/Calendars.Read"];
     public static readonly string[] MailScopes = ["https://graph.microsoft.com/Mail.Read"];
+    public static readonly string[] DirectoryUserScopes = ["https://graph.microsoft.com/User.ReadBasic.All"];
+    public static readonly string[] DirectoryGroupScopes = ["https://graph.microsoft.com/Group.Read.All"];
 
     private readonly ITokenAcquisition _tokens;
     private readonly AzureAdOptions _azureAd;
@@ -103,6 +116,30 @@ public sealed class ObOUserGraphTokenProvider : IUserGraphTokenProvider
 
     public Task<string> AcquireMailTokenAsync(CancellationToken cancellationToken) =>
         AcquireAsync(MailScopes, () => new MailConsentException(), cancellationToken);
+
+    public Task<string> AcquireDirectoryUserTokenAsync(CancellationToken cancellationToken) =>
+        AcquireAsync(
+            DirectoryUserScopes,
+            () => new GraphDirectoryException(
+                "Workspace needs permission to search people in your directory. " +
+                "An admin must grant the API app the delegated Microsoft Graph permission User.ReadBasic.All " +
+                "(admin consent on the intranet web API app registration), then sign out and back in. " +
+                "Application User.Read.All is an alternative if a client secret is configured.",
+                StatusCodes.Status403Forbidden,
+                "consent_required"),
+            cancellationToken);
+
+    public Task<string> AcquireDirectoryGroupTokenAsync(CancellationToken cancellationToken) =>
+        AcquireAsync(
+            DirectoryGroupScopes,
+            () => new GraphDirectoryException(
+                "Workspace needs permission to search groups in your directory. " +
+                "An admin must grant the API app the delegated Microsoft Graph permission Group.Read.All " +
+                "(or GroupMember.Read.All) with admin consent, then sign out and back in. " +
+                "Application Group.Read.All is an alternative if a client secret is configured.",
+                StatusCodes.Status403Forbidden,
+                "consent_required"),
+            cancellationToken);
 
     private async Task<string> AcquireAsync(
         string[] scopes,

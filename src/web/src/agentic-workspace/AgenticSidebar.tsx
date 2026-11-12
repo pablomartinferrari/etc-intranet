@@ -17,6 +17,10 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { workspaceApi, type RepoFolder, type SidebarPayload, type WorkspaceChat, type WorkspaceProject } from "./api";
 
+function locationLabel(chat: WorkspaceChat) {
+  return chat.folderPath || chat.projectName || undefined;
+}
+
 function initial(name: string) {
   return (name.trim()[0] ?? "?").toUpperCase();
 }
@@ -59,38 +63,93 @@ function Row({
   );
 }
 
+function folderVisible(folder: RepoFolder, folders: RepoFolder[], chats: WorkspaceChat[], query: string): boolean {
+  if (!query) return true;
+  if (folder.name.toLowerCase().includes(query) || folder.path.toLowerCase().includes(query)) return true;
+  if (chats.some((c) => c.folderId === folder.id && c.title.toLowerCase().includes(query))) return true;
+  return folders.some((child) => child.parentId === folder.id && folderVisible(child, folders, chats, query));
+}
+
 function FolderTree({
   folders,
+  chats,
   parentId,
   query,
 }: {
   folders: RepoFolder[];
+  chats: WorkspaceChat[];
   parentId: string | null;
   query: string;
 }) {
   const children = folders
     .filter((f) => (f.parentId ?? null) === parentId)
+    .filter((f) => folderVisible(f, folders, chats, query))
     .sort((a, b) => a.name.localeCompare(b.name));
   return (
     <ul className="flex flex-col">
-      {children.map((folder) => {
-        const kids = folders.filter((f) => f.parentId === folder.id);
-        const match = !query || folder.name.toLowerCase().includes(query) || folder.path.toLowerCase().includes(query);
-        if (!match && kids.length === 0) return null;
-        return (
-          <li key={folder.id} className="pl-1">
-            <Row
-              to={`/workspace/repo/${folder.id}`}
-              icon={<Folder className="size-3.5" />}
-              label={folder.name}
-            />
-            {kids.length > 0 ? (
-              <FolderTree folders={folders} parentId={folder.id} query={query} />
-            ) : null}
-          </li>
-        );
-      })}
+      {children.map((folder) => (
+        <FolderNode key={folder.id} folder={folder} folders={folders} chats={chats} query={query} />
+      ))}
     </ul>
+  );
+}
+
+function FolderNode({
+  folder,
+  folders,
+  chats,
+  query,
+}: {
+  folder: RepoFolder;
+  folders: RepoFolder[];
+  chats: WorkspaceChat[];
+  query: string;
+}) {
+  const folderChats = chats.filter((c) => c.folderId === folder.id);
+  const kids = folders.filter((f) => f.parentId === folder.id);
+  const [open, setOpen] = useState(true);
+  const visibleChats = folderChats.filter((c) => !query || c.title.toLowerCase().includes(query) || folder.name.toLowerCase().includes(query));
+  return (
+    <li className="pl-1">
+      <div className="flex items-center">
+        {kids.length > 0 || folderChats.length > 0 ? (
+          <button
+            type="button"
+            className="flex size-6 items-center justify-center text-sidebar-foreground/50"
+            onClick={() => setOpen((v) => !v)}
+            aria-label={open ? "Collapse folder" : "Expand folder"}
+          >
+            <ChevronRight className={cn("size-3.5 transition", open && "rotate-90")} />
+          </button>
+        ) : (
+          <span className="size-6" />
+        )}
+        <div className="min-w-0 flex-1">
+          <Row
+            to={`/workspace/repo/${folder.id}`}
+            icon={<Folder className="size-3.5" />}
+            label={folder.name}
+            meta={folder.chatCount ? `${folder.chatCount}` : undefined}
+          />
+        </div>
+      </div>
+      {open ? (
+        <>
+          {visibleChats.map((chat) => (
+            <div key={chat.id} className="pl-6">
+              <Row
+                to={`/workspace/chats/${chat.id}`}
+                icon={<MessageSquare className="size-3.5" />}
+                label={chat.title}
+              />
+            </div>
+          ))}
+          {kids.length > 0 ? (
+            <FolderTree folders={folders} chats={chats} parentId={folder.id} query={query} />
+          ) : null}
+        </>
+      ) : null}
+    </li>
   );
 }
 
@@ -109,24 +168,41 @@ export function AgenticSidebar({
   const q = filter.trim().toLowerCase();
 
   const projects = data?.projects ?? [];
+  const scoped = data?.scopedChats ?? [];
   const chatsByProject = useMemo(() => {
     const map = new Map<string, WorkspaceChat[]>();
-    for (const chat of data?.myChats ?? []) {
+    for (const chat of scoped) {
       if (!chat.projectId) continue;
       const list = map.get(chat.projectId) ?? [];
       list.push(chat);
       map.set(chat.projectId, list);
     }
     return map;
-  }, [data?.myChats]);
+  }, [scoped]);
 
-  const unfiled = (data?.myChats ?? []).filter((c) => !c.projectId);
+  const unfiled = data?.myChats ?? [];
+  const folderChats = scoped.filter((c) => c.folderId);
+  const rootFolder = (data?.repository ?? []).find((f) => !f.parentId);
+  const rootScopedChats = scoped.filter((c) => c.folderId && c.folderId === rootFolder?.id);
   const visibleProjects = projects.filter(
     (p) =>
       !q ||
       p.name.toLowerCase().includes(q) ||
       (chatsByProject.get(p.id) ?? []).some((c) => c.title.toLowerCase().includes(q)),
   );
+  const searchHits = q
+    ? uniqueChats([
+        ...unfiled,
+        ...scoped,
+        ...(data?.sharedWithMe ?? []),
+        ...(data?.sharedByMe ?? []),
+      ]).filter(
+        (c) =>
+          c.title.toLowerCase().includes(q) ||
+          (c.folderPath ?? "").toLowerCase().includes(q) ||
+          (c.projectName ?? "").toLowerCase().includes(q),
+      )
+    : [];
 
   return (
     <aside className="dark flex h-full min-h-0 w-[260px] shrink-0 flex-col bg-sidebar text-sidebar-foreground">
@@ -208,15 +284,22 @@ export function AgenticSidebar({
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        {searchHits.length > 0 ? (
+          <>
+            <SectionLabel>Matching chats</SectionLabel>
+            {searchHits.map((chat) => (
+              <Row
+                key={`hit-${chat.id}`}
+                to={`/workspace/chats/${chat.id}`}
+                icon={<MessageSquare className="size-3.5" />}
+                label={chat.title}
+                meta={locationLabel(chat)}
+              />
+            ))}
+          </>
+        ) : null}
         <SectionLabel>My chats</SectionLabel>
         <Row to="/workspace" icon={<Home className="size-3.5" />} label="Home · My day" />
-        {visibleProjects.map((project) => (
-          <ProjectBlock
-            key={project.id}
-            project={project}
-            chats={(chatsByProject.get(project.id) ?? []).filter((c) => !q || c.title.toLowerCase().includes(q))}
-          />
-        ))}
         {unfiled
           .filter((c) => !q || c.title.toLowerCase().includes(q))
           .map((chat) => (
@@ -227,9 +310,21 @@ export function AgenticSidebar({
               label={chat.title}
             />
           ))}
-        {visibleProjects.length === 0 && unfiled.length === 0 ? (
-          <p className="px-2 py-1 text-[11px] text-sidebar-foreground/45">No chats yet — start one above.</p>
+        {unfiled.length === 0 ? (
+          <p className="px-2 py-1 text-[11px] text-sidebar-foreground/45">Unscoped chats live here.</p>
         ) : null}
+
+        <SectionLabel>Projects</SectionLabel>
+        {visibleProjects.length === 0 ? (
+          <p className="px-2 py-1 text-[11px] text-sidebar-foreground/45">No projects yet.</p>
+        ) : null}
+        {visibleProjects.map((project) => (
+          <ProjectBlock
+            key={project.id}
+            project={project}
+            chats={(chatsByProject.get(project.id) ?? []).filter((c) => !q || c.title.toLowerCase().includes(q))}
+          />
+        ))}
 
         <SectionLabel>Shared with me</SectionLabel>
         {(data?.sharedWithMe ?? []).length === 0 ? (
@@ -243,7 +338,7 @@ export function AgenticSidebar({
               to={`/workspace/chats/${chat.id}`}
               icon={<Users className="size-3.5" />}
               label={chat.title}
-              meta={chat.projectName ?? undefined}
+              meta={locationLabel(chat)}
             />
           ))}
 
@@ -256,21 +351,27 @@ export function AgenticSidebar({
               to={`/workspace/chats/${chat.id}`}
               icon={<Share2 className="size-3.5" />}
               label={chat.title}
-              meta={chat.shareCount ? `${chat.shareCount} people` : undefined}
+              meta={locationLabel(chat) ?? (chat.shareCount ? `${chat.shareCount} people` : undefined)}
             />
           ))}
 
         <SectionLabel>Repository</SectionLabel>
-        {(data?.repository ?? []).filter((f) => f.parentId).length === 0 ? (
-          <Row
-            to="/workspace/repo"
-            icon={<Folder className="size-3.5" />}
-            label="Browse & upload"
-          />
-        ) : null}
+        <Row to="/workspace/repo" icon={<Folder className="size-3.5" />} label="Browse & upload" />
+        {rootScopedChats
+          .filter((c) => !q || c.title.toLowerCase().includes(q))
+          .map((chat) => (
+            <div key={chat.id} className="pl-4">
+              <Row
+                to={`/workspace/chats/${chat.id}`}
+                icon={<MessageSquare className="size-3.5" />}
+                label={chat.title}
+              />
+            </div>
+          ))}
         <FolderTree
-          folders={(data?.repository ?? []).filter((f) => f.name !== "Root" || f.parentId)}
-          parentId={(data?.repository ?? []).find((f) => !f.parentId)?.id ?? null}
+          folders={(data?.repository ?? []).filter((f) => f.name !== "Root" || !!f.parentId)}
+          chats={folderChats}
+          parentId={rootFolder?.id ?? null}
           query={q}
         />
       </div>
@@ -282,6 +383,15 @@ export function AgenticSidebar({
       </div>
     </aside>
   );
+}
+
+function uniqueChats(chats: WorkspaceChat[]) {
+  const seen = new Set<string>();
+  return chats.filter((chat) => {
+    if (seen.has(chat.id)) return false;
+    seen.add(chat.id);
+    return true;
+  });
 }
 
 function ProjectBlock({ project, chats }: { project: WorkspaceProject; chats: WorkspaceChat[] }) {
@@ -307,7 +417,10 @@ function ProjectBlock({ project, chats }: { project: WorkspaceProject; chats: Wo
           }
         >
           <Folder className="size-3.5 shrink-0 text-sidebar-foreground/60" />
-          <span className="truncate">{project.name}</span>
+          <span className="min-w-0 flex-1 truncate">{project.name}</span>
+          {project.chatCount ? (
+            <span className="text-[11px] text-sidebar-foreground/45">{project.chatCount}</span>
+          ) : null}
         </NavLink>
       </div>
       {open

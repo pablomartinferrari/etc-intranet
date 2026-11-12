@@ -79,6 +79,9 @@ export type WorkspaceChat = {
   id: string;
   projectId?: string | null;
   projectName?: string | null;
+  folderId?: string | null;
+  folderName?: string | null;
+  folderPath?: string | null;
   title: string;
   visibility: string;
   realtimeCollaboration: boolean;
@@ -96,6 +99,9 @@ export type RepoFolder = {
   isPublic: boolean;
   isIndexed: boolean;
   childCount: number;
+  chatCount?: number;
+  createdByName?: string | null;
+  updatedAt?: string | null;
 };
 
 export type WorkspaceMe = { oid: string; displayName: string; email?: string | null };
@@ -106,6 +112,7 @@ export type SidebarPayload = {
   myChats: WorkspaceChat[];
   sharedWithMe: WorkspaceChat[];
   sharedByMe: WorkspaceChat[];
+  scopedChats: WorkspaceChat[];
   repository: RepoFolder[];
 };
 
@@ -183,6 +190,8 @@ export type RepoSearchHit = {
 export type RepoSearchResponse = {
   query: string;
   folderId?: string | null;
+  folderPath?: string | null;
+  scoped?: boolean;
   total: number;
   hits: RepoSearchHit[];
 };
@@ -259,9 +268,9 @@ export const workspaceApi = {
     apiSend<WorkspaceProject>("PATCH", `/workspace/projects/${id}`, body),
   chat: (id: string) => apiGet<WorkspaceChat>(`/workspace/chats/${id}`),
   messages: (id: string) => apiGet<ChatMessage[]>(`/workspace/chats/${id}/messages`),
-  createChat: (body: { title?: string; projectId?: string | null; realtimeCollaboration?: boolean }) =>
+  createChat: (body: { title?: string; projectId?: string | null; folderId?: string | null; realtimeCollaboration?: boolean }) =>
     apiSend<WorkspaceChat>("POST", "/workspace/chats", body),
-  updateChat: (id: string, body: { title?: string; projectId?: string | null; realtimeCollaboration?: boolean }) =>
+  updateChat: (id: string, body: { title?: string; projectId?: string | null; folderId?: string | null; realtimeCollaboration?: boolean }) =>
     apiSend<WorkspaceChat>("PATCH", `/workspace/chats/${id}`, body),
   send: (id: string, text: string) =>
     apiSend<{ user: ChatMessage; assistant: ChatMessage }>("POST", `/workspace/chats/${id}/messages`, { text }),
@@ -300,6 +309,31 @@ export const workspaceApi = {
     });
     if (!res.ok) throw new Error(await readError(res));
     return res.json() as Promise<RepoDocument>;
+  },
+  folderChats: (folderId: string) => apiGet<WorkspaceChat[]>(`/workspace/repo/${folderId}/chats`),
+  createFolder: (parentId: string, name: string) =>
+    apiSend<RepoFolder>("POST", `/workspace/repo/${parentId}/folders`, { name }),
+  renameFolder: (folderId: string, name: string) =>
+    apiSend<RepoFolder>("PATCH", `/workspace/repo/folders/${folderId}`, { name }),
+  moveFolder: (folderId: string, parentId: string) =>
+    apiSend<RepoFolder>("PATCH", `/workspace/repo/folders/${folderId}?parentId=${encodeURIComponent(parentId)}`, {}),
+  deleteFolder: async (folderId: string, recursive = false) => {
+    const res = await fetch(`${base}/workspace/repo/folders/${folderId}?recursive=${recursive}`, {
+      method: "DELETE",
+      headers: await authHeaders(),
+    });
+    if (!res.ok) throw new Error(await readError(res));
+  },
+  renameDocument: (documentId: string, name: string) =>
+    apiSend<RepoDocument>("PATCH", `/workspace/repo/documents/${documentId}`, { name }),
+  moveDocument: (documentId: string, folderId: string) =>
+    apiSend<RepoDocument>("PATCH", `/workspace/repo/documents/${documentId}?folderId=${encodeURIComponent(folderId)}`, {}),
+  deleteDocument: async (documentId: string) => {
+    const res = await fetch(`${base}/workspace/repo/documents/${documentId}`, {
+      method: "DELETE",
+      headers: await authHeaders(),
+    });
+    if (!res.ok) throw new Error(await readError(res));
   },
 };
 

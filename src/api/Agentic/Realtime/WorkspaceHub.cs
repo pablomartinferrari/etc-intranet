@@ -75,7 +75,12 @@ public sealed class WorkspaceHub : Hub
             new { oid = record.Oid, displayName = record.DisplayName, typing = isTyping });
     }
 
+    public const string RepositoryGroup = "repository";
+
     public static string GroupName(Guid chatId) => $"chat:{chatId:D}";
+
+    public Task JoinRepository() =>
+        Groups.AddToGroupAsync(Context.ConnectionId, RepositoryGroup);
 
     private static string Initial(string name) =>
         string.IsNullOrWhiteSpace(name) ? "?" : name.Trim()[0].ToString().ToUpperInvariant();

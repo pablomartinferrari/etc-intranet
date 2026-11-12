@@ -58,10 +58,11 @@ export function ShareChatDialog({
     enabled: open && !!chat,
   });
 
+  const looksLikeEmail = /@/.test(debounced) && debounced.includes(".");
   const searchQuery = useQuery({
     queryKey: ["ws-directory", debounced],
     queryFn: () => workspaceApi.directory(debounced),
-    enabled: open && debounced.length > 0,
+    enabled: open && (debounced.length >= 2 || looksLikeEmail),
   });
 
   const addMutation = useMutation({
@@ -102,6 +103,7 @@ export function ShareChatDialog({
 
   const existing = new Set((sharesQuery.data ?? []).map((s) => s.principalOid.toLowerCase()));
   const results = (searchQuery.data ?? []).filter((p) => !existing.has(p.oid.toLowerCase()));
+  const searchError = searchQuery.error instanceof Error ? searchQuery.error.message : null;
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -132,10 +134,19 @@ export function ShareChatDialog({
               Searching directory…
             </p>
           ) : null}
-          {debounced.length > 0 && !searchQuery.isFetching && results.length === 0 ? (
+          {debounced.length > 0 && debounced.length < 2 && !looksLikeEmail ? (
+            <p className="text-xs text-muted-foreground">Type at least two characters to search your directory.</p>
+          ) : null}
+          {searchError ? <p className="text-xs text-destructive">{searchError}</p> : null}
+          {debounced.length >= 2 && !searchQuery.isFetching && !searchError && results.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              No people or groups matched. Share uses Microsoft Graph directory search (AzureAd ClientSecret plus
-              application User.Read.All / Group.Read.All).
+              No people or groups matched. Try the person’s email — Workspace resolves exact Entra users even when
+              search is empty.
+            </p>
+          ) : null}
+          {looksLikeEmail && !searchQuery.isFetching && !searchError && results.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              That address did not resolve to an Entra user. Check the spelling or grant directory search permissions.
             </p>
           ) : null}
           {results.length > 0 ? (

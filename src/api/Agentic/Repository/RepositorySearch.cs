@@ -21,7 +21,8 @@ public sealed record RepoSearchHit(
     string FileType,
     string Path,
     string Snippet,
-    IReadOnlyList<string> Highlights);
+    IReadOnlyList<string> Highlights,
+    int Score = 0);
 
 /// <summary>
 /// Search seam. The POC uses <see cref="LocalRepositorySearch"/>. Swap the
@@ -33,6 +34,8 @@ public interface IRepositorySearch
     string Provider { get; }
 
     Task ReindexDocumentAsync(AgenticRepoDocument document, CancellationToken cancellationToken);
+
+    Task RemoveDocumentAsync(Guid documentId, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<RepoSearchHit>> SearchAsync(RepoSearchQuery query, CancellationToken cancellationToken);
 }
@@ -72,6 +75,15 @@ public sealed class LocalRepositorySearch : IRepositorySearch
         await _db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task RemoveDocumentAsync(Guid documentId, CancellationToken cancellationToken)
+    {
+        var existing = await _db.AgenticRepoChunks
+            .Where(c => c.DocumentId == documentId)
+            .ToListAsync(cancellationToken);
+        _db.AgenticRepoChunks.RemoveRange(existing);
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<RepoSearchHit>> SearchAsync(RepoSearchQuery query, CancellationToken cancellationToken)
     {
         var terms = Tokenize(query.Text);
@@ -80,16 +92,30 @@ public sealed class LocalRepositorySearch : IRepositorySearch
             return [];
         }
 
-        var folderIds = query.FolderId is { } folderId
-            ? await CollectDescendantFolderIds(folderId, cancellationToken)
-            : null;
+        string? scopePath = null;
+        if (query.FolderId is { } folderId)
+        {
+            scopePath = await _db.AgenticRepoFolders.AsNoTracking()
+                .Where(f => f.Id == folderId)
+                .Select(f => f.Path)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (scopePath is null)
+            {
+                return [];
+            }
+        }
 
+        var prefix = scopePath is null ? null : RepositoryNames.PrefixFilter(scopePath);
         var documents = await _db.AgenticRepoDocuments
             .AsNoTracking()
             .Include(d => d.Folder)
             .Include(d => d.Chunks)
             .Where(d => d.IsIndexed)
-            .Where(d => folderIds == null || folderIds.Contains(d.FolderId))
+            .Where(d =>
+                scopePath == null
+                || d.FolderPath == scopePath
+                || (prefix != null && d.FolderPath.StartsWith(prefix))
+                || (d.FolderPath == "" && (d.Folder.Path == scopePath || (prefix != null && d.Folder.Path.StartsWith(prefix)))))
             .Where(d => query.FileTypes.Count == 0 || query.FileTypes.Contains(d.FileType))
             .ToListAsync(cancellationToken);
 
@@ -120,15 +146,16 @@ public sealed class LocalRepositorySearch : IRepositorySearch
                 continue;
             }
 
-            var path = document.Folder.Path.TrimEnd('/') + "/" + document.Name;
+            var folderPath = string.IsNullOrWhiteSpace(document.FolderPath) ? document.Folder.Path : document.FolderPath;
             hits.Add((score, new RepoSearchHit(
                 document.Id,
                 document.FolderId,
                 document.Name,
                 document.FileType,
-                path.TrimStart('/'),
+                RepositoryNames.DocumentPath(folderPath, document.Name),
                 bestSnippet,
-                terms)));
+                terms,
+                score)));
         }
 
         return hits
@@ -230,25 +257,10 @@ public sealed class LocalRepositorySearch : IRepositorySearch
         return prefix + slice + suffix;
     }
 
-    private async Task<HashSet<Guid>> CollectDescendantFolderIds(Guid folderId, CancellationToken cancellationToken)
-    {
-        var folders = await _db.AgenticRepoFolders.AsNoTracking().ToListAsync(cancellationToken);
-        var ids = new HashSet<Guid> { folderId };
-        var changed = true;
-        while (changed)
-        {
-            changed = false;
-            foreach (var folder in folders)
-            {
-                if (folder.ParentId is { } parent && ids.Contains(parent) && ids.Add(folder.Id))
-                {
-                    changed = true;
-                }
-            }
-        }
+    public static bool IsWeak(IReadOnlyList<RepoSearchHit> hits) =>
+        hits.Count == 0 || hits.All(h => h.Score < WeakScoreThreshold);
 
-        return ids;
-    }
+    public const int WeakScoreThreshold = 2;
 
     private static bool MatchesModified(DateTimeOffset modified, string? filter)
     {
@@ -288,6 +300,9 @@ public sealed class AzureAiSearchRepositorySearch : IRepositorySearch
 
     public Task ReindexDocumentAsync(AgenticRepoDocument document, CancellationToken cancellationToken) =>
         _fallback.ReindexDocumentAsync(document, cancellationToken);
+
+    public Task RemoveDocumentAsync(Guid documentId, CancellationToken cancellationToken) =>
+        _fallback.RemoveDocumentAsync(documentId, cancellationToken);
 
     public Task<IReadOnlyList<RepoSearchHit>> SearchAsync(RepoSearchQuery query, CancellationToken cancellationToken)
     {

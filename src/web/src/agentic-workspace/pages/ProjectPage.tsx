@@ -40,6 +40,7 @@ export function WorkspaceProjectPage() {
     mutationFn: () => workspaceApi.createChat({ projectId, title: "New chat" }),
     onSuccess: (chat) => {
       void queryClient.invalidateQueries({ queryKey: ["ws-sidebar"] });
+      void queryClient.invalidateQueries({ queryKey: ["ws-project-chats", projectId] });
       navigate(`/workspace/chats/${chat.id}`);
     },
   });

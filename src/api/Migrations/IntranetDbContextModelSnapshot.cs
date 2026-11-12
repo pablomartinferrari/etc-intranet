@@ -31,6 +31,9 @@ namespace Intranet.Api.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("FolderId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("OwnerOid")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -51,6 +54,8 @@ namespace Intranet.Api.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("FolderId");
 
                     b.HasIndex("OwnerOid");
 
@@ -278,6 +283,11 @@ namespace Intranet.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("CreatedByOid")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("ExtractedText")
                         .HasColumnType("text");
 
@@ -288,6 +298,11 @@ namespace Intranet.Api.Migrations
 
                     b.Property<Guid>("FolderId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("FolderPath")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<bool>("IsIndexed")
                         .HasColumnType("boolean");
@@ -318,9 +333,21 @@ namespace Intranet.Api.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("UpdatedByName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("UpdatedByOid")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("FolderId");
+
+                    b.HasIndex("FolderPath");
 
                     b.ToTable("AgenticRepoDocuments", (string)null);
                 });
@@ -333,6 +360,16 @@ namespace Intranet.Api.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedByName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("CreatedByOid")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<bool>("IsIndexed")
                         .HasColumnType("boolean");
@@ -353,9 +390,24 @@ namespace Intranet.Api.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedByName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("UpdatedByOid")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ParentId");
+
+                    b.HasIndex("Path");
 
                     b.ToTable("AgenticRepoFolders", (string)null);
                 });
@@ -685,10 +737,17 @@ namespace Intranet.Api.Migrations
 
             modelBuilder.Entity("Intranet.Api.Agentic.Data.AgenticChat", b =>
                 {
+                    b.HasOne("Intranet.Api.Agentic.Data.AgenticRepoFolder", "Folder")
+                        .WithMany("Chats")
+                        .HasForeignKey("FolderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Intranet.Api.Agentic.Data.AgenticProject", "Project")
                         .WithMany("Chats")
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Folder");
 
                     b.Navigation("Project");
                 });
@@ -823,6 +882,8 @@ namespace Intranet.Api.Migrations
             modelBuilder.Entity("Intranet.Api.Agentic.Data.AgenticRepoFolder", b =>
                 {
                     b.Navigation("Children");
+
+                    b.Navigation("Chats");
 
                     b.Navigation("Documents");
                 });

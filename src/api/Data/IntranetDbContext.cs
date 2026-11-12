@@ -166,9 +166,14 @@ public class IntranetDbContext(DbContextOptions<IntranetDbContext> options) : Db
             entity.Property(e => e.Title).HasMaxLength(200);
             entity.HasIndex(e => e.OwnerOid);
             entity.HasIndex(e => e.ProjectId);
+            entity.HasIndex(e => e.FolderId);
             entity.HasOne(e => e.Project)
                 .WithMany(p => p.Chats)
                 .HasForeignKey(e => e.ProjectId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(e => e.Folder)
+                .WithMany(f => f.Chats)
+                .HasForeignKey(e => e.FolderId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
@@ -209,7 +214,12 @@ public class IntranetDbContext(DbContextOptions<IntranetDbContext> options) : Db
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).HasMaxLength(200);
             entity.Property(e => e.Path).HasMaxLength(1000);
+            entity.Property(e => e.CreatedByOid).HasMaxLength(64);
+            entity.Property(e => e.CreatedByName).HasMaxLength(200);
+            entity.Property(e => e.UpdatedByOid).HasMaxLength(64);
+            entity.Property(e => e.UpdatedByName).HasMaxLength(200);
             entity.HasIndex(e => e.ParentId);
+            entity.HasIndex(e => e.Path);
             entity.HasOne(e => e.Parent)
                 .WithMany(f => f.Children)
                 .HasForeignKey(e => e.ParentId)
@@ -224,8 +234,13 @@ public class IntranetDbContext(DbContextOptions<IntranetDbContext> options) : Db
             entity.Property(e => e.FileType).HasMaxLength(32);
             entity.Property(e => e.MimeType).HasMaxLength(200);
             entity.Property(e => e.OwnerName).HasMaxLength(200);
+            entity.Property(e => e.CreatedByOid).HasMaxLength(64);
+            entity.Property(e => e.UpdatedByOid).HasMaxLength(64);
+            entity.Property(e => e.UpdatedByName).HasMaxLength(200);
             entity.Property(e => e.StoragePath).HasMaxLength(500);
+            entity.Property(e => e.FolderPath).HasMaxLength(1000);
             entity.HasIndex(e => e.FolderId);
+            entity.HasIndex(e => e.FolderPath);
             entity.HasOne(e => e.Folder)
                 .WithMany(f => f.Documents)
                 .HasForeignKey(e => e.FolderId)

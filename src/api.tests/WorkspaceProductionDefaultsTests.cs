@@ -137,7 +137,9 @@ public class WorkspaceProductionDefaultsTests
     {
         var directory = new WorkspaceDirectory(
             new StubGraphDirectory(),
-            Options.Create(new AgenticOptions { ShareDemoCatalog = false, AllowAnonymous = false }));
+            new StubTokens(),
+            Options.Create(new AgenticOptions { ShareDemoCatalog = false, AllowAnonymous = false }),
+            NullLogger<WorkspaceDirectory>.Instance);
 
         Assert.Empty(directory.LocalPrincipals);
         Assert.False(directory.GraphConfigured);
@@ -148,7 +150,9 @@ public class WorkspaceProductionDefaultsTests
     {
         var directory = new WorkspaceDirectory(
             new StubGraphDirectory(),
-            Options.Create(new AgenticOptions { ShareDemoCatalog = true, AllowAnonymous = true }));
+            new StubTokens(),
+            Options.Create(new AgenticOptions { ShareDemoCatalog = true, AllowAnonymous = true }),
+            NullLogger<WorkspaceDirectory>.Instance);
 
         var results = await directory.SearchAsync("User B", CancellationToken.None);
         Assert.Contains(results, p => p.Oid == WorkspaceIds.DemoUserBOid);
@@ -205,6 +209,19 @@ public class WorkspaceProductionDefaultsTests
         public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
         public string ContentRootPath { get; set; } = Path.GetTempPath();
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class StubTokens : Intranet.Api.Agentic.Day.IUserGraphTokenProvider
+    {
+        public bool IsConfigured => false;
+
+        public Task<string> AcquireCalendarTokenAsync(CancellationToken cancellationToken) => Task.FromResult("");
+
+        public Task<string> AcquireMailTokenAsync(CancellationToken cancellationToken) => Task.FromResult("");
+
+        public Task<string> AcquireDirectoryUserTokenAsync(CancellationToken cancellationToken) => Task.FromResult("");
+
+        public Task<string> AcquireDirectoryGroupTokenAsync(CancellationToken cancellationToken) => Task.FromResult("");
     }
 
     private sealed class StubGraphDirectory : Intranet.Api.KnowledgeBase.Services.IGraphDirectoryClient
