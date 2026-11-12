@@ -207,44 +207,22 @@ public sealed class LocalRepositorySearch : IRepositorySearch
         Guid? folderId,
         CancellationToken cancellationToken)
     {
+        _ = folderId;
         if (string.IsNullOrWhiteSpace(question))
         {
             return [];
         }
 
-        string? scopePath = null;
-        if (folderId is { } id)
-        {
-            scopePath = await _db.AgenticRepoFolders.AsNoTracking()
-                .Where(f => f.Id == id)
-                .Select(f => f.Path)
-                .FirstOrDefaultAsync(cancellationToken);
-        }
-
-        var prefix = scopePath is null ? null : RepositoryNames.PrefixFilter(scopePath);
+        // Named files are the folder-scope exception: match by title/filename
+        // across the whole repository, even when the chat is in a folder.
         var names = await _db.AgenticRepoDocuments
             .AsNoTracking()
-            .Where(d =>
-                scopePath == null
-                || d.FolderPath == scopePath
-                || (prefix != null && d.FolderPath.StartsWith(prefix)))
             .Select(d => new { d.Id, d.Name })
             .ToListAsync(cancellationToken);
         var matched = names
             .Where(d => RepositoryNamedDocuments.NamesDocument(question, d.Name))
             .Select(d => d.Id)
             .ToList();
-        if (matched.Count == 0 && folderId is not null)
-        {
-            var wider = await _db.AgenticRepoDocuments.AsNoTracking()
-                .Select(d => new { d.Id, d.Name })
-                .ToListAsync(cancellationToken);
-            matched = wider
-                .Where(d => RepositoryNamedDocuments.NamesDocument(question, d.Name))
-                .Select(d => d.Id)
-                .ToList();
-        }
-
         return await LoadContextsAsync(matched, namedOrAttached: true, cancellationToken);
     }
 

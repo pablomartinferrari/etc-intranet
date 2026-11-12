@@ -144,13 +144,112 @@ public class WorkspaceChatScopeTests
         await composer.ComposeAsync(chat, "what is in here", [], CancellationToken.None);
 
         Assert.Contains("Root / Folder A", hosted.LastUserPrompt, StringComparison.Ordinal);
-        Assert.Contains("Prefer files in this folder", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("this folder and its subfolders only", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("scoped to the repository folder 'Root / Folder A'", hosted.LastSystemPrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Folder search was weak", hosted.LastUserPrompt, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task ComposerFallsBackToWholeRepoWhenFolderSearchIsWeak()
+    public async Task ComposerDoesNotFallBackToWholeRepoWhenFolderSearchIsWeak()
     {
-        await using var harness = await Harness.CreateAsync();
+        var (harness, hotel, _, composer, hosted) = await FolderPairAsync();
+        await using var _ = harness;
+        var folder = await harness.Db.AgenticRepoFolders.AsNoTracking().SingleAsync(f => f.Id == hotel);
+        var chat = new AgenticChat
+        {
+            Id = Guid.NewGuid(),
+            OwnerOid = harness.Actor.Oid,
+            Title = "Hotel chat",
+            FolderId = hotel,
+            Folder = folder,
+        };
+
+        var answer = await composer.ComposeAsync(chat, "pallet count", [], CancellationToken.None);
+
+        Assert.DoesNotContain("warehouse.txt", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("warehouse pallet count", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Folder search was weak", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("Root / Hotel", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("No matching documents in Root / Hotel", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("do not pull from the rest of the repository", hosted.LastSystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(answer.Citations, c => (c.Path ?? "").Contains("warehouse", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ComposerIncludesNamedFileOutsideFolder()
+    {
+        var (harness, hotel, other, composer, hosted) = await FolderPairAsync();
+        await using var _ = harness;
+        var folder = await harness.Db.AgenticRepoFolders.AsNoTracking().SingleAsync(f => f.Id == hotel);
+        var chat = new AgenticChat
+        {
+            Id = Guid.NewGuid(),
+            OwnerOid = harness.Actor.Oid,
+            Title = "Hotel chat",
+            FolderId = hotel,
+            Folder = folder,
+        };
+
+        var answer = await composer.ComposeAsync(chat, "what does warehouse.txt say?", [], CancellationToken.None);
+
+        Assert.Contains("warehouse.txt", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("warehouse pallet count", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("Root / Other", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("folder path:", hosted.LastUserPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(answer.Citations, c =>
+            c.Title == "warehouse.txt" && (c.Path ?? "").Contains("Root / Other", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ComposerIncludesAttachedFileOutsideFolder()
+    {
+        var (harness, hotel, other, composer, hosted) = await FolderPairAsync();
+        await using var _ = harness;
+        var warehouse = await harness.Db.AgenticRepoDocuments.AsNoTracking().SingleAsync(d => d.FolderId == other);
+        var folder = await harness.Db.AgenticRepoFolders.AsNoTracking().SingleAsync(f => f.Id == hotel);
+        var chat = new AgenticChat
+        {
+            Id = Guid.NewGuid(),
+            OwnerOid = harness.Actor.Oid,
+            Title = "Hotel chat",
+            FolderId = hotel,
+            Folder = folder,
+            DocumentId = warehouse.Id,
+            Document = await harness.Db.AgenticRepoDocuments.SingleAsync(d => d.Id == warehouse.Id),
+        };
+
+        await composer.ComposeAsync(chat, "what is the pallet count?", [], CancellationToken.None);
+
+        Assert.Contains("warehouse pallet count", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("attached to the file: warehouse.txt", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("even if it is outside the folder scope", hosted.LastUserPrompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ComposerMyChatsSearchesWholeRepository()
+    {
+        var (harness, _, _, composer, hosted) = await FolderPairAsync();
+        await using var _ = harness;
+        var chat = new AgenticChat
+        {
+            Id = Guid.NewGuid(),
+            OwnerOid = harness.Actor.Oid,
+            Title = "Loose",
+        };
+
+        var answer = await composer.ComposeAsync(chat, "pallet count", [], CancellationToken.None);
+
+        Assert.Contains("whole repository (My chats)", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("warehouse.txt", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("warehouse pallet count", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.Contains("My chats", hosted.LastSystemPrompt, StringComparison.Ordinal);
+        Assert.Contains(answer.Citations, c =>
+            c.Title == "warehouse.txt" && (c.Path ?? "").Contains("Root / Other", StringComparison.Ordinal));
+    }
+
+    private static async Task<(Harness Harness, Guid HotelId, Guid OtherId, WorkspaceChatComposer Composer, ScriptedChatClient Hosted)> FolderPairAsync()
+    {
+        var harness = await Harness.CreateAsync();
         var hotel = await harness.Service.CreateFolderAsync(harness.Actor, harness.RootId, "Hotel", CancellationToken.None);
         var other = await harness.Service.CreateFolderAsync(harness.Actor, harness.RootId, "Other", CancellationToken.None);
         await using (var stream = new MemoryStream("only hotel finishes"u8.ToArray()))
@@ -168,21 +267,7 @@ public class WorkspaceChatScopeTests
             CreateRouter(hosted),
             new LocalRepositorySearch(harness.Db),
             NullLogger<WorkspaceChatComposer>.Instance);
-        var folder = await harness.Db.AgenticRepoFolders.AsNoTracking().SingleAsync(f => f.Id == hotel.Id);
-        var chat = new AgenticChat
-        {
-            Id = Guid.NewGuid(),
-            OwnerOid = harness.Actor.Oid,
-            Title = "Hotel chat",
-            FolderId = hotel.Id,
-            Folder = folder,
-        };
-
-        await composer.ComposeAsync(chat, "pallet count", [], CancellationToken.None);
-
-        Assert.Contains("Folder search was weak", hosted.LastUserPrompt, StringComparison.Ordinal);
-        Assert.Contains("warehouse.txt", hosted.LastUserPrompt, StringComparison.Ordinal);
-        Assert.Contains("Root / Other", hosted.LastUserPrompt, StringComparison.Ordinal);
+        return (harness, hotel.Id, other.Id, composer, hosted);
     }
 
     private static ChatCompletionRouter CreateRouter(IChatCompletionClient hosted)
@@ -291,9 +376,11 @@ public class WorkspaceChatScopeTests
         public string ModelName { get; }
         public string Content { get; }
         public string LastUserPrompt { get; private set; } = "";
+        public string LastSystemPrompt { get; private set; } = "";
 
         public Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken)
         {
+            LastSystemPrompt = systemPrompt;
             LastUserPrompt = userPrompt;
             return Task.FromResult(Content);
         }
