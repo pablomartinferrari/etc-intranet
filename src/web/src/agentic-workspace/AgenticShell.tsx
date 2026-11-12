@@ -17,6 +17,8 @@ export function AgenticShell() {
     void connectRepositoryHub(() => {
       void queryClient.invalidateQueries({ queryKey: ["ws-sidebar"] });
       void queryClient.invalidateQueries({ queryKey: ["ws-repo"] });
+      void queryClient.invalidateQueries({ queryKey: ["ws-chat"] });
+      void queryClient.invalidateQueries({ queryKey: ["ws-folder-chats"] });
     })
       .then((hub) => {
         if (stopped) {

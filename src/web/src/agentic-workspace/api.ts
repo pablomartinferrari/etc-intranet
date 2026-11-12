@@ -91,6 +91,7 @@ export type WorkspaceChat = {
   shareCount: number;
   updatedAt: string;
   lastActivityLabel?: string | null;
+  myShareId?: string | null;
 };
 
 export type RepoFolder = {
@@ -289,6 +290,20 @@ export const workspaceApi = {
       realtimeCollaboration?: boolean;
     },
   ) => apiSend<WorkspaceChat>("PATCH", `/workspace/chats/${id}`, body),
+  deleteChat: async (id: string) => {
+    const res = await fetch(`${base}/workspace/chats/${id}`, {
+      method: "DELETE",
+      headers: await authHeaders(),
+    });
+    if (!res.ok) throw new Error(await readError(res));
+  },
+  leaveChat: async (id: string) => {
+    const res = await fetch(`${base}/workspace/chats/${id}/shares/me`, {
+      method: "DELETE",
+      headers: await authHeaders(),
+    });
+    if (!res.ok) throw new Error(await readError(res));
+  },
   send: (id: string, text: string) =>
     apiSend<{ user: ChatMessage; assistant: ChatMessage }>("POST", `/workspace/chats/${id}/messages`, { text }),
   shares: (id: string) => apiGet<ChatShare[]>(`/workspace/chats/${id}/shares`),

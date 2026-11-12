@@ -16,6 +16,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { workspaceApi, type RepoFolder, type SidebarPayload, type WorkspaceChat, type WorkspaceProject } from "./api";
+import { ChatOverflowMenu } from "./ChatActions";
 
 function locationLabel(chat: WorkspaceChat) {
   return chat.documentName || chat.folderPath || chat.projectName || undefined;
@@ -51,7 +52,7 @@ function Row({
       to={to}
       className={({ isActive }) =>
         cn(
-          "flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-sidebar-foreground/85 hover:bg-sidebar-accent",
+          "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-sidebar-foreground/85 hover:bg-sidebar-accent",
           (isActive || active) && "bg-sidebar-accent text-sidebar-accent-foreground",
         )
       }
@@ -60,6 +61,23 @@ function Row({
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {meta ? <span className="truncate text-[11px] text-sidebar-foreground/45">{meta}</span> : null}
     </NavLink>
+  );
+}
+
+function ChatRow({
+  chat,
+  icon,
+  meta,
+}: {
+  chat: WorkspaceChat;
+  icon: ReactNode;
+  meta?: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-0.5">
+      <Row to={`/workspace/chats/${chat.id}`} icon={icon} label={chat.title} meta={meta} />
+      <ChatOverflowMenu chat={chat} tone="sidebar" />
+    </div>
   );
 }
 
@@ -137,11 +155,7 @@ function FolderNode({
         <>
           {visibleChats.map((chat) => (
             <div key={chat.id} className="pl-6">
-              <Row
-                to={`/workspace/chats/${chat.id}`}
-                icon={<MessageSquare className="size-3.5" />}
-                label={chat.title}
-              />
+              <ChatRow chat={chat} icon={<MessageSquare className="size-3.5" />} />
             </div>
           ))}
           {kids.length > 0 ? (
@@ -289,11 +303,10 @@ export function AgenticSidebar({
           <>
             <SectionLabel>Matching chats</SectionLabel>
             {searchHits.map((chat) => (
-              <Row
+              <ChatRow
                 key={`hit-${chat.id}`}
-                to={`/workspace/chats/${chat.id}`}
+                chat={chat}
                 icon={<MessageSquare className="size-3.5" />}
-                label={chat.title}
                 meta={locationLabel(chat)}
               />
             ))}
@@ -304,12 +317,7 @@ export function AgenticSidebar({
         {unfiled
           .filter((c) => !q || c.title.toLowerCase().includes(q))
           .map((chat) => (
-            <Row
-              key={chat.id}
-              to={`/workspace/chats/${chat.id}`}
-              icon={<MessageSquare className="size-3.5" />}
-              label={chat.title}
-            />
+            <ChatRow key={chat.id} chat={chat} icon={<MessageSquare className="size-3.5" />} />
           ))}
         {unfiled.length === 0 ? (
           <p className="px-2 py-1 text-[11px] text-sidebar-foreground/45">Unscoped chats live here.</p>
@@ -334,11 +342,10 @@ export function AgenticSidebar({
         {(data?.sharedWithMe ?? [])
           .filter((c) => !q || c.title.toLowerCase().includes(q))
           .map((chat) => (
-            <Row
+            <ChatRow
               key={chat.id}
-              to={`/workspace/chats/${chat.id}`}
+              chat={chat}
               icon={<Users className="size-3.5" />}
-              label={chat.title}
               meta={locationLabel(chat)}
             />
           ))}
@@ -347,11 +354,10 @@ export function AgenticSidebar({
         {(data?.sharedByMe ?? [])
           .filter((c) => !q || c.title.toLowerCase().includes(q))
           .map((chat) => (
-            <Row
+            <ChatRow
               key={chat.id}
-              to={`/workspace/chats/${chat.id}`}
+              chat={chat}
               icon={<Share2 className="size-3.5" />}
-              label={chat.title}
               meta={locationLabel(chat) ?? (chat.shareCount ? `${chat.shareCount} people` : undefined)}
             />
           ))}
@@ -362,11 +368,7 @@ export function AgenticSidebar({
           .filter((c) => !q || c.title.toLowerCase().includes(q))
           .map((chat) => (
             <div key={chat.id} className="pl-4">
-              <Row
-                to={`/workspace/chats/${chat.id}`}
-                icon={<MessageSquare className="size-3.5" />}
-                label={chat.title}
-              />
+              <ChatRow chat={chat} icon={<MessageSquare className="size-3.5" />} />
             </div>
           ))}
         <FolderTree
@@ -427,11 +429,7 @@ function ProjectBlock({ project, chats }: { project: WorkspaceProject; chats: Wo
       {open
         ? chats.map((chat) => (
             <div key={chat.id} className="pl-6">
-              <Row
-                to={`/workspace/chats/${chat.id}`}
-                icon={<FileText className="size-3.5" />}
-                label={chat.title}
-              />
+              <ChatRow chat={chat} icon={<FileText className="size-3.5" />} />
             </div>
           ))
         : null}
