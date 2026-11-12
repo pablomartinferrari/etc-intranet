@@ -77,7 +77,8 @@ public sealed record WorkspaceChatDto(
     string Role,
     int ShareCount,
     DateTimeOffset UpdatedAt,
-    string? LastActivityLabel);
+    string? LastActivityLabel,
+    Guid? MyShareId = null);
 
 public sealed record WorkspaceSidebarDto(
     WorkspaceMeDto Me,

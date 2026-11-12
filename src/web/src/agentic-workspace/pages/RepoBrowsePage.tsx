@@ -1,10 +1,46 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileSpreadsheet, FileText, Folder, Image as ImageIcon, MessageSquare, Plus, Sparkles } from "lucide-react";
-import { useMemo, useRef, useState, type DragEvent } from "react";
+import {
+  Check,
+  FileSpreadsheet,
+  FileText,
+  Folder,
+  Image as ImageIcon,
+  Loader2,
+  MessageSquare,
+  MoreHorizontal,
+  Plus,
+  Search,
+  Sparkles,
+  Upload,
+} from "lucide-react";
+import { useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { workspaceApi, type RepoDocument, type RepoFolder } from "../api";
 
@@ -17,6 +53,36 @@ function FileIcon({ type }: { type: string }) {
 const FOLDER_MIME = "application/x-workspace-folder";
 const DOC_MIME = "application/x-workspace-document";
 
+type MoveTarget = { kind: "folder" | "document"; id: string; name: string };
+type RenameTarget = { kind: "folder" | "document"; id: string; name: string };
+type DeleteTarget =
+  | { kind: "folder"; folder: RepoFolder; recursive: boolean; message?: string }
+  | { kind: "document"; document: RepoDocument };
+type UploadRow = {
+  id: string;
+  name: string;
+  status: "queued" | "uploading" | "done" | "error";
+  percent: number;
+  error?: string;
+};
+
+function isFileDrag(event: DragEvent) {
+  return Array.from(event.dataTransfer.types).includes("Files");
+}
+
+function isDescendantOrSelf(folders: RepoFolder[], candidateId: string, ancestorId: string) {
+  if (candidateId === ancestorId) return true;
+  let current = folders.find((folder) => folder.id === candidateId);
+  const seen = new Set<string>();
+  while (current?.parentId) {
+    if (current.parentId === ancestorId) return true;
+    if (seen.has(current.parentId)) return false;
+    seen.add(current.parentId);
+    current = folders.find((folder) => folder.id === current!.parentId);
+  }
+  return false;
+}
+
 export function WorkspaceRepoBrowsePage() {
   const { folderId } = useParams();
   const [params] = useSearchParams();
@@ -24,9 +90,20 @@ export function WorkspaceRepoBrowsePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const internalDrag = useRef(false);
+  const dragDepth = useRef(0);
+
+  const [searchText, setSearchText] = useState("");
+  const [fileOver, setFileOver] = useState(false);
+  const [uploads, setUploads] = useState<UploadRow[]>([]);
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
-  const [creatingFolder, setCreatingFolder] = useState(false);
-  const [moveTarget, setMoveTarget] = useState<{ kind: "folder" | "document"; id: string } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
+  const [moveDestination, setMoveDestination] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const browseQuery = useQuery({
@@ -45,33 +122,6 @@ export function WorkspaceRepoBrowsePage() {
     await queryClient.invalidateQueries({ queryKey: ["ws-sidebar"] });
     await queryClient.invalidateQueries({ queryKey: ["ws-folder-chats"] });
   }
-
-  const uploadMutation = useMutation({
-    mutationFn: async (files: File[]) => {
-      const folder = browseQuery.data!.folder.id;
-      let last: RepoDocument | null = null;
-      for (const file of files) {
-        last = await workspaceApi.upload(folder, file);
-      }
-      return last;
-    },
-    onSuccess: (doc) => {
-      void refresh();
-      if (doc) navigate(`/workspace/repo/${doc.folderId}?doc=${doc.id}`);
-    },
-    onError: (err: Error) => setError(err.message),
-  });
-
-  const createFolderMutation = useMutation({
-    mutationFn: (name: string) => workspaceApi.createFolder(browseQuery.data!.folder.id, name),
-    onSuccess: (folder) => {
-      setNewFolderName("");
-      setCreatingFolder(false);
-      void refresh();
-      navigate(`/workspace/repo/${folder.id}`);
-    },
-    onError: (err: Error) => setError(err.message),
-  });
 
   const askMutation = useMutation({
     mutationFn: async (doc: RepoDocument) => {
@@ -105,98 +155,171 @@ export function WorkspaceRepoBrowsePage() {
       void queryClient.invalidateQueries({ queryKey: ["ws-sidebar"] });
       navigate(`/workspace/chats/${chat.id}`);
     },
+    onError: (err: Error) => setError(err.message),
   });
 
   const browse = browseQuery.data;
   const folders = treeQuery.data?.repository ?? [];
-  const rootId = folders.find((f) => !f.parentId)?.id;
   const selected = browse?.selected;
   const isRoot = !browse?.folder.parentId;
+  const folderName = browse?.folder.name ?? "folder";
+  const isEmpty = (browse?.children ?? []).length === 0 && (browse?.documents ?? []).length === 0;
 
-  const folderKids = useMemo(
-    () => (parent: string | null) => folders.filter((f) => (f.parentId ?? null) === parent),
-    [folders],
-  );
+  const moveOptions = useMemo(() => {
+    if (!moveTarget) return folders;
+    if (moveTarget.kind === "document") return folders;
+    return folders.filter((folder) => !isDescendantOrSelf(folders, folder.id, moveTarget.id));
+  }, [folders, moveTarget]);
 
-  async function renameFolder(folder: RepoFolder) {
-    const name = window.prompt("Rename folder", folder.name)?.trim();
-    if (!name || name === folder.name) return;
-    try {
-      await workspaceApi.renameFolder(folder.id, name);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not rename folder.");
-    }
+  function updateUpload(id: string, patch: Partial<UploadRow>) {
+    setUploads((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   }
 
-  async function renameDocument(doc: RepoDocument) {
-    const name = window.prompt("Rename file", doc.name)?.trim();
-    if (!name || name === doc.name) return;
-    try {
-      await workspaceApi.renameDocument(doc.id, name);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not rename file.");
-    }
-  }
-
-  async function deleteFolder(folder: RepoFolder) {
-    const ok = window.confirm(
-      `Delete “${folder.name}”? Files and subfolders in it will be removed. Chats in this folder will be moved to My chats.`,
-    );
-    if (!ok) return;
-    try {
-      await workspaceApi.deleteFolder(folder.id, false);
-      await refresh();
-      navigate(`/workspace/repo/${folder.parentId ?? ""}`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not delete folder.";
-      if (message.toLowerCase().includes("not empty") || message.toLowerCase().includes("recursive")) {
-        const recurse = window.confirm(
-          `${message}\n\nDelete this folder and everything inside it? Chats in this folder will be moved to My chats.`,
-        );
-        if (!recurse) return;
-        try {
-          await workspaceApi.deleteFolder(folder.id, true);
-          await refresh();
-          navigate(`/workspace/repo/${folder.parentId ?? ""}`);
-        } catch (inner) {
-          setError(inner instanceof Error ? inner.message : message);
-        }
-        return;
+  async function startUploads(files: File[], destinationId?: string) {
+    const folder = destinationId ?? browse?.folder.id;
+    if (!folder || files.length === 0) return;
+    const rows: UploadRow[] = files.map((file) => ({
+      id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
+      name: file.name,
+      status: "queued",
+      percent: 0,
+    }));
+    setUploads((current) => [...current, ...rows]);
+    setError(null);
+    let last: RepoDocument | null = null;
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      const row = rows[i];
+      updateUpload(row.id, { status: "uploading", percent: 0 });
+      try {
+        last = await workspaceApi.upload(folder, file, (percent) => updateUpload(row.id, { percent }));
+        updateUpload(row.id, { status: "done", percent: 100 });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Upload failed.";
+        updateUpload(row.id, { status: "error", error: message });
+        setError(message);
       }
-      setError(message);
     }
+    await refresh();
+    if (last) navigate(`/workspace/repo/${last.folderId}?doc=${last.id}`);
   }
 
-  async function deleteDocument(doc: RepoDocument) {
-    if (!window.confirm(`Delete “${doc.name}”?`)) return;
+  function beginRenameFolder(folder: RepoFolder) {
+    setRenameTarget({ kind: "folder", id: folder.id, name: folder.name });
+    setRenameValue(folder.name);
+  }
+
+  function beginRenameDocument(doc: RepoDocument) {
+    setRenameTarget({ kind: "document", id: doc.id, name: doc.name });
+    setRenameValue(doc.name);
+  }
+
+  function beginMoveFolder(folder: RepoFolder) {
+    setMoveTarget({ kind: "folder", id: folder.id, name: folder.name });
+    setMoveDestination("");
+  }
+
+  function beginMoveDocument(doc: RepoDocument) {
+    setMoveTarget({ kind: "document", id: doc.id, name: doc.name });
+    setMoveDestination("");
+  }
+
+  async function submitRename(event: FormEvent) {
+    event.preventDefault();
+    if (!renameTarget) return;
+    const name = renameValue.trim();
+    if (!name || name === renameTarget.name) {
+      setRenameTarget(null);
+      return;
+    }
+    setBusy(true);
     try {
-      await workspaceApi.deleteDocument(doc.id);
+      if (renameTarget.kind === "folder") await workspaceApi.renameFolder(renameTarget.id, name);
+      else await workspaceApi.renameDocument(renameTarget.id, name);
+      setRenameTarget(null);
       await refresh();
-      navigate(`/workspace/repo/${doc.folderId}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not delete file.");
+      setError(err instanceof Error ? err.message : "Could not rename.");
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function moveItem(destinationId: string) {
-    if (!moveTarget) return;
+  async function submitMove(event: FormEvent) {
+    event.preventDefault();
+    if (!moveTarget || !moveDestination) return;
+    setBusy(true);
     try {
-      if (moveTarget.kind === "folder") {
-        await workspaceApi.moveFolder(moveTarget.id, destinationId);
-      } else {
-        await workspaceApi.moveDocument(moveTarget.id, destinationId);
-      }
+      if (moveTarget.kind === "folder") await workspaceApi.moveFolder(moveTarget.id, moveDestination);
+      else await workspaceApi.moveDocument(moveTarget.id, moveDestination);
       setMoveTarget(null);
+      setMoveDestination("");
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not move item.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitNewFolder(event: FormEvent) {
+    event.preventDefault();
+    const name = newFolderName.trim();
+    if (!name || !browse) return;
+    setBusy(true);
+    try {
+      const folder = await workspaceApi.createFolder(browse.folder.id, name);
+      setNewFolderOpen(false);
+      setNewFolderName("");
+      await refresh();
+      navigate(`/workspace/repo/${folder.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create folder.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setBusy(true);
+    try {
+      if (deleteTarget.kind === "document") {
+        await workspaceApi.deleteDocument(deleteTarget.document.id);
+        setDeleteTarget(null);
+        await refresh();
+        navigate(`/workspace/repo/${deleteTarget.document.folderId}`);
+        return;
+      }
+      const { folder, recursive } = deleteTarget;
+      try {
+        await workspaceApi.deleteFolder(folder.id, recursive);
+        setDeleteTarget(null);
+        await refresh();
+        navigate(`/workspace/repo/${folder.parentId ?? ""}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not delete folder.";
+        if (!recursive && (message.toLowerCase().includes("not empty") || message.toLowerCase().includes("recursive"))) {
+          setDeleteTarget({ kind: "folder", folder, recursive: true, message });
+        } else {
+          setError(message);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete.");
+    } finally {
+      setBusy(false);
     }
   }
 
   async function dropOnFolder(event: DragEvent, destinationId: string) {
     event.preventDefault();
+    event.stopPropagation();
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length) {
+      await startUploads(files, destinationId);
+      return;
+    }
     const folderDrag = event.dataTransfer.getData(FOLDER_MIME);
     const docDrag = event.dataTransfer.getData(DOC_MIME);
     try {
@@ -206,12 +329,46 @@ export function WorkspaceRepoBrowsePage() {
       } else if (docDrag) {
         await workspaceApi.moveDocument(docDrag, destinationId);
         await refresh();
-      } else if (event.dataTransfer.files.length && destinationId === browse?.folder.id) {
-        uploadMutation.mutate(Array.from(event.dataTransfer.files));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not move item.");
     }
+  }
+
+  function onListDragEnter(event: DragEvent) {
+    if (internalDrag.current || !isFileDrag(event)) return;
+    dragDepth.current += 1;
+    setFileOver(true);
+  }
+
+  function onListDragLeave(event: DragEvent) {
+    if (internalDrag.current || !isFileDrag(event)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setFileOver(false);
+  }
+
+  function onListDragOver(event: DragEvent) {
+    event.preventDefault();
+  }
+
+  async function onListDrop(event: DragEvent) {
+    event.preventDefault();
+    dragDepth.current = 0;
+    setFileOver(false);
+    if (!browse) return;
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length) {
+      await startUploads(files, browse.folder.id);
+      return;
+    }
+    await dropOnFolder(event, browse.folder.id);
+  }
+
+  function runFolderSearch(event: FormEvent) {
+    event.preventDefault();
+    const q = searchText.trim();
+    if (!q) return;
+    navigate(`/workspace/search?q=${encodeURIComponent(q)}&folderId=${browse?.folder.id ?? ""}`);
   }
 
   return (
@@ -223,7 +380,7 @@ export function WorkspaceRepoBrowsePage() {
               {index > 0 ? <span className="text-muted-foreground">/</span> : null}
               <Link
                 to={`/workspace/repo/${crumb.id}`}
-                className="hover:underline"
+                className="rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => void dropOnFolder(e, crumb.id)}
               >
@@ -231,22 +388,34 @@ export function WorkspaceRepoBrowsePage() {
               </Link>
             </span>
           ))}
+          {browse && !isRoot ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  className="ml-0.5"
+                  aria-label={`Folder actions for ${folderName}`}
+                >
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onSelect={() => beginRenameFolder(browse.folder)}>Rename folder</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => beginMoveFolder(browse.folder)}>Move folder…</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => setDeleteTarget({ kind: "folder", folder: browse.folder, recursive: false })}>
+                  Delete folder
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
           {browse?.folder.isPublic ? (
             <span className="ml-2 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">Public · Indexed</span>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Input
-            placeholder={`Search in ${browse?.folder.path ?? browse?.folder.name ?? "folder"}`}
-            className="h-9 w-64 rounded-full"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const q = (e.target as HTMLInputElement).value.trim();
-                if (!q) return;
-                navigate(`/workspace/search?q=${encodeURIComponent(q)}&folderId=${browse?.folder.id ?? ""}`);
-              }
-            }}
-          />
+        <div className="flex shrink-0 items-center gap-2">
           <input
             ref={fileRef}
             type="file"
@@ -254,224 +423,233 @@ export function WorkspaceRepoBrowsePage() {
             className="hidden"
             onChange={(e) => {
               const files = Array.from(e.target.files ?? []);
-              if (files.length) uploadMutation.mutate(files);
+              if (files.length) void startUploads(files);
               e.target.value = "";
             }}
           />
-          {creatingFolder ? (
-            <form
-              className="flex items-center gap-1"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const name = newFolderName.trim();
-                if (name) createFolderMutation.mutate(name);
-              }}
-            >
-              <Input
-                autoFocus
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                placeholder="Folder name"
-                className="h-9 w-40"
-              />
-              <Button type="submit" size="sm" className="rounded-full">
-                Create
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" className="rounded-full">
+                <Plus /> New
               </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={() => setCreatingFolder(false)}>
-                Cancel
-              </Button>
-            </form>
-          ) : (
-            <Button size="sm" variant="outline" className="rounded-full" onClick={() => setCreatingFolder(true)}>
-              <Plus /> New folder
-            </Button>
-          )}
-          <Button size="sm" variant="outline" className="rounded-full" onClick={() => newChatMutation.mutate()}>
-            <MessageSquare /> New chat
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => fileRef.current?.click()}>
+                <Upload /> Upload files
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setNewFolderOpen(true)}>
+                <Folder /> New folder
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            size="sm"
+            variant="outline"
+            className="rounded-full"
+            onClick={() => newChatMutation.mutate()}
+            disabled={newChatMutation.isPending || !browse}
+          >
+            <MessageSquare /> Chat in this folder
           </Button>
-          <Button size="sm" className="rounded-full" onClick={() => fileRef.current?.click()}>
-            Upload
-          </Button>
-          {browse && !isRoot ? (
-            <>
-              <Button size="sm" variant="ghost" onClick={() => void renameFolder(browse.folder)}>
-                Rename
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setMoveTarget({ kind: "folder", id: browse.folder.id })}>
-                Move to…
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => void deleteFolder(browse.folder)}>
-                Delete
-              </Button>
-            </>
-          ) : null}
         </div>
       </header>
-      {error ? <p className="px-6 pb-2 text-xs text-destructive">{error}</p> : null}
-      {moveTarget ? (
-        <div className="flex items-center gap-2 px-6 pb-2 text-sm">
-          <span>Move to</span>
-          <select
-            className="h-8 rounded-md border bg-background px-2 text-sm"
-            defaultValue=""
-            onChange={(e) => {
-              if (e.target.value) void moveItem(e.target.value);
-            }}
-          >
-            <option value="">Choose folder…</option>
-            {folders.map((folder) => (
-              <option key={folder.id} value={folder.id}>
-                {folder.path}
-              </option>
-            ))}
-          </select>
-          <Button size="sm" variant="ghost" onClick={() => setMoveTarget(null)}>
-            Cancel
-          </Button>
-        </div>
+      {error ? (
+        <p className="px-6 pb-2 text-xs text-destructive" role="alert">
+          {error}
+        </p>
       ) : null}
-      <div className="grid min-h-0 flex-1 grid-cols-[220px_1fr_280px] divide-x">
-        <nav className="overflow-y-auto p-3 text-sm">
-          <FolderNav
-            folders={folders}
-            kids={folderKids}
-            currentId={browse?.folder.id}
-            rootId={rootId ?? null}
-            onMoveFolder={async (id, dest) => {
-              try {
-                await workspaceApi.moveFolder(id, dest);
-                await refresh();
-              } catch (err) {
-                setError(err instanceof Error ? err.message : "Could not move folder.");
-              }
-            }}
-          />
-        </nav>
-        <div
-          className="overflow-auto"
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => browse && void dropOnFolder(e, browse.folder.id)}
-        >
-          <table className="w-full text-left text-sm">
-            <thead className="text-xs text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2 font-medium">Name</th>
-                <th className="px-4 py-2 font-medium">Type</th>
-                <th className="px-4 py-2 font-medium">Modified</th>
-                <th className="px-4 py-2 font-medium">Owner</th>
-                <th className="px-4 py-2 font-medium"> </th>
-              </tr>
-            </thead>
-            <tbody>
-              {(browse?.children ?? []).map((child) => (
-                <tr
-                  key={child.id}
-                  className="cursor-pointer hover:bg-muted/50"
-                  draggable
-                  onDragStart={(e) => e.dataTransfer.setData(FOLDER_MIME, child.id)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => void dropOnFolder(e, child.id)}
-                  onClick={() => navigate(`/workspace/repo/${child.id}`)}
-                >
-                  <td className="px-4 py-2">
-                    <span className="flex items-center gap-2">
-                      <Folder className="size-4 text-muted-foreground" />
-                      {child.name}
-                      {child.chatCount ? (
-                        <span className="text-[11px] text-muted-foreground">{child.chatCount} chats</span>
-                      ) : null}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 text-muted-foreground">Folder</td>
-                  <td className="px-4 py-2 text-muted-foreground">
-                    {child.updatedAt ? new Date(child.updatedAt).toLocaleDateString() : "—"}
-                  </td>
-                  <td className="px-4 py-2 text-muted-foreground">{child.createdByName ?? "—"}</td>
-                  <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                    <button type="button" className="mr-2 text-xs hover:underline" onClick={() => void renameFolder(child)}>
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      className="mr-2 text-xs hover:underline"
-                      onClick={() => setMoveTarget({ kind: "folder", id: child.id })}
-                    >
-                      Move
-                    </button>
-                    <button type="button" className="text-xs hover:underline" onClick={() => void deleteFolder(child)}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {(browse?.children ?? []).length === 0 && (browse?.documents ?? []).length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-sm text-muted-foreground">
-                    This folder is empty. Upload files or create a nested folder. New chats started here stay in this folder,
-                    not in My chats.
-                  </td>
-                </tr>
-              ) : null}
-              {(browse?.documents ?? []).map((doc) => (
-                <tr
-                  key={doc.id}
-                  className={cn("cursor-pointer hover:bg-muted/50", selected?.id === doc.id && "bg-muted")}
-                  draggable
-                  onDragStart={(e) => e.dataTransfer.setData(DOC_MIME, doc.id)}
-                  onClick={() => navigate(`/workspace/repo/${doc.folderId}?doc=${doc.id}`)}
-                >
-                  <td className="px-4 py-2">
-                    <span className="flex items-center gap-2">
-                      <FileIcon type={doc.fileType} />
-                      {doc.name}
-                      {doc.extractionStatus && doc.extractionStatus !== "ok" ? (
-                        <span className="text-[11px] text-amber-700">No extractable text</span>
-                      ) : null}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 capitalize text-muted-foreground">{doc.fileType}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{new Date(doc.modifiedAt).toLocaleDateString()}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{doc.ownerName}</td>
-                  <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                    <button type="button" className="mr-2 text-xs hover:underline" onClick={() => askMutation.mutate(doc)}>
-                      Chat about this
-                    </button>
-                    <button type="button" className="mr-2 text-xs hover:underline" onClick={() => reindexMutation.mutate(doc)}>
-                      Re-index
-                    </button>
-                    <button type="button" className="mr-2 text-xs hover:underline" onClick={() => void renameDocument(doc)}>
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      className="mr-2 text-xs hover:underline"
-                      onClick={() => setMoveTarget({ kind: "document", id: doc.id })}
-                    >
-                      Move
-                    </button>
-                    <button type="button" className="text-xs hover:underline" onClick={() => void deleteDocument(doc)}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {(chatsQuery.data ?? []).length > 0 ? (
-            <div className="border-t px-4 py-3">
-              <p className="mb-2 text-xs font-medium text-muted-foreground">Chats in this folder</p>
-              <ul className="flex flex-col gap-1">
-                {(chatsQuery.data ?? []).map((chat) => (
-                  <li key={chat.id}>
-                    <Link to={`/workspace/chats/${chat.id}`} className="flex items-center gap-2 text-sm hover:underline">
-                      <MessageSquare className="size-3.5 text-muted-foreground" />
-                      {chat.title}
-                    </Link>
+
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px] divide-x">
+        <div className="flex min-h-0 min-w-0 flex-col">
+          <form
+            className="border-b bg-muted/30 px-4 py-2"
+            onSubmit={runFolderSearch}
+            role="search"
+            aria-label={`Search in ${folderName} and subfolders`}
+          >
+            <div className="relative">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                placeholder={`Search in ${folderName} and subfolders`}
+                className="h-9 rounded-md bg-background pl-9"
+                aria-label={`Search in ${folderName} and subfolders`}
+              />
+            </div>
+          </form>
+          <div
+            className="relative min-h-0 flex-1 overflow-auto"
+            onDragEnter={onListDragEnter}
+            onDragLeave={onListDragLeave}
+            onDragOver={onListDragOver}
+            onDrop={(e) => void onListDrop(e)}
+          >
+            {fileOver ? (
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-background/80 ring-2 ring-inset ring-primary">
+                <p className="rounded-full border bg-background px-4 py-2 text-sm font-medium shadow-sm">
+                  Drop files to upload to {folderName}
+                </p>
+              </div>
+            ) : null}
+            {uploads.length > 0 ? (
+              <ul className="space-y-1.5 border-b px-4 py-3" aria-live="polite">
+                {uploads.map((row) => (
+                  <li key={row.id} className="flex items-center gap-3 text-xs">
+                    {row.status === "uploading" || row.status === "queued" ? (
+                      <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+                    ) : row.status === "done" ? (
+                      <Check className="size-3.5 shrink-0 text-emerald-600" />
+                    ) : (
+                      <span className="size-3.5 shrink-0 text-destructive">!</span>
+                    )}
+                    <span className="min-w-0 flex-1 truncate">{row.name}</span>
+                    {row.status === "uploading" ? (
+                      <span className="flex items-center gap-2 text-muted-foreground">
+                        <span className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
+                          <span className="block h-full bg-foreground" style={{ width: `${row.percent}%` }} />
+                        </span>
+                        {row.percent}%
+                      </span>
+                    ) : row.status === "queued" ? (
+                      <span className="text-muted-foreground">Queued</span>
+                    ) : row.status === "done" ? (
+                      <span className="text-muted-foreground">Uploaded</span>
+                    ) : (
+                      <span className="text-destructive">{row.error ?? "Failed"}</span>
+                    )}
                   </li>
                 ))}
               </ul>
-            </div>
-          ) : null}
+            ) : null}
+            {isEmpty && uploads.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
+                <p className="text-sm text-muted-foreground">
+                  No files yet. Drop files here or use + New → Upload files
+                </p>
+                <button
+                  type="button"
+                  className="text-sm text-foreground underline-offset-4 hover:underline"
+                  onClick={() => setNewFolderOpen(true)}
+                >
+                  New folder
+                </button>
+              </div>
+            ) : (
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2 font-medium">Name</th>
+                    <th className="px-4 py-2 font-medium">Type</th>
+                    <th className="px-4 py-2 font-medium">Modified</th>
+                    <th className="px-4 py-2 font-medium">Owner</th>
+                    <th className="px-4 py-2 font-medium">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(browse?.children ?? []).map((child) => (
+                    <tr
+                      key={child.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      draggable
+                      onDragStart={(e) => {
+                        internalDrag.current = true;
+                        e.dataTransfer.setData(FOLDER_MIME, child.id);
+                      }}
+                      onDragEnd={() => {
+                        internalDrag.current = false;
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => void dropOnFolder(e, child.id)}
+                      onClick={() => navigate(`/workspace/repo/${child.id}`)}
+                    >
+                      <td className="px-4 py-2">
+                        <span className="flex items-center gap-2">
+                          <Folder className="size-4 text-muted-foreground" />
+                          {child.name}
+                          {child.chatCount ? (
+                            <span className="text-[11px] text-muted-foreground">{child.chatCount} chats</span>
+                          ) : null}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-muted-foreground">Folder</td>
+                      <td className="px-4 py-2 text-muted-foreground">
+                        {child.updatedAt ? new Date(child.updatedAt).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="px-4 py-2 text-muted-foreground">{child.createdByName ?? "—"}</td>
+                      <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                        <RowMenu
+                          label={`Actions for ${child.name}`}
+                          items={[
+                            { label: "Rename", onSelect: () => beginRenameFolder(child) },
+                            { label: "Move", onSelect: () => beginMoveFolder(child) },
+                            { label: "Delete", onSelect: () => setDeleteTarget({ kind: "folder", folder: child, recursive: false }), destructive: true },
+                          ]}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                  {(browse?.documents ?? []).map((doc) => (
+                    <tr
+                      key={doc.id}
+                      className={cn("cursor-pointer hover:bg-muted/50", selected?.id === doc.id && "bg-muted")}
+                      draggable
+                      onDragStart={(e) => {
+                        internalDrag.current = true;
+                        e.dataTransfer.setData(DOC_MIME, doc.id);
+                      }}
+                      onDragEnd={() => {
+                        internalDrag.current = false;
+                      }}
+                      onClick={() => navigate(`/workspace/repo/${doc.folderId}?doc=${doc.id}`)}
+                    >
+                      <td className="px-4 py-2">
+                        <span className="flex items-center gap-2">
+                          <FileIcon type={doc.fileType} />
+                          {doc.name}
+                          {doc.extractionStatus && doc.extractionStatus !== "ok" ? (
+                            <span className="text-[11px] text-amber-700">No extractable text</span>
+                          ) : null}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 capitalize text-muted-foreground">{doc.fileType}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{new Date(doc.modifiedAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-2 text-muted-foreground">{doc.ownerName}</td>
+                      <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                        <RowMenu
+                          label={`Actions for ${doc.name}`}
+                          items={[
+                            { label: "Chat about this file", onSelect: () => askMutation.mutate(doc) },
+                            { label: "Re-index", onSelect: () => reindexMutation.mutate(doc) },
+                            { label: "Rename", onSelect: () => beginRenameDocument(doc) },
+                            { label: "Move", onSelect: () => beginMoveDocument(doc) },
+                            { label: "Delete", onSelect: () => setDeleteTarget({ kind: "document", document: doc }), destructive: true },
+                          ]}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {(chatsQuery.data ?? []).length > 0 ? (
+              <div className="border-t px-4 py-3">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">Chats in this folder</p>
+                <ul className="flex flex-col gap-1">
+                  {(chatsQuery.data ?? []).map((chat) => (
+                    <li key={chat.id}>
+                      <Link to={`/workspace/chats/${chat.id}`} className="flex items-center gap-2 text-sm hover:underline">
+                        <MessageSquare className="size-3.5 text-muted-foreground" />
+                        {chat.title}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
         </div>
         <aside className="overflow-y-auto p-5">
           {selected ? (
@@ -505,59 +683,182 @@ export function WorkspaceRepoBrowsePage() {
           )}
         </aside>
       </div>
+
+      <Dialog
+        open={newFolderOpen}
+        onOpenChange={(open) => {
+          setNewFolderOpen(open);
+          if (!open) setNewFolderName("");
+        }}
+      >
+        <DialogContent>
+          <form className="contents" onSubmit={(e) => void submitNewFolder(e)}>
+            <DialogHeader>
+              <DialogTitle>New folder</DialogTitle>
+              <DialogDescription>Created inside {folderName}.</DialogDescription>
+            </DialogHeader>
+            <div className="py-3">
+              <Label htmlFor="new-folder-name">Name</Label>
+              <Input
+                id="new-folder-name"
+                className="mt-1.5"
+                autoFocus
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder="Folder name"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setNewFolderOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy || !newFolderName.trim()}>
+                Create
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!renameTarget}
+        onOpenChange={(open) => {
+          if (!open) setRenameTarget(null);
+        }}
+      >
+        <DialogContent>
+          <form className="contents" onSubmit={(e) => void submitRename(e)}>
+            <DialogHeader>
+              <DialogTitle>{renameTarget?.kind === "folder" ? "Rename folder" : "Rename file"}</DialogTitle>
+            </DialogHeader>
+            <div className="py-3">
+              <Label htmlFor="rename-item">Name</Label>
+              <Input
+                id="rename-item"
+                className="mt-1.5"
+                autoFocus
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setRenameTarget(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy || !renameValue.trim()}>
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!moveTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMoveTarget(null);
+            setMoveDestination("");
+          }
+        }}
+      >
+        <DialogContent>
+          <form className="contents" onSubmit={(e) => void submitMove(e)}>
+            <DialogHeader>
+              <DialogTitle>Move {moveTarget?.kind === "folder" ? "folder" : "file"}</DialogTitle>
+              <DialogDescription>
+                Choose a destination for {moveTarget?.name ?? "this item"}.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-3">
+              <Label htmlFor="move-destination">Destination folder</Label>
+              <Select value={moveDestination || undefined} onValueChange={setMoveDestination}>
+                <SelectTrigger id="move-destination" className="mt-1.5 w-full">
+                  <SelectValue placeholder="Choose folder…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {moveOptions.map((folder) => (
+                    <SelectItem key={folder.id} value={folder.id}>
+                      {folder.path}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setMoveTarget(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy || !moveDestination}>
+                Move
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {deleteTarget?.kind === "document"
+                ? `Delete “${deleteTarget.document.name}”?`
+                : deleteTarget?.recursive
+                  ? `Delete “${deleteTarget.folder.name}” and everything inside it?`
+                  : `Delete “${deleteTarget?.folder.name}”?`}
+            </DialogTitle>
+            <DialogDescription>
+              {deleteTarget?.kind === "document"
+                ? "This file will be removed from the repository."
+                : deleteTarget?.recursive
+                  ? `${deleteTarget.message ?? "This folder is not empty."} Files and subfolders will be removed. Chats in this folder will be moved to My chats.`
+                  : "Files and subfolders in it will be removed. Chats in this folder will be moved to My chats."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" disabled={busy} onClick={() => void confirmDelete()}>
+              {deleteTarget?.kind === "folder" && deleteTarget.recursive ? "Delete all" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function FolderNav({
-  folders,
-  kids,
-  currentId,
-  rootId,
-  parentId = null,
-  onMoveFolder,
+function RowMenu({
+  label,
+  items,
 }: {
-  folders: { id: string; parentId?: string | null; name: string }[];
-  kids: (parent: string | null) => { id: string; parentId?: string | null; name: string }[];
-  currentId?: string;
-  rootId: string | null;
-  parentId?: string | null;
-  onMoveFolder: (id: string, dest: string) => void;
+  label: string;
+  items: { label: string; onSelect: () => void; destructive?: boolean }[];
 }) {
-  const nodes = kids(parentId ?? rootId);
-  const list = parentId === null && rootId ? kids(rootId) : nodes;
   return (
-    <ul className="flex flex-col">
-      {list.map((folder) => (
-        <li key={folder.id}>
-          <Link
-            to={`/workspace/repo/${folder.id}`}
-            className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted",
-              currentId === folder.id && "bg-muted font-medium",
-            )}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              const dragged = e.dataTransfer.getData(FOLDER_MIME);
-              if (dragged) onMoveFolder(dragged, folder.id);
-            }}
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" size="icon-xs" variant="ghost" aria-label={label}>
+          <MoreHorizontal />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {items.map((item) => (
+          <DropdownMenuItem
+            key={item.label}
+            variant={item.destructive ? "destructive" : "default"}
+            onSelect={item.onSelect}
           >
-            <Folder className="size-3.5 text-muted-foreground" />
-            {folder.name}
-          </Link>
-          <div className="pl-3">
-            <FolderNav
-              folders={folders}
-              kids={kids}
-              currentId={currentId}
-              rootId={rootId}
-              parentId={folder.id}
-              onMoveFolder={onMoveFolder}
-            />
-          </div>
-        </li>
-      ))}
-    </ul>
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

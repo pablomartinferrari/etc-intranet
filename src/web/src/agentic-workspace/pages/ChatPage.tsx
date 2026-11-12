@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ChatMarkdown } from "@/knowledge-base/ChatMarkdown";
 import { cn } from "@/lib/utils";
 import { workspaceApi, type ChatMessage, type PresenceUser } from "../api";
+import { ChatOverflowMenu } from "../ChatActions";
 import { Composer } from "../Composer";
 import { connectWorkspaceHub, sendTyping } from "../realtime";
 import { ShareChatDialog } from "../ShareChatDialog";
@@ -157,6 +158,7 @@ export function WorkspaceChatPage() {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="truncate text-sm font-semibold">{chat?.title ?? "Chat"}</h1>
+            {chat ? <ChatOverflowMenu chat={chat} /> : null}
             {chat?.visibility === "shared" ? (
               <Badge variant="outline">{chat.realtimeCollaboration ? "Shared" : "Private"}</Badge>
             ) : (

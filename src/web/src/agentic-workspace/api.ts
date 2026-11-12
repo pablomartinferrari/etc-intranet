@@ -91,6 +91,7 @@ export type WorkspaceChat = {
   shareCount: number;
   updatedAt: string;
   lastActivityLabel?: string | null;
+  myShareId?: string | null;
 };
 
 export type RepoFolder = {
@@ -289,6 +290,20 @@ export const workspaceApi = {
       realtimeCollaboration?: boolean;
     },
   ) => apiSend<WorkspaceChat>("PATCH", `/workspace/chats/${id}`, body),
+  deleteChat: async (id: string) => {
+    const res = await fetch(`${base}/workspace/chats/${id}`, {
+      method: "DELETE",
+      headers: await authHeaders(),
+    });
+    if (!res.ok) throw new Error(await readError(res));
+  },
+  leaveChat: async (id: string) => {
+    const res = await fetch(`${base}/workspace/chats/${id}/shares/me`, {
+      method: "DELETE",
+      headers: await authHeaders(),
+    });
+    if (!res.ok) throw new Error(await readError(res));
+  },
   send: (id: string, text: string) =>
     apiSend<{ user: ChatMessage; assistant: ChatMessage }>("POST", `/workspace/chats/${id}/messages`, { text }),
   shares: (id: string) => apiGet<ChatShare[]>(`/workspace/chats/${id}/shares`),
@@ -316,16 +331,41 @@ export const workspaceApi = {
     if (modified) params.set("modified", modified);
     return apiGet<RepoSearchResponse>(`/workspace/search?${params}`);
   },
-  upload: async (folderId: string, file: File) => {
+  upload: async (folderId: string, file: File, onProgress?: (percent: number) => void) => {
     const data = new FormData();
     data.append("file", file);
-    const res = await fetch(`${base}/workspace/repo/${folderId}/upload`, {
-      method: "POST",
-      headers: await authHeaders(),
-      body: data,
+    const headers = await authHeaders();
+    return new Promise<RepoDocument>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${base}/workspace/repo/${folderId}/upload`);
+      const record = headers as Record<string, string>;
+      for (const [key, value] of Object.entries(record)) {
+        if (!value || key.toLowerCase() === "content-type") continue;
+        xhr.setRequestHeader(key, value);
+      }
+      xhr.upload.onprogress = (event) => {
+        if (!onProgress || !event.lengthComputable) return;
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText) as RepoDocument);
+          } catch {
+            reject(new Error("Upload succeeded but the response was not JSON."));
+          }
+          return;
+        }
+        try {
+          const json = JSON.parse(xhr.responseText) as { message?: string };
+          reject(new Error(json.message || xhr.responseText || `${xhr.status}`));
+        } catch {
+          reject(new Error(xhr.responseText || `${xhr.status} ${xhr.statusText}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Upload failed."));
+      xhr.send(data);
     });
-    if (!res.ok) throw new Error(await readError(res));
-    return res.json() as Promise<RepoDocument>;
   },
   folderChats: (folderId: string) => apiGet<WorkspaceChat[]>(`/workspace/repo/${folderId}/chats`),
   createFolder: (parentId: string, name: string) =>

@@ -32,6 +32,10 @@ public interface IWorkspaceService
 
     Task<WorkspaceChatDto> UpdateChatAsync(WorkspaceActor actor, Guid chatId, UpdateChatRequestDto request, CancellationToken cancellationToken);
 
+    Task DeleteChatAsync(WorkspaceActor actor, Guid chatId, CancellationToken cancellationToken);
+
+    Task LeaveChatAsync(WorkspaceActor actor, Guid chatId, CancellationToken cancellationToken);
+
     Task<IReadOnlyList<WorkspaceMessageDto>> ListMessagesAsync(WorkspaceActor actor, Guid chatId, CancellationToken cancellationToken);
 
     Task<(WorkspaceMessageDto User, WorkspaceMessageDto Assistant)> SendAsync(
@@ -295,15 +299,22 @@ public sealed partial class WorkspaceService : IWorkspaceService
     public async Task<WorkspaceChatDto> GetChatAsync(WorkspaceActor actor, Guid chatId, CancellationToken cancellationToken)
     {
         var (chat, role) = await RequireChat(actor, chatId, view: true, cancellationToken: cancellationToken);
-        return ToChatDto(chat, role);
+        return ToChatDto(chat, role, EffectiveOid(actor));
     }
+
+    public const int ChatTitleMaxLength = 200;
 
     public async Task<WorkspaceChatDto> UpdateChatAsync(WorkspaceActor actor, Guid chatId, UpdateChatRequestDto request, CancellationToken cancellationToken)
     {
         var (chat, role) = await RequireChat(actor, chatId, edit: true, cancellationToken: cancellationToken);
         if (request.Title is not null)
         {
-            chat.Title = string.IsNullOrWhiteSpace(request.Title) ? chat.Title : request.Title.Trim();
+            if (!AgenticRoles.CanManage(role))
+            {
+                throw new AgenticException("Only the owner can rename this chat.", StatusCodes.Status403Forbidden);
+            }
+
+            chat.Title = NormalizeChatTitle(request.Title);
         }
 
         if (request.ProjectId.HasValue)
@@ -357,7 +368,35 @@ public sealed partial class WorkspaceService : IWorkspaceService
 
         chat.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
-        return ToChatDto(chat, role);
+        return ToChatDto(chat, role, EffectiveOid(actor));
+    }
+
+    public async Task DeleteChatAsync(WorkspaceActor actor, Guid chatId, CancellationToken cancellationToken)
+    {
+        var (chat, _) = await RequireChat(actor, chatId, manage: true, cancellationToken: cancellationToken);
+        await _db.Entry(chat).Collection(c => c.Messages).LoadAsync(cancellationToken);
+        _db.AgenticChatMessages.RemoveRange(chat.Messages);
+        _db.AgenticChatShares.RemoveRange(chat.Shares);
+        _db.AgenticChats.Remove(chat);
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task LeaveChatAsync(WorkspaceActor actor, Guid chatId, CancellationToken cancellationToken)
+    {
+        var (chat, role) = await RequireChat(actor, chatId, view: true, cancellationToken: cancellationToken);
+        if (AgenticRoles.CanManage(role))
+        {
+            throw new AgenticException("Owners cannot leave their own chat. Delete it instead.", StatusCodes.Status400BadRequest);
+        }
+
+        var oid = EffectiveOid(actor);
+        var share = chat.Shares.FirstOrDefault(s =>
+                s.PrincipalType == AgenticRoles.User && AgenticAccess.OidsEqual(s.PrincipalOid, oid))
+            ?? throw new AgenticException(
+                "This chat is shared with a group. Ask the owner to remove access.",
+                StatusCodes.Status400BadRequest);
+        _db.AgenticChatShares.Remove(share);
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<WorkspaceMessageDto>> ListMessagesAsync(WorkspaceActor actor, Guid chatId, CancellationToken cancellationToken)
@@ -653,7 +692,7 @@ public sealed partial class WorkspaceService : IWorkspaceService
         return chats
             .Select(c => (Chat: c, Role: AgenticAccess.ResolveChatRole(oid, c, member)))
             .Where(x => AgenticRoles.CanView(x.Role))
-            .Select(x => ToChatDto(x.Chat, x.Role!))
+            .Select(x => ToChatDto(x.Chat, x.Role!, oid))
             .OrderByDescending(c => c.UpdatedAt)
             .ToList();
     }
@@ -755,10 +794,13 @@ public sealed partial class WorkspaceService : IWorkspaceService
     private static WorkspaceProjectDto ToProjectDto(AgenticProject project, string role) =>
         new(project.Id, project.Name, project.Instructions, role, project.Chats.Count, project.Files.Count, project.UpdatedAt);
 
-    private static WorkspaceChatDto ToChatDto(AgenticChat chat, string role)
+    private static WorkspaceChatDto ToChatDto(AgenticChat chat, string role, string userOid)
     {
         var shareCount = chat.Shares.Count;
         var visibility = shareCount > 0 || chat.RealtimeCollaboration ? "shared" : "private";
+        var myShareId = chat.Shares
+            .FirstOrDefault(s => s.PrincipalType == AgenticRoles.User && AgenticAccess.OidsEqual(s.PrincipalOid, userOid))
+            ?.Id;
         return new WorkspaceChatDto(
             chat.Id,
             chat.ProjectId,
@@ -774,7 +816,26 @@ public sealed partial class WorkspaceService : IWorkspaceService
             role,
             shareCount,
             chat.UpdatedAt,
-            Relative(chat.UpdatedAt));
+            Relative(chat.UpdatedAt),
+            myShareId);
+    }
+
+    private static string NormalizeChatTitle(string title)
+    {
+        var trimmed = title.Trim();
+        if (trimmed.Length == 0)
+        {
+            throw new AgenticException("Title is required.", StatusCodes.Status400BadRequest);
+        }
+
+        if (trimmed.Length > ChatTitleMaxLength)
+        {
+            throw new AgenticException(
+                $"Title must be {ChatTitleMaxLength} characters or fewer.",
+                StatusCodes.Status400BadRequest);
+        }
+
+        return trimmed;
     }
 
     private static WorkspaceMessageDto ToMessageDto(AgenticChatMessage message) =>

@@ -69,6 +69,7 @@ public sealed class WorkspaceDayController(
 public sealed class WorkspaceCatalogController(
     IWorkspaceService workspace,
     IWorkspaceDirectory directory,
+    IHubContext<WorkspaceHub> hub,
     IOptions<AgenticOptions> options) : WorkspaceControllerBase(options)
 {
     [HttpGet("sidebar")]
@@ -252,7 +253,29 @@ public sealed class WorkspaceCatalogController(
 
         try
         {
-            return Ok(await workspace.UpdateChatAsync(Actor(), chatId, body, cancellationToken));
+            var chat = await workspace.UpdateChatAsync(Actor(), chatId, body, cancellationToken);
+            await NotifyRepositoryChanged(cancellationToken);
+            return Ok(chat);
+        }
+        catch (AgenticException ex)
+        {
+            return MapError(ex);
+        }
+    }
+
+    [HttpDelete("chats/{chatId:guid}")]
+    public async Task<IActionResult> DeleteChat(Guid chatId, CancellationToken cancellationToken)
+    {
+        if (GuardEnabled() is { } disabled)
+        {
+            return disabled;
+        }
+
+        try
+        {
+            await workspace.DeleteChatAsync(Actor(), chatId, cancellationToken);
+            await NotifyRepositoryChanged(cancellationToken);
+            return NoContent();
         }
         catch (AgenticException ex)
         {
@@ -325,6 +348,7 @@ public sealed class WorkspaceCatalogController(
         try
         {
             await workspace.RemoveShareAsync(Actor(), chatId, shareId, cancellationToken);
+            await NotifyRepositoryChanged(cancellationToken);
             return NoContent();
         }
         catch (AgenticException ex)
@@ -332,6 +356,32 @@ public sealed class WorkspaceCatalogController(
             return MapError(ex);
         }
     }
+
+    [HttpDelete("chats/{chatId:guid}/shares/me")]
+    public async Task<IActionResult> LeaveChat(Guid chatId, CancellationToken cancellationToken)
+    {
+        if (GuardEnabled() is { } disabled)
+        {
+            return disabled;
+        }
+
+        try
+        {
+            await workspace.LeaveChatAsync(Actor(), chatId, cancellationToken);
+            await NotifyRepositoryChanged(cancellationToken);
+            return NoContent();
+        }
+        catch (AgenticException ex)
+        {
+            return MapError(ex);
+        }
+    }
+
+    private Task NotifyRepositoryChanged(CancellationToken cancellationToken) =>
+        hub.Clients.Group(WorkspaceHub.RepositoryGroup).SendAsync(
+            "repositoryChanged",
+            new { at = DateTimeOffset.UtcNow },
+            cancellationToken);
 }
 
 public sealed class WorkspaceChatSendController(
