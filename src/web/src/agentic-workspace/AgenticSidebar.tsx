@@ -15,7 +15,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { workspaceApi, type RepoFolder, SidebarPayload, WorkspaceChat, WorkspaceProject } from "./api";
+import { workspaceApi, type RepoFolder, type SidebarPayload, type WorkspaceChat, type WorkspaceProject } from "./api";
 
 function initial(name: string) {
   return (name.trim()[0] ?? "?").toUpperCase();
