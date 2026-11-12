@@ -12,3 +12,5 @@ wwwroot/assets/
 .env
 infra/*.parameters.json
 !infra/main.bicepparam
+App_Data/
+src/api/App_Data/

@@ -290,6 +290,7 @@ public class HelpAskServiceTests
             "/requests",
             "/sales/requests",
             "/knowledge/sources",
+            "/workspace",
         ]));
         Assert.Contains(IntranetMap.Places, p => p.Id == "help");
         Assert.Contains(IntranetMap.Places, p => p.Id == "signin");

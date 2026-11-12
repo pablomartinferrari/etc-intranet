@@ -15,7 +15,9 @@ export function isIntranetAppReturnPath(pathname: string): boolean {
     pathname === "/pipeline" ||
     pathname.startsWith("/pipeline/") ||
     pathname === "/knowledge" ||
-    pathname.startsWith("/knowledge/")
+    pathname.startsWith("/knowledge/") ||
+    pathname === "/workspace" ||
+    pathname.startsWith("/workspace/")
   );
 }
 
