@@ -2,6 +2,7 @@ using System.Text.Json;
 using Intranet.Api.Agentic.Data;
 using Intranet.Api.Agentic.Repository;
 using Intranet.Api.Data;
+using Intranet.Api.KnowledgeBase.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -59,6 +60,8 @@ public sealed class WorkspaceService : IWorkspaceService
     private readonly IntranetDbContext _db;
     private readonly IWorkspaceDirectory _directory;
     private readonly IRepositorySearch _search;
+    private readonly IWorkspaceChatComposer _composer;
+    private readonly ChatCompletionRouter _llm;
     private readonly AgenticOptions _options;
     private readonly IWebHostEnvironment _environment;
 
@@ -66,12 +69,16 @@ public sealed class WorkspaceService : IWorkspaceService
         IntranetDbContext db,
         IWorkspaceDirectory directory,
         IRepositorySearch search,
+        IWorkspaceChatComposer composer,
+        ChatCompletionRouter llm,
         IOptions<AgenticOptions> options,
         IWebHostEnvironment environment)
     {
         _db = db;
         _directory = directory;
         _search = search;
+        _composer = composer;
+        _llm = llm;
         _options = options.Value;
         _environment = environment;
     }
@@ -81,8 +88,15 @@ public sealed class WorkspaceService : IWorkspaceService
             _options.Enabled,
             _options.AllowAnonymous,
             _options.UseGraphCalendar,
+            _options.UseGraphMail,
+            _options.SeedDemoData,
+            _options.ShareDemoCatalog,
+            _llm.IsFallbackConfigured,
+            _directory.GraphConfigured,
             _search.Provider,
             "signalr",
+            _llm.IsFallbackConfigured ? "hosted-or-ollama" : "search-fallback",
+            RepositoryStorage.ResolveRoot(_options, _environment),
             _options.DemoUserOid,
             _options.DemoUserName);
 
@@ -317,7 +331,12 @@ public sealed class WorkspaceService : IWorkspaceService
             chat.Title = trimmed.Length <= 48 ? trimmed : trimmed[..48];
         }
 
-        var (answer, citations) = await ComposeAnswerAsync(chat, trimmed, cancellationToken);
+        var history = await _db.AgenticChatMessages
+            .AsNoTracking()
+            .Where(m => m.ChatId == chat.Id)
+            .OrderBy(m => m.CreatedAt)
+            .ToListAsync(cancellationToken);
+        var composed = await _composer.ComposeAsync(chat, trimmed, history, cancellationToken);
         var assistant = new AgenticChatMessage
         {
             Id = Guid.NewGuid(),
@@ -325,8 +344,8 @@ public sealed class WorkspaceService : IWorkspaceService
             Role = "assistant",
             AuthorOid = "agent",
             AuthorName = "Assistant",
-            Content = answer,
-            CitationsJson = citations.Count == 0 ? null : JsonSerializer.Serialize(citations, JsonOptions),
+            Content = composed.Content,
+            CitationsJson = composed.Citations.Count == 0 ? null : JsonSerializer.Serialize(composed.Citations, JsonOptions),
             CreatedAt = now.AddMilliseconds(10),
         };
         _db.AgenticChatMessages.Add(assistant);
@@ -405,8 +424,15 @@ public sealed class WorkspaceService : IWorkspaceService
                 : null)
             ?? WorkspaceIds.FolderRoot;
         var folder = folders.FirstOrDefault(f => f.Id == selectedFolderId)
-            ?? folders.FirstOrDefault(f => f.ParentId is null)
-            ?? throw new AgenticException("Repository is empty.", StatusCodes.Status404NotFound);
+            ?? folders.FirstOrDefault(f => f.ParentId is null);
+        if (folder is null)
+        {
+            await EnsureRootFolderAsync(cancellationToken);
+            folders = await _db.AgenticRepoFolders.AsNoTracking().ToListAsync(cancellationToken);
+            folder = folders.FirstOrDefault(f => f.ParentId is null)
+                ?? throw new AgenticException("Repository is empty.", StatusCodes.Status404NotFound);
+            selectedFolderId = folder.Id;
+        }
 
         var childCounts = folders.GroupBy(f => f.ParentId).ToDictionary(g => g.Key ?? Guid.Empty, g => g.Count());
         var children = folders
@@ -452,7 +478,7 @@ public sealed class WorkspaceService : IWorkspaceService
         buffer.Position = 0;
         var id = Guid.NewGuid();
         var relative = $"{id:N}{Path.GetExtension(safeName)}";
-        var root = Path.Combine(_environment.ContentRootPath, _options.RepositoryRoot);
+        var root = RepositoryStorage.ResolveRoot(_options, _environment);
         Directory.CreateDirectory(root);
         var full = Path.Combine(root, relative);
         await using (var file = File.Create(full))
@@ -499,46 +525,7 @@ public sealed class WorkspaceService : IWorkspaceService
             query,
             folderId,
             hits.Count,
-            hits.Select(h => new RepoSearchHitDto(h.DocumentId, h.Title, h.FileType, h.Path, h.Snippet, h.Highlights)).ToList());
-    }
-
-    internal async Task<(string Answer, List<WorkspaceCitationDto> Citations)> ComposeAnswerAsync(
-        AgenticChat chat,
-        string question,
-        CancellationToken cancellationToken)
-    {
-        var folderId = chat.ProjectId == WorkspaceIds.ProjectAlpha ? WorkspaceIds.FolderA : (Guid?)null;
-        var hits = await _search.SearchAsync(
-            new RepoSearchQuery(question, folderId, new HashSet<string>(StringComparer.OrdinalIgnoreCase), Take: 3),
-            cancellationToken);
-        if (hits.Count == 0)
-        {
-            hits = await _search.SearchAsync(
-                new RepoSearchQuery(question, null, new HashSet<string>(StringComparer.OrdinalIgnoreCase), Take: 3),
-                cancellationToken);
-        }
-
-        var citations = hits.Select(h => new WorkspaceCitationDto(
-            "repository",
-            h.Title,
-            h.Snippet,
-            h.DocumentId,
-            h.Path,
-            $"/workspace/repo/{ExtractFolderId(h.Path)}?doc={h.DocumentId}")).ToList();
-
-        var instructions = chat.Project?.Instructions;
-        var cited = citations.Count == 0
-            ? "I do not have a matching repository document yet. Upload a file or try a different folder scope."
-            : "I found this in the shared repository:\n\n" + string.Join(
-                "\n\n",
-                citations.Select((c, i) => $"{i + 1}. **{c.Title}** — {c.Snippet}"));
-        var prefix = string.IsNullOrWhiteSpace(instructions)
-            ? ""
-            : $"Using project instructions: {Trim(instructions, 160)}\n\n";
-        var group = chat.RealtimeCollaboration
-            ? "This is a shared thread — I am answering the group.\n\n"
-            : "";
-        return (group + prefix + cited, citations);
+            hits.Select(h => new RepoSearchHitDto(h.DocumentId, h.FolderId, h.Title, h.FileType, h.Path, h.Snippet, h.Highlights)).ToList());
     }
 
     private async Task<List<WorkspaceChatDto>> VisibleChats(WorkspaceActor actor, CancellationToken cancellationToken)
@@ -575,6 +562,7 @@ public sealed class WorkspaceService : IWorkspaceService
         var chat = await _db.AgenticChats
             .Include(c => c.Shares)
             .Include(c => c.Project)!.ThenInclude(p => p!.Shares)
+            .Include(c => c.Project)!.ThenInclude(p => p!.Files).ThenInclude(f => f.Document).ThenInclude(d => d.Folder)
             .FirstOrDefaultAsync(c => c.Id == chatId, cancellationToken)
             ?? throw new AgenticException("Chat not found.", StatusCodes.Status404NotFound);
         var oid = EffectiveOid(actor);
@@ -628,6 +616,26 @@ public sealed class WorkspaceService : IWorkspaceService
         }
 
         return (project, role);
+    }
+
+    private async Task EnsureRootFolderAsync(CancellationToken cancellationToken)
+    {
+        if (await _db.AgenticRepoFolders.AnyAsync(f => f.ParentId == null, cancellationToken))
+        {
+            return;
+        }
+
+        _db.AgenticRepoFolders.Add(new AgenticRepoFolder
+        {
+            Id = WorkspaceIds.FolderRoot,
+            ParentId = null,
+            Name = "Root",
+            Path = "Root",
+            IsPublic = true,
+            IsIndexed = true,
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await _db.SaveChangesAsync(cancellationToken);
     }
 
     private string EffectiveOid(WorkspaceActor actor) =>
@@ -751,20 +759,6 @@ public sealed class WorkspaceService : IWorkspaceService
     private static string? Trim(string? value, int max) =>
         string.IsNullOrWhiteSpace(value) ? value : value.Length <= max ? value : value[..max] + "…";
 
-    private static Guid? ExtractFolderId(string path)
-    {
-        if (path.Contains("Subfolder A1", StringComparison.OrdinalIgnoreCase))
-        {
-            return WorkspaceIds.FolderA1;
-        }
-
-        if (path.Contains("Folder A", StringComparison.OrdinalIgnoreCase))
-        {
-            return WorkspaceIds.FolderA;
-        }
-
-        return WorkspaceIds.FolderRoot;
-    }
 }
 
 public sealed class AgenticException : Exception

@@ -126,6 +126,13 @@ export function WorkspaceRepoBrowsePage() {
                   <td className="px-4 py-2 text-muted-foreground">—</td>
                 </tr>
               ))}
+              {(browse?.children ?? []).length === 0 && (browse?.documents ?? []).length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-8 text-sm text-muted-foreground">
+                    This folder is empty. Upload a document, spreadsheet, or PDF so Workspace chat can cite it.
+                  </td>
+                </tr>
+              ) : null}
               {(browse?.documents ?? []).map((doc) => (
                 <tr
                   key={doc.id}

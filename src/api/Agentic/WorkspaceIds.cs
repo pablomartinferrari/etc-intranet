@@ -1,6 +1,6 @@
 namespace Intranet.Api.Agentic;
 
-/// <summary>Stable ids for the seeded POC catalog (URLs and tests).</summary>
+/// <summary>Stable ids for the seeded Development catalog (cleanup + tests).</summary>
 public static class WorkspaceIds
 {
     public const string DemoYouOid = "dev-you";
@@ -32,4 +32,46 @@ public static class WorkspaceIds
     public static readonly Guid DocQuarterly5 = Guid.Parse("55555555-5555-5555-5555-555555555555");
     public static readonly Guid DocSpreadsheet = Guid.Parse("55555555-5555-5555-5555-555555555556");
     public static readonly Guid DocImage = Guid.Parse("55555555-5555-5555-5555-555555555557");
+
+    public static readonly Guid ShareTeamYou = Guid.Parse("66666666-6666-6666-6666-666666666661");
+    public static readonly Guid ShareTeamC = Guid.Parse("66666666-6666-6666-6666-666666666662");
+    public static readonly Guid ShareTeamGroupX = Guid.Parse("66666666-6666-6666-6666-666666666663");
+    public static readonly Guid ShareByMeB = Guid.Parse("66666666-6666-6666-6666-666666666664");
+    public static readonly Guid ShareByMeC = Guid.Parse("66666666-6666-6666-6666-666666666665");
+    public static readonly Guid ShareByMeGroupX = Guid.Parse("66666666-6666-6666-6666-666666666666");
+
+    public static readonly IReadOnlyList<string> DemoOwnerOids =
+    [
+        DemoYouOid,
+        DemoUserBOid,
+        DemoUserCOid,
+        DemoUserDOid,
+        DemoGroupXOid,
+    ];
+
+    public static readonly IReadOnlyList<Guid> DemoProjectIds = [ProjectAlpha, ProjectBeta];
+
+    public static readonly IReadOnlyList<Guid> DemoChatIds =
+    [
+        ChatPlaceholder, ChatAnother, ChatUnfiled, ChatTeam, ChatSharedByMe,
+    ];
+
+    public static readonly IReadOnlyList<Guid> DemoFolderIds =
+    [
+        FolderRoot, FolderA, FolderA1, FolderA2, FolderB, FolderC,
+    ];
+
+    public static readonly IReadOnlyList<Guid> DemoDocumentIds =
+    [
+        DocQuarterly1, DocQuarterly2, DocQuarterly3, DocQuarterly4, DocQuarterly5, DocSpreadsheet, DocImage,
+    ];
+
+    public static readonly IReadOnlyList<Guid> DemoShareIds =
+    [
+        ShareTeamYou, ShareTeamC, ShareTeamGroupX, ShareByMeB, ShareByMeC, ShareByMeGroupX,
+    ];
+
+    public static bool IsDemoOid(string? oid) =>
+        !string.IsNullOrWhiteSpace(oid)
+        && DemoOwnerOids.Any(d => string.Equals(d, oid, StringComparison.OrdinalIgnoreCase));
 }

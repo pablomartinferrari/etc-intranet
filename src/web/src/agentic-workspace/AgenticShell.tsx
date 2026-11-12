@@ -12,6 +12,7 @@ export function AgenticShell() {
     mutationFn: () => workspaceApi.createChat({ title: "New chat" }),
     onSuccess: (chat) => {
       void queryClient.invalidateQueries({ queryKey: ["ws-sidebar"] });
+      void queryClient.invalidateQueries({ queryKey: ["ws-project"] });
       navigate(`/workspace/chats/${chat.id}`);
     },
   });

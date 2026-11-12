@@ -16,6 +16,7 @@ public sealed record RepoSearchQuery(
 
 public sealed record RepoSearchHit(
     Guid DocumentId,
+    Guid FolderId,
     string Title,
     string FileType,
     string Path,
@@ -122,6 +123,7 @@ public sealed class LocalRepositorySearch : IRepositorySearch
             var path = document.Folder.Path.TrimEnd('/') + "/" + document.Name;
             hits.Add((score, new RepoSearchHit(
                 document.Id,
+                document.FolderId,
                 document.Name,
                 document.FileType,
                 path.TrimStart('/'),

@@ -72,6 +72,7 @@ export function WorkspaceChatPage() {
   const scroller = useRef<HTMLDivElement | null>(null);
 
   const sidebarQuery = useQuery({ queryKey: ["ws-sidebar"], queryFn: workspaceApi.sidebar });
+  const capabilitiesQuery = useQuery({ queryKey: ["ws-capabilities"], queryFn: workspaceApi.capabilities });
   const chatQuery = useQuery({
     queryKey: ["ws-chat", chatId],
     queryFn: () => workspaceApi.chat(chatId!),
@@ -202,6 +203,12 @@ export function WorkspaceChatPage() {
         </div>
       </header>
       <div ref={scroller} className="min-h-0 flex-1 space-y-6 overflow-y-auto py-6">
+        {(messagesQuery.data ?? []).length === 0 && !sendMutation.isPending ? (
+          <div className="mx-auto max-w-[760px] px-6 text-sm text-muted-foreground">
+            This chat is empty. Ask a question — the assistant uses project instructions, linked files, and repository
+            search as context.
+          </div>
+        ) : null}
         {(messagesQuery.data ?? []).map((message) => (
           <MessageBubble key={message.id} message={message} selfOid={selfOid} />
         ))}
@@ -214,7 +221,11 @@ export function WorkspaceChatPage() {
       </div>
       <Composer
         disabled={chat?.role === "viewer" || sendMutation.isPending}
-        disclaimer="Placeholder disclaimer text"
+        disclaimer={
+          capabilitiesQuery.data && !capabilitiesQuery.data.hostedLlmConfigured
+            ? "No language model is configured — answers come from repository search and say so."
+            : "Uses the same language model as Chat at /knowledge. Citations come from the workspace repository."
+        }
         onSend={(text) => {
           void sendTyping(connectionRef.current, chatId, false);
           sendMutation.mutate(text);

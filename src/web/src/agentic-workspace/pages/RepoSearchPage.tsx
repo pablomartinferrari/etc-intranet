@@ -119,7 +119,7 @@ export function WorkspaceRepoSearchPage() {
                   onClick={() => navigate(`/workspace/search`)}
                 >
                   <Link
-                    to={`/workspace/repo?doc=${hit.documentId}`}
+                    to={`/workspace/repo/${hit.folderId}?doc=${hit.documentId}`}
                     className="flex items-center gap-2 text-sm font-medium"
                     onClick={(e) => e.stopPropagation()}
                   >

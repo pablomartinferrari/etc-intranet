@@ -17,7 +17,12 @@ public sealed record WorkspaceActor(string Oid, string DisplayName, string? Emai
         var oid = KnowledgeUser.GetOid(user);
         if (string.IsNullOrWhiteSpace(oid))
         {
-            return Demo(options);
+            return options.AllowAnonymous
+                ? Demo(options)
+                : new WorkspaceActor(
+                    user.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown",
+                    user.FindFirstValue("name") ?? user.Identity?.Name ?? "Unknown",
+                    user.FindFirstValue("preferred_username") ?? user.FindFirstValue(ClaimTypes.Email));
         }
 
         var name = user.FindFirstValue("name")

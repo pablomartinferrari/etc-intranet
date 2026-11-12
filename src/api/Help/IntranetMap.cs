@@ -205,7 +205,7 @@ public static class IntranetMap
             ],
             ["in-repo intranet map", "Ollama and/or KnowledgeBase Fallback chat (same router as Chat)"],
             "Signed-in staff only — the Help button is hidden until Entra sign-in.",
-            "Help is this side panel (the floating Help button), not Chat. It only knows the intranet map: Home, Chat, Lead, Sales, Bids, Pipeline, Feature Requests, Agent sources, Workspace POC, and sign-in. Chat is the knowledge-base ChatGPT under the Chat card on Home. Use Add SharePoint folder at the top of this panel to connect documents for Chat."),
+            "Help is this side panel (the floating Help button), not Chat. It only knows the intranet map: Home, Chat, Lead, Sales, Bids, Pipeline, Feature Requests, Agent sources, Workspace, and sign-in. Chat is the knowledge-base ChatGPT under the Chat card on Home. Use Add SharePoint folder at the top of this panel to connect documents for Chat."),
         new(
             "workspace",
             "Workspace",
@@ -215,8 +215,8 @@ public static class IntranetMap
             ],
             "/workspace",
             ["/workspace"],
-            "From Home, open the Workspace card (feature-flagged POC at /workspace). The left sidebar is on every screen: private chats grouped by project, Shared with me, Shared by me, and the repository folder tree. Home is Your day. Projects have instructions, linked repository files, and chats. Share a chat with Entra users or groups (view/edit) and turn on real-time collaboration. Search the public indexed repository and cite hits in chat.",
-            "Proof-of-concept agentic workspace isolated from production Chat at /knowledge. Your day meetings come from the signed-in user's Outlook calendar via delegated Microsoft Graph GET /me/calendarView (Calendars.Read) when Entra is configured, with a mock IDayDataSource fallback for local demo. An agent brief (same LLM router as /knowledge, or a deterministic fallback) summarizes the day. Chats can be shared with Entra users or groups. Realtime presence and typing use SignalR locally (Azure Web PubSub is the documented production swap). The common repository is hierarchical, public, and indexed with a local search seam for Azure AI Search.",
+            "From Home, open the Workspace card at /workspace. The left sidebar is on every screen: private chats grouped by project, Shared with me, Shared by me, and the repository folder tree. Home is Your day (your Outlook calendar and mail follow-ups). Projects have instructions, linked repository files, and chats. Share a chat with Entra users or groups (view/edit) and turn on real-time collaboration. Search the repository and cite hits in chat.",
+            "Per-user workspace isolated from Chat at /knowledge. Your day meetings come from the signed-in user's Outlook calendar via delegated Microsoft Graph GET /me/calendarView (Calendars.Read). Follow-ups come from flagged mail and unreplied inbox messages (Mail.Read, separate OBO token). Chat uses the same LLM router as /knowledge with repository RAG. Production never seeds demo data. Realtime uses SignalR. The repository is hierarchical, indexed locally, and stored under HOME on Azure App Service.",
             ["home", "chat"],
             [
                 "Where is the agentic workspace?",
@@ -224,9 +224,9 @@ public static class IntranetMap
                 "How do I search the repository?",
                 "How do I share a collaborative chat?",
             ],
-            ["IntranetDb agentic tables", "local repository index", "SignalR", "optional Microsoft Graph calendar"],
-            "POC. Hidden when Features:AgenticWorkspace:Enabled is false. Existing Chat at /knowledge is unchanged.",
-            "Open Workspace from Home (or go to /workspace). Your day is the home summary. Use projects for instructions and linked files, Share on a chat for Entra users/groups, and the repository sidebar to browse or search. Chat answers can cite repository documents. This is a POC and does not replace Chat."),
+            ["IntranetDb agentic tables", "local repository index", "SignalR", "Microsoft Graph calendar and mail", "KnowledgeBase LLM router"],
+            "Hidden when Features:AgenticWorkspace:Enabled is false. Existing Chat at /knowledge is unchanged.",
+            "Open Workspace from Home (or go to /workspace). Your day is your Outlook calendar and mail follow-ups. Use projects for instructions and linked files, Share on a chat for Entra users/groups, and the repository sidebar to browse or upload. Chat answers use the same model as /knowledge and cite repository documents."),
         new(
             "signin",
             "Sign in",
