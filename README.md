@@ -1,18 +1,25 @@
 # Company Intranet
 
-Starter intranet with **React** (Vite), **.NET 10 Web API**, and **PostgreSQL**, deployable to **Azure App Service** + **Azure Database for PostgreSQL**.
-
-Staff can open **Opportunities** in the SPA to review CLEATUS-recommended government-contract bids (SAM.gov / SLED) without signing into CLEATUS first. **Pipeline** lists pursuits already on the board, highlights work that needs close-out, and stores win/loss/drop reasons in PostgreSQL.
+Starter intranet with **React** (Vite), **shadcn/ui** (Tailwind CSS), **.NET 10 Web API**, and **PostgreSQL**, deployable to **Azure App Service** + **Azure Database for PostgreSQL**.
 
 ## Project layout
 
 | Path | Description |
 |------|-------------|
-| `src/web` | React SPA (Vite + TypeScript) |
+| `src/web` | React SPA (Vite + TypeScript + shadcn/ui + Tailwind) |
 | `src/api` | ASP.NET Core 10 API + EF Core |
+| `src/api/MultifamilyLbp` | Multifamily lead inspection API (jobs, uploads, normalization, reports) |
+| `src/web/src/multifamily-lbp` | Lead inspection React workflow (SharePoint-launched) |
+| `src/api/KnowledgeBase` | Semantic search + RAG chat over company documents |
+| `src/web/src/knowledge-base` | Knowledge Base UI (search, chat, ingest) |
+| `src/api/Cleat` | CLEATUS API proxy (recommendations, pipeline, close-out) |
+| `src/web/src/cleatus` | Opportunities and Pipeline pages |
+| `../etc-kg` | Python ingestion pipeline (SharePoint, local upload, pgvector) |
 | `infra/` | Azure Bicep templates |
 | `scripts/deploy.ps1` | Deploy infrastructure + API to Azure |
 | `docker-compose.yml` | Local PostgreSQL |
+
+The SPA uses **shadcn/ui** (Tailwind CSS + Radix, Nova style) rather than Fluent UI. Home stays the ETC portal (black logo header and application cards), not a sidebar dashboard shell.
 
 ## Prerequisites
 
@@ -47,11 +54,254 @@ Staff can open **Opportunities** in the SPA to review CLEATUS-recommended govern
 
    If npm warns about `esbuild` install scripts, either run `npm approve-scripts esbuild` or rely on the `allowScripts` entry already in `src/web/package.json`.
 
-Open http://localhost:5173 (Vite proxies `/api` to the API).
+| URL | What |
+|-----|------|
+| http://localhost:5173 | React dev server (proxies `/api` → API) |
+| http://localhost:5260 | API directly (`dotnet run` from `src/api`) |
+| http://localhost:5260/swagger | **Swagger UI** — browse and try multifamily + intranet endpoints |
+| http://localhost:5260/health | Health check (no auth) |
+| https://localhost:7055 | API with HTTPS profile |
 
-The API compiles and runs **without** a CLEATUS key. Home works as before. The Opportunities and Pipeline pages call CLEATUS on load and show a friendly “Add Cleat__ApiKey” message (HTTP 503) until a key is configured. Close-out writes with a missing key save the reason locally, return 503, and do not pretend CLEATUS was updated.
+After `dotnet run`, the **http** profile opens Swagger automatically. Use **Authorize** in Swagger and paste a Bearer token from the SPA (or Entra) to call protected endpoints.
 
-### CLEATUS API key (optional until you want live recommendations)
+### Agentic workspace POC (`/workspace`)
+
+A ChatGPT-style **Workspace** lives at http://localhost:5173/workspace and is isolated from production Chat (`/knowledge`). Existing Chat, Share, and Entra directory search are reused; this POC does not replace them.
+
+| URL | Screen |
+|-----|--------|
+| `/workspace` | Your day (Outlook meetings for the signed-in user, tasks, follow-ups, agent brief) |
+| `/workspace/chats/{id}` | Chat thread (citations, Share, presence) |
+| `/workspace/projects/{id}` | Project instructions, linked repository files, chats |
+| `/workspace/repo/{folderId}` | Public indexed repository browse + upload |
+| `/workspace/search?q=` | Folder-scoped repository search with snippets |
+
+**How to run locally**
+
+1. `docker compose up -d`
+2. `cd src/api && dotnet ef database update && dotnet run`
+3. `cd src/web && npm install && npm run dev`
+4. Open http://localhost:5173/workspace — Development allows the demo user without Entra (`Features:AgenticWorkspace:AllowAnonymous=true`). The Home **Workspace** card also appears after sign-in.
+
+Hide it without touching other pages:
+
+- API: `Features__AgenticWorkspace__Enabled=false`
+- SPA: `VITE_FEATURE_AGENTIC_WORKSPACE=false` (then rebuild)
+
+**Realtime**
+
+Shared chats use **ASP.NET Core SignalR** at `/hubs/workspace` (Vite proxies `/hubs` with WebSockets). Presence, typing, and new messages are broadcast per chat. No Azure resource is required for local dev. Production can point the same hub at **Azure Web PubSub for SignalR** — event names (`presence`, `typing`, `message`, `agent`) stay the same.
+
+**Search**
+
+Repository search is a **local inverted index** over extracted document text (`IRepositorySearch` / `LocalRepositorySearch`). Set `Features:AgenticWorkspace:SearchProvider=azure` plus `AzureSearchEndpoint` / `AzureSearchApiKey` (user secrets — never commit keys) when an Azure AI Search index is ready. The azure adapter falls back to the local index until those settings exist.
+
+**What is mocked vs real**
+
+| Capability | POC behavior |
+|------------|----------------|
+| Your day | **Signed-in user's Outlook calendar** via delegated Graph `GET /me/calendarView` when Entra is configured (see below). **Mock** `IDayDataSource` for local/demo and when Graph is off. Tasks/follow-ups/suggestions stay mock. Agent brief uses the same LLM router as `/knowledge`, with a deterministic fallback. |
+| Projects, chats, shares | **Real** rows in IntranetDb (`Agentic*` tables). Seeded demo catalog matches the wireframes. |
+| Entra share search | Reuses existing Graph directory search when configured, plus **local demo principals** (User B/C/D, Group X) so Share works without admin consent. |
+| Collaborative chat | **Real** SignalR presence/typing and persisted messages. The agent answers the group from the repository index (templated cited answers — not the production `/knowledge` LLM unless you later wire `RagService`). |
+| Repository | **Real** folder tree, upload to `App_Data/agentic-repo` (gitignored), text/PDF extract, local index. Seeded “quarterly report” docs. Not SharePoint and not Azure Blob. |
+| Auth | Development demo identity when anonymous is allowed. Signed-in Entra users work; `ShareDemoCatalog` shows them the seeded workspace so the POC is reviewable after login. |
+
+**Your day calendar (Microsoft Graph, delegated)**
+
+When Entra is configured (`AzureAd__TenantId`, `AzureAd__ClientId`, `AzureAd__ClientSecret`), Workspace Home reads **only the signed-in user's** Outlook calendar with an **on-behalf-of** call to `GET /me/calendarView` for today in that user's time zone (`X-User-Timezone` from the browser, mailbox timezone if the header is missing). It never queries `/users/{other-oid}`. Results are cached briefly per user (`oid` + date + timezone, ~90 seconds).
+
+Grant this **delegated** permission on the **API** app registration and **admin-consent** it:
+
+| Permission | Type | Why |
+|------------|------|-----|
+| `Calendars.Read` | Delegated | Read the signed-in user's events (subject, time, organizer, attendees, location / Teams join URL, `bodyPreview`) for Your day |
+
+This is **not** the application (app-only) `Calendars.Read` used for other mailboxes. Missing consent or scope returns a clear message on Home and **does not** mix sample meetings into a real mailbox. Local/demo (`AllowAnonymous`, `dev-*` identities) and `Features:AgenticWorkspace:UseGraphCalendar=false` keep the mock meetings source.
+
+The meeting brief uses the same Ollama → hosted Azure OpenAI / OpenAI router as `/knowledge` (`KnowledgeBase__Fallback__*`). If no model is configured, a deterministic summary covers what's next, back-to-back/conflicts, prep, and free blocks.
+
+This POC extends the Chat work in PRs #19–#22 (project areas, Entra share, ChatGPT sidebar, multi-chat drafts). It does **not** change `/knowledge`.
+
+### Multifamily lead inspection (from SharePoint)
+
+The full workflow from `multifamily-lbp` design docs is hosted in this app:
+
+| Route | Purpose |
+|-------|---------|
+| `/lead-inspection` | Job lookup and recent jobs |
+| `/jobs/{jobId}/multifamily-lbp` | Entity dashboard (SharePoint deep link) |
+| `/jobs/{jobId}/multifamily-lbp/grid` | Data grid, uploads, normalization, reports |
+
+SPFx web parts in the **multifamily-lbp** repo should set `processingAppBaseUrl` to this intranet URL.
+
+**User guide (inspectors / PMs):** [docs/multifamily-lbp-user-guide.md](docs/multifamily-lbp-user-guide.md)  
+**End-to-end runbook (trainers / admins):** [docs/multifamily-lbp-end-to-end-tutorial.md](docs/multifamily-lbp-end-to-end-tutorial.md)  
+**Video script:** multifamily-lbp repo → `docs/tutorials/10-end-to-end-units-and-common-areas.md`
+
+### Knowledge Base (semantic search + RAG)
+
+Local stack uses a **separate Postgres** (pgvector) in the sibling [`etc-kg`](../etc-kg) repo plus **Ollama** on your machine.
+
+1. Start knowledge Postgres:
+
+   ```powershell
+   cd ..\etc-kg
+   docker compose up -d
+   ```
+
+2. Install Ollama and pull models:
+
+   ```powershell
+   ollama pull nomic-embed-text
+   ollama pull llama3.1:8b
+   ```
+
+3. Ingest sample documents (requires Python 3.11+ in `etc-kg`):
+
+   ```powershell
+   cd ..\etc-kg
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   pip install -e .
+   python -m ingest.cli ingest local --path .\sample-docs
+   ```
+
+4. Run intranet API + web as usual. Open **Knowledge Base** from the home page or `/knowledge`.
+
+| Route | Purpose |
+|-------|---------|
+| `/knowledge` | Semantic search, chat Q&A, file upload, document list. **Add SharePoint folder** opens a sheet in Chat (also in Help). |
+| `/knowledge/sources` | **Manage sources** — job status and disconnect for connected SharePoint folders |
+
+Anyone signed in can add a SharePoint folder (not sales-only). In **Chat**, click **Add SharePoint folder** (the same action is in **Help**) to paste a site URL and folder path, review a Graph probe (file count, size, depth, sample types), then connect. **Manage sources** (`/knowledge/sources`) lists jobs and disconnect.
+
+| Probe size | What happens |
+|------------|----------------|
+| **Soft** — ≤ 2,000 files **and** ≤ 2 GB | Ingest starts automatically |
+| **Medium** — ≤ 10,000 files **and** ≤ 10 GB | Warns; you must confirm |
+| **Hard** — above medium | Self-serve is blocked; an admin **Feature Request** is created (area Other / “Chat agent sources”) with the probe stats |
+
+Ingest is a **one-time recursive** Graph crawl (max depth 20). Delta / incremental sync is a follow-up. Video, disk images, executables, archives, and files over **50 MB** are skipped. Disconnecting a folder stops future ingest and marks already-indexed documents inactive for retrieval; chunks are **not** deleted in v1.
+
+The crawl downloads allowed files, chunks them, and upserts into Knowledge Postgres so existing Chat RAG can see them (including inside a project). Embeddings prefer a **hosted** OpenAI-compatible API so the GPU VM can stay off. If the embedding key is missing, files are still indexed for keyword search.
+
+#### SharePoint Graph + hosted embeddings
+
+The same Entra app used for multifamily SharePoint import (`AzureAd__TenantId`, `AzureAd__ClientId`, `AzureAd__ClientSecret`) is used with application permissions **Sites.Read.All** and **Files.Read.All** (admin consent). A dedicated `SharePoint:SiteUrl` is **not** required — each user pastes the site they want.
+
+**Chat project sharing** (Entra users and groups) uses that same app. Grant these additional **application** permissions with admin consent:
+
+| Permission | Why |
+|------------|-----|
+| `User.Read.All` | Directory user search (`GET /api/kb/directory/search`) |
+| `Group.Read.All` | Directory group search |
+| `GroupMember.Read.All` | `checkMemberGroups` so group-shared projects appear for members |
+
+`Directory.Read.All` covers the same reads if you prefer a single role. Without these, owners can still share by object id, but search and group membership resolution return 503 / skip group shares.
+
+**Local (user secrets — preferred):**
+
+```powershell
+cd src/api
+dotnet user-secrets set "AzureAd:ClientSecret" "<entra-app-secret>"
+dotnet user-secrets set "KnowledgeBase:Embeddings:ApiKey" "<your-openai-or-azure-openai-key>"
+```
+
+If `KnowledgeBase__Embeddings__ApiKey` or `BaseUrl` is empty, embeddings reuse `KnowledgeBase__Fallback__*`.
+
+| Setting | Default | Notes |
+|---------|---------|--------|
+| `AzureAd__TenantId` / `ClientId` / `ClientSecret` | (Entra app) | Client-credentials Graph; same pattern as lead-inspection SharePoint import |
+| `KnowledgeBase__Embeddings__Enabled` | `true` | Set `false` to skip vectors (keyword-only) |
+| `KnowledgeBase__Embeddings__BaseUrl` | (inherits Fallback) | OpenAI `https://api.openai.com/v1` or Azure OpenAI resource URL |
+| `KnowledgeBase__Embeddings__Model` | `text-embedding-3-small` | Azure: deployment name when the URL has no deployment segment |
+| `KnowledgeBase__Embeddings__ApiKey` | (inherits Fallback) | Do not commit a real key |
+| `KnowledgeBase__Embeddings__Dimensions` | `768` | Matches typical nomic/pgvector columns; set empty for the model default |
+| `KnowledgeBase__AgentSources__SoftMaxFiles` | `2000` | Automatic ingest ceiling (with SoftMaxBytes) |
+| `KnowledgeBase__AgentSources__SoftMaxBytes` | `2147483648` (2 GB) | |
+| `KnowledgeBase__AgentSources__MediumMaxFiles` | `10000` | Confirm ceiling |
+| `KnowledgeBase__AgentSources__MediumMaxBytes` | `10737418240` (10 GB) | |
+| `KnowledgeBase__AgentSources__MaxFileBytes` | `52428800` (50 MB) | Per-file skip cap |
+| `KnowledgeBase__AgentSources__MaxDepth` | `20` | Recursion safety valve |
+
+API endpoints: `GET /api/kb/sources`, `GET /api/kb/sources/capabilities`, `POST /api/kb/sources/probe`, `POST /api/kb/sources`, `DELETE /api/kb/sources/{id}`, `GET /api/kb/sources/jobs/{id}`
+
+Chat / search APIs: `POST /api/kb/search`, `POST /api/kb/chat`, `POST /api/kb/ingest/upload`, `GET /api/kb/documents`
+
+#### Hosted chat fallback (when the GPU VM / Ollama is down)
+
+Chat prefers the local Ollama model. If that host is unreachable (the Azure GPU VM is usually deallocated), generation fails over to a hosted OpenAI-compatible endpoint so employees still get an answer. Retrieval still uses the knowledge base; only generation changes. Fallback answers show a small “hosted model” note in the Chat UI.
+
+The floating **Help** panel uses this **same** router and the **same** `KnowledgeBase__Fallback__ApiKey`. There is no separate Help API key. With the key set (or Ollama up), Help `source` is `llm` for normal questions. If the key is missing and the GPU VM is deallocated, Help still answers from the intranet map and the UI says it is map-only — it should not look like broken AI.
+
+The fallback stays **off** until an API key is present. Do not put a real key in `appsettings.json`, README examples, or source control.
+
+**Local (user secrets — preferred):**
+
+```powershell
+cd src/api
+dotnet user-secrets set "KnowledgeBase:Fallback:ApiKey" "<your-openai-or-azure-openai-key>"
+```
+
+Equivalent environment variable: `KnowledgeBase__Fallback__ApiKey`.
+
+Optional settings (defaults work with api.openai.com):
+
+| Setting | Default | Notes |
+|---------|---------|--------|
+| `KnowledgeBase__Fallback__Enabled` | `true` | Set `false` to disable even if a key is present |
+| `KnowledgeBase__Fallback__BaseUrl` | `https://api.openai.com/v1` | Azure OpenAI: `https://{resource}.openai.azure.com` or a full `/openai/deployments/{name}` URL |
+| `KnowledgeBase__Fallback__Model` | `gpt-4o-mini` | OpenAI model name, or Azure deployment name when the URL has no deployment segment |
+| `KnowledgeBase__Fallback__TimeoutSeconds` | `30` | Hosted request timeout |
+| `KnowledgeBase__Fallback__ApiVersion` | `2024-10-21` | Azure OpenAI only |
+
+**Azure App Service setting:**
+
+```powershell
+az webapp config appsettings set `
+  --resource-group rg-intranet-dev `
+  --name "<web-app-name>" `
+  --settings KnowledgeBase__Fallback__ApiKey="<your-openai-or-azure-openai-key>"
+```
+
+**Azure Key Vault** (same pattern as `Cleat__ApiKey`). Create a secret named `KnowledgeBase--Fallback--ApiKey` and wire it as an App Setting Key Vault reference:
+
+```powershell
+az keyvault secret set `
+  --vault-name "<key-vault-name>" `
+  --name "KnowledgeBase--Fallback--ApiKey" `
+  --value "<your-openai-or-azure-openai-key>"
+
+az webapp config appsettings set `
+  --resource-group rg-intranet-dev `
+  --name "<web-app-name>" `
+  --settings KnowledgeBase__Fallback__ApiKey="@Microsoft.KeyVault(SecretUri=https://<key-vault-name>.vault.azure.net/secrets/KnowledgeBase--Fallback--ApiKey/)"
+```
+
+If Ollama is down and no fallback key is configured, Chat returns a readable “temporarily unavailable” message instead of hanging or coming back blank. Help continues to answer from the intranet map and explains that AI is map-only until `KnowledgeBase__Fallback__ApiKey` is set.
+
+Azure promotion: [docs/knowledge-base-azure.md](docs/knowledge-base-azure.md)
+
+### CLEATUS opportunities and pipeline
+
+Signed-in Home shows three **Applications** cards, in this order: **Chat**, **Lead**, and **Sales**. Home copy stays plain (no CLEATUS, SAM.gov, or SLED). **Sales** opens a hub with **Bids** and **Pipeline**.
+
+Staff open Bids and Pipeline from `/sales` (after Entra sign-in) to review CLEATUS-recommended SAM.gov/SLED bids and the live pursuit pipeline without opening CLEATUS first. Page-load fetch only; no webhooks; no API key in the repo. Win/loss/drop **reasons live in Postgres**, not in CLEATUS.
+
+Sales, Bids, and Pipeline each have a short explainer (what the page is and which data lives in CLEATUS vs intranet Postgres). **Request a change** lives on Home so staff can file notes for Chat, Lead, Sales, or General. Notes are structured with the Knowledge Base Ollama model when it is up, otherwise saved as written. After a successful save, the API texts Pablo when Twilio SMS is configured. Review the queue at `/requests` (also `/sales/requests`).
+
+| Route | Purpose |
+|-------|---------|
+| `/sales` | Sales hub — Bids and Pipeline cards, plus a Requests link |
+| `/requests` | Feature notes from Home (Chat / Lead / Sales / General) and older Sales/Bids/Pipeline tickets |
+| `/sales/requests` | Same queue as `/requests` |
+| `/opportunities` | Recommended bids table + detail drawer |
+| `/pipeline` | Pursued / won / lost list, needs close-out, close-out form |
+
+The API compiles and runs **without** a CLEATUS key. Home works as before. Opportunities and Pipeline call CLEATUS on load and show “Add Cleat__ApiKey” (HTTP 503) until a key is configured. Close-out with a missing key saves the reason locally, returns 503, and does not pretend CLEATUS was updated.
+
+#### CLEATUS API key
 
 Mint a key in CLEATUS: **Settings → Integrations → API Keys**. Store it outside git.
 
@@ -73,7 +323,7 @@ az webapp config appsettings set `
   --settings Cleat__ApiKey="<your-cleatus-api-key>"
 ```
 
-**Azure Key Vault** (same pattern as the PostgreSQL connection string). Create a secret (name `Cleat--ApiKey` is a valid Key Vault encoding of `Cleat:ApiKey`) and wire it as an App Setting Key Vault reference:
+**Azure Key Vault** (same pattern as the PostgreSQL connection string). Create a secret named `Cleat--ApiKey` and wire it as an App Setting Key Vault reference:
 
 ```powershell
 az keyvault secret set `
@@ -87,7 +337,94 @@ az webapp config appsettings set `
   --settings Cleat__ApiKey="@Microsoft.KeyVault(SecretUri=https://<key-vault-name>.vault.azure.net/secrets/Cleat--ApiKey/)"
 ```
 
-The App Service system-assigned identity already has Key Vault Secrets User. Restart the web app after adding the secret. `Cleat:BaseUrl` defaults to `https://api.cleat.ai` and does not need to be set.
+`Cleat:BaseUrl` defaults to `https://api.cleat.ai` and does not need to be set. Cleat routes use the same Entra authorization as other intranet APIs.
+
+#### Feature request approval workflow
+
+Any signed-in employee can submit a request. Approvers (emails in `FeatureRequests__ApproverEmails`) approve or reject. After work ships, the original requester or an approver can confirm/close it.
+
+Statuses: `new` → `approved` | `rejected`; `approved` → `shipped` | `rejected` | `closed`; `shipped` → `closed`. Legacy rows map `planned` → `approved` and `done` → `shipped`.
+
+| Setting | Purpose |
+|---------|---------|
+| `FeatureRequests__ApproverEmails` | Comma or semicolon separated approver emails (trimmed, lowercased). Required in Production to approve/reject. In Development an empty list allows any signed-in user. |
+| `FeatureRequests__PublicBaseUrl` | Absolute intranet origin used in approval emails. Default `https://intranet.2etc.com`. |
+
+#### Feature request SMS (Twilio)
+
+After a feature request is saved to Postgres, the API sends Pablo a short SMS (title, area, who submitted, reminder to open Requests). When a request is **approved**, a second SMS is sent if SMS is configured (`approved — ready to build`). A missing or failed SMS provider never blocks capture or the status change: the ticket still saves and the API returns success.
+
+Leave the settings empty locally if you do not want texts. Do not put a real number, SID, or token in `appsettings.json` or source control.
+
+**Local (user secrets — preferred):**
+
+```powershell
+cd src/api
+dotnet user-secrets set "FeatureRequests:Sms:ToPhoneNumber" "+15555550100"
+dotnet user-secrets set "FeatureRequests:Sms:FromPhoneNumber" "+15555550101"
+dotnet user-secrets set "FeatureRequests:Sms:AccountSid" "<twilio-account-sid>"
+dotnet user-secrets set "FeatureRequests:Sms:AuthToken" "<twilio-auth-token>"
+```
+
+Equivalent environment / App Setting names (`__` nesting):
+
+| Setting | Purpose |
+|---------|---------|
+| `FeatureRequests__Sms__Enabled` | Optional. Default `true`. Set `false` to skip SMS even when credentials are present. |
+| `FeatureRequests__Sms__ToPhoneNumber` | Destination in E.164 (Pablo's phone). |
+| `FeatureRequests__Sms__FromPhoneNumber` | Twilio from-number in E.164. |
+| `FeatureRequests__Sms__AccountSid` | Twilio Account SID. |
+| `FeatureRequests__Sms__AuthToken` | Twilio Auth Token. |
+
+SMS is sent only when **Enabled** is true (or omitted) **and** To, From, AccountSid, and AuthToken are all set. Otherwise the send is skipped and logged at debug.
+
+**Azure App Service settings:**
+
+```powershell
+az webapp config appsettings set `
+  --resource-group rg-intranet-dev `
+  --name "<web-app-name>" `
+  --settings `
+    FeatureRequests__Sms__ToPhoneNumber="<e164-destination>" `
+    FeatureRequests__Sms__FromPhoneNumber="<e164-twilio-from>" `
+    FeatureRequests__Sms__AccountSid="<twilio-account-sid>" `
+    FeatureRequests__Sms__AuthToken="<twilio-auth-token>"
+```
+
+**Azure Key Vault** (same pattern as `Cleat__ApiKey`). Create secrets such as `FeatureRequests--Sms--AuthToken` and wire Key Vault references on the App Settings above.
+
+#### Feature request approval email
+
+On create, the API also emails the approver list (id, title, area, requester, link to `/requests`). Email failure never blocks ticket create.
+
+**Graph (preferred)** reuses the existing Azure AD client-credential stack (`AzureAd__TenantId`, `AzureAd__ClientId`, `AzureAd__ClientSecret`). Grant the Entra app **Mail.Send** (application) with admin consent. `FromAddress` must be a mailbox the app can send as.
+
+```powershell
+cd src/api
+dotnet user-secrets set "FeatureRequests:ApproverEmails" "approver@etc.example;second@etc.example"
+dotnet user-secrets set "FeatureRequests:Email:FromAddress" "intranet@etc.example"
+```
+
+| Setting | Purpose |
+|---------|---------|
+| `FeatureRequests__Email__Enabled` | Optional. Default `true`. Set `false` to skip email even when credentials are present. |
+| `FeatureRequests__Email__Provider` | `Graph` (default) or `Smtp`. |
+| `FeatureRequests__Email__FromAddress` | From mailbox / Graph user UPN. |
+| `FeatureRequests__Email__Smtp__Host` | SMTP host when Provider is `Smtp`. |
+| `FeatureRequests__Email__Smtp__Port` | SMTP port. Default `587`. |
+| `FeatureRequests__Email__Smtp__Username` | SMTP username. |
+| `FeatureRequests__Email__Smtp__Password` | SMTP password. Store in Key Vault in Azure. |
+| `FeatureRequests__Email__Smtp__UseSsl` | Default `true`. |
+
+Recommendations are not stored in Postgres. **Close-out reasons are** (table `PursuitCloseouts`) because CLEATUS has no documented win/loss-reason field. Do not put reasons in git or in CLEATUS tags.
+
+A pursuit **needs close-out** when it is not won, lost, or archived, and any of:
+
+1. Opportunity response/deadline is in the past
+2. Phase is triage / preparing / submitted and last-activity is 21+ days old, **if** CLEATUS sends an updated-at / last-activity field
+3. If there is no last-activity field (current public OpenAPI/Zapier payloads do not document one), use deadline-only, and flag **no deadline on file** so those rows still appear
+
+Close-out PATCHes CLEATUS with `column_id` **Won** / **Lost**, or `archived: true` for no longer pursuing. There is no `phase` field on that PATCH. No email is sent; visibility on the Pipeline page is enough.
 
 ## Build for production
 
@@ -163,24 +500,37 @@ Roughly **$20–35/month** (B1 App Service + B1ms PostgreSQL, no App Insights/Lo
 | Endpoint | Description |
 |----------|-------------|
 | `GET /health` | Health check (includes DB) |
-| `GET /api/status` | Service + database status |
-| `GET /api/messages` | Sample messages from PostgreSQL |
-| `GET /api/cleat/recommendations` | Proxy of CLEATUS `GET /v1/recommendations` (optional `minScore`, default 80). Missing `Cleat__ApiKey` returns **503** JSON `{ error: "cleat_api_key_missing", message: "Add Cleat__ApiKey ..." }`. |
-| `GET /api/cleat/opportunities/{id}` | Proxy of CLEATUS `GET /v1/opportunities/{opportunity_id}`. Same missing-key 503. |
-| `GET /api/cleat/pipeline` | Page-load pipeline dashboard: `GET /v1/pipeline/search` (active, won, archived) joined with opportunity deadlines when missing, plus local close-out reasons. Same missing-key 503. |
-| `POST /api/cleat/pursuits/{id}/close-out` | Persist a win/loss/drop reason in PostgreSQL, then `PATCH /v1/pursuits/{id}` (`column_id` Won/Lost, or `archived: true` for no longer pursuing). If the CLEATUS write fails, the local reason is kept and the response is 503/502 with `cleatusUpdated: false`. |
+| `GET /api/status` | Service + database status (requires Entra token) |
+| `GET /api/messages` | Sample messages from PostgreSQL (requires Entra token) |
+| `GET /api/me` | Signed-in user claims from Entra token |
+| `GET /api/cleat/recommendations` | CLEATUS recommended bids (optional `minScore`, default 80). Missing `Cleat__ApiKey` returns **503** `{ error: "cleat_api_key_missing" }`. Requires Entra. |
+| `GET /api/cleat/opportunities/{id}` | Opportunity detail from CLEATUS. Same missing-key 503. Requires Entra. |
+| `GET /api/cleat/pipeline` | Pipeline dashboard (active / won / archived) plus local close-out reasons. Same missing-key 503. Requires Entra. |
+| `POST /api/cleat/pursuits/{id}/close-out` | Save win/loss/drop reason in `PursuitCloseouts`, then PATCH CLEATUS (`column_id` Won/Lost or `archived`). Failed CLEATUS write keeps the local reason and returns 503/502 with `cleatusUpdated: false`. Requires Entra. |
+| `POST /api/feature-requests` | Capture a change request from Home (Chat / Lead / Sales / General). Structures via Knowledge Base Ollama when available; otherwise a deterministic fallback. Always persists to `FeatureRequests`. After a successful save, texts Pablo via Twilio when `FeatureRequests__Sms__*` is configured; SMS failure is logged and does not fail the request. Requires Entra. |
+| `GET /api/feature-requests` | List feature requests, newest first. Requires Entra. |
+| `PATCH /api/feature-requests/{id}` | Set status to `new`, `planned`, or `done`. Requires Entra. |
 
-Recommendations are not stored in Postgres. **Close-out reasons are** (table `PursuitCloseouts`) because CLEATUS has no documented win/loss-reason field. Do not put reasons in git or in CLEATUS tags.
+## SharePoint SSO with Entra ID
 
-### Pipeline close-out rules
+The intranet now expects Microsoft Entra ID authentication for API access.
 
-A pursuit **needs close-out** when it is not won, lost, or archived, and any of:
+1. Create two App Registrations in the same tenant as SharePoint:
+   - **API app registration** (for `src/api`)
+   - **SPA app registration** (for `src/web`)
+2. In the API app registration, expose a scope (for example `access_as_user`), producing a scope URI like:
+   - `api://<api-client-id>/access_as_user`
+3. Grant the SPA app permission to that API scope and grant tenant admin consent.
+4. Configure API settings (`src/api/appsettings.Development.json`):
+   - `AzureAd:TenantId`
+   - `AzureAd:ClientId` (API app client ID)
+   - `AzureAd:Audience` (for example `api://<api-client-id>`)
+5. Configure SPA settings via environment variables:
+   - `VITE_ENTRA_TENANT_ID=<tenant-guid>`
+   - `VITE_ENTRA_CLIENT_ID=<spa-client-id>`
+   - `VITE_API_SCOPE=api://<api-client-id>/access_as_user`
 
-1. Opportunity response/deadline is in the past
-2. Phase is triage / preparing / submitted and last-activity is 21+ days old, **if** CLEATUS sends an updated-at / last-activity field
-3. If there is no last-activity field (current public OpenAPI/Zapier payloads do not document one), use deadline-only, and flag **no deadline on file** so those rows still appear
-
-No email is sent; visibility on the Pipeline page is enough.
+When users navigate from SharePoint to this intranet in the same tenant, Entra SSO will identify them and `/api/me` returns their user context.
 
 ## Azure resources
 

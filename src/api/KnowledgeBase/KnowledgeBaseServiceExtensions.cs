@@ -1,0 +1,230 @@
+using Intranet.Api.KnowledgeBase.AgentSources;
+using Intranet.Api.KnowledgeBase.Data;
+using Intranet.Api.KnowledgeBase.Options;
+using Intranet.Api.KnowledgeBase.Services;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Npgsql;
+
+namespace Intranet.Api.KnowledgeBase;
+
+public static class KnowledgeBaseServiceExtensions
+{
+    public static IServiceCollection AddKnowledgeBase(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.ConfigureKnowledgeBaseOptions(configuration);
+
+        var kbSection = configuration.GetSection(KnowledgeBaseOptions.SectionName);
+        var connectionString = kbSection["ConnectionString"]
+            ?? configuration.GetConnectionString("KnowledgeDb")
+            ?? "Host=localhost;Port=5433;Database=knowledge;Username=knowledge;Password=knowledge_dev_password";
+
+        services.PostConfigure<KnowledgeBaseOptions>(o =>
+        {
+            if (string.IsNullOrWhiteSpace(o.ConnectionString))
+            {
+                o.ConnectionString = connectionString;
+            }
+
+            o.PythonPath = ResolvePythonPath(o);
+        });
+
+        var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+        dataSourceBuilder.UseVector();
+        var dataSource = dataSourceBuilder.Build();
+        services.AddSingleton(dataSource);
+
+        services.AddDbContext<KnowledgeDbContext>(options =>
+            options.UseNpgsql(dataSource, o => o.UseVector()));
+
+        services.Configure<WebSearchOptions>(configuration.GetSection(WebSearchOptions.SectionName));
+
+        // Ollama chat/embed uses the HttpClient default (100s). A deallocated GPU VM
+        // does not fail fast, so generation must not wait on this client for health.
+        services.AddHttpClient<OllamaClient>();
+        services.AddHttpClient<OllamaHealthProbe>(client =>
+        {
+            client.Timeout = OllamaHealthProbe.ProbeTimeout;
+        });
+        services.AddSingleton<IOllamaHealthProbe>(sp =>
+            sp.GetRequiredService<OllamaHealthProbe>());
+        services.AddHttpClient<OpenAiCompatibleChatClient>((sp, client) =>
+        {
+            var fallback = sp.GetRequiredService<IOptions<KnowledgeBaseOptions>>().Value.Fallback;
+            var seconds = fallback.TimeoutSeconds > 0 ? fallback.TimeoutSeconds : 30;
+            client.Timeout = TimeSpan.FromSeconds(seconds);
+        });
+        services.AddHttpClient<WebSearchService>();
+        services.AddScoped<SemanticSearchService>();
+        services.AddScoped<WebSearchService>();
+        services.AddScoped<ChatSearchRouter>();
+        services.AddScoped<ChatCompletionRouter>();
+        services.AddScoped<ChatExportService>();
+        services.AddScoped<RagService>();
+        services.AddScoped<KnowledgeUploadStaging>();
+        services.AddScoped<IngestService>();
+        services.AddScoped<ISharePointFolderGraph, SharePointFolderGraphClient>();
+        services.AddHttpClient<OpenAiCompatibleEmbeddingClient>((sp, client) =>
+        {
+            var embeddings = sp.GetRequiredService<IOptions<KnowledgeBaseOptions>>().Value.Embeddings;
+            var seconds = embeddings.TimeoutSeconds > 0 ? embeddings.TimeoutSeconds : 60;
+            client.Timeout = TimeSpan.FromSeconds(seconds);
+        });
+        services.AddScoped<IHostedEmbeddingClient>(sp => sp.GetRequiredService<OpenAiCompatibleEmbeddingClient>());
+        services.AddScoped<KnowledgeDocumentUpsert>();
+        services.AddScoped<IKnowledgeDocumentUpsert>(sp => sp.GetRequiredService<KnowledgeDocumentUpsert>());
+        services.AddScoped<AgentSourceService>();
+        services.AddScoped<IAgentSourceIngestRunner>(sp => sp.GetRequiredService<AgentSourceService>());
+        services.AddHostedService<AgentSourceIngestWorker>();
+        services.AddScoped<IGraphDirectoryClient, GraphDirectoryClient>();
+        services.AddScoped<IKbProjectAccessService, KbProjectAccessService>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Production Configure + PostConfigure path for <see cref="KnowledgeBaseOptions"/>.
+    /// Nested Fallback/Embeddings are re-bound so App Settings env vars win over empty JSON.
+    /// </summary>
+    internal static IServiceCollection ConfigureKnowledgeBaseOptions(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.Configure<KnowledgeBaseOptions>(configuration.GetSection(KnowledgeBaseOptions.SectionName));
+        services.PostConfigure<KnowledgeBaseOptions>(o =>
+            KnowledgeBaseOptionsBinder.BindNestedSections(o, configuration));
+        return services;
+    }
+
+    public static async Task InitializeKnowledgeDatabaseAsync(this WebApplication app)
+    {
+        var options = app.Configuration.GetSection(KnowledgeBaseOptions.SectionName).Get<KnowledgeBaseOptions>()
+            ?? new KnowledgeBaseOptions();
+        var connectionString = options.ConnectionString
+            ?? app.Configuration.GetConnectionString("KnowledgeDb")
+            ?? "Host=localhost;Port=5433;Database=knowledge;Username=knowledge;Password=knowledge_dev_password";
+
+        var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("KnowledgeDbInit");
+
+        try
+        {
+            await using var conn = new NpgsqlConnection(connectionString);
+            await conn.OpenAsync();
+
+            var migrationDir = ResolveMigrationsDirectory(app, options);
+            if (Directory.Exists(migrationDir))
+            {
+                await ApplySqlFilesAsync(conn, migrationDir, logger);
+            }
+            else
+            {
+                logger.LogWarning("Knowledge migrations directory not found at {Path}", migrationDir);
+            }
+
+            foreach (var extraDir in ResolveIntranetKnowledgeMigrations(app))
+            {
+                await ApplySqlFilesAsync(conn, extraDir, logger);
+            }
+
+            using var scope = app.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<KnowledgeDbContext>();
+            _ = await db.Database.CanConnectAsync();
+            logger.LogInformation("Knowledge database connected.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Knowledge database initialization failed. KB endpoints may be unavailable.");
+        }
+    }
+
+    private static async Task ApplySqlFilesAsync(NpgsqlConnection conn, string directory, ILogger logger)
+    {
+        if (!Directory.Exists(directory))
+        {
+            return;
+        }
+
+        foreach (var migrationPath in Directory.GetFiles(directory, "*.sql").OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+        {
+            var sql = await File.ReadAllTextAsync(migrationPath);
+            if (string.IsNullOrWhiteSpace(sql))
+            {
+                continue;
+            }
+
+            await using var cmd = new NpgsqlCommand(sql, conn);
+            await cmd.ExecuteNonQueryAsync();
+            logger.LogInformation("Knowledge database schema applied from {Path}", migrationPath);
+        }
+    }
+
+    private static IEnumerable<string> ResolveIntranetKnowledgeMigrations(WebApplication app)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in new[]
+        {
+            Path.Combine(app.Environment.ContentRootPath, "KnowledgeBase", "Migrations"),
+            Path.Combine(AppContext.BaseDirectory, "KnowledgeBase", "Migrations"),
+        })
+        {
+            var full = Path.GetFullPath(candidate);
+            if (Directory.Exists(full) && seen.Add(full))
+            {
+                yield return full;
+            }
+        }
+    }
+
+    private static string ResolveMigrationsDirectory(WebApplication app, KnowledgeBaseOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(options.MigrationSqlPath))
+        {
+            var path = Path.IsPathRooted(options.MigrationSqlPath)
+                ? options.MigrationSqlPath
+                : Path.GetFullPath(Path.Combine(app.Environment.ContentRootPath, options.MigrationSqlPath));
+            if (Directory.Exists(path))
+            {
+                return path;
+            }
+
+            return File.Exists(path) ? Path.GetDirectoryName(path)! : path;
+        }
+
+        var etcKgRelative = Path.Combine(app.Environment.ContentRootPath, "..", "..", "..", "etc-kg", "migrations");
+        if (Directory.Exists(etcKgRelative))
+        {
+            return Path.GetFullPath(etcKgRelative);
+        }
+
+        return Path.GetFullPath(Path.Combine(app.Environment.ContentRootPath, options.EtcKgPath, "migrations"));
+    }
+
+    private static string ResolvePythonPath(KnowledgeBaseOptions options)
+    {
+        if (!string.Equals(options.PythonPath, "python", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(options.PythonPath, "py", StringComparison.OrdinalIgnoreCase))
+        {
+            return options.PythonPath;
+        }
+
+        var etcKgRoot = Path.IsPathRooted(options.EtcKgPath)
+            ? options.EtcKgPath
+            : Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), options.EtcKgPath));
+
+        var venvPython = Path.Combine(etcKgRoot, ".venv", "Scripts", "python.exe");
+        if (File.Exists(venvPython))
+        {
+            return venvPython;
+        }
+
+        venvPython = Path.Combine(etcKgRoot, ".venv", "bin", "python");
+        if (File.Exists(venvPython))
+        {
+            return venvPython;
+        }
+
+        return OperatingSystem.IsWindows() ? "py" : "python3";
+    }
+}

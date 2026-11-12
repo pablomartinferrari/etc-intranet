@@ -157,7 +157,7 @@ public sealed partial class CleatClient(
     {
         using var request = new HttpRequestMessage(method, relativeUrl);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.TryAddWithoutValidation("X-Api-Key", _options.ApiKey);
+        request.Headers.TryAddWithoutValidation("X-Api-Key", _options.TrimmedApiKey);
         if (body is not null)
         {
             request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");

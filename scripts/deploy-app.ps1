@@ -64,6 +64,15 @@ Push-Location "$root/src/api"
 try {
     dotnet publish -c Release -o ./publish
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed." }
+
+    $migrationsSrc = (Resolve-Path "$root/../etc-kg/migrations").Path
+    $migrationsDest = "./publish/migrations"
+    if (Test-Path $migrationsSrc) {
+        New-Item -ItemType Directory -Force -Path $migrationsDest | Out-Null
+        Copy-Item "$migrationsSrc/*.sql" $migrationsDest -Force
+        Write-Host "Bundled knowledge migrations into publish/migrations"
+    }
+
     if (Test-Path ./publish.zip) { Remove-Item ./publish.zip -Force }
     Compress-Archive -Path ./publish/* -DestinationPath ./publish.zip -Force
 }
@@ -71,19 +80,82 @@ finally {
     Pop-Location
 }
 
-Write-Host "Deploying package to $resolvedWebApp..."
-az webapp deploy `
-    --resource-group $ResourceGroup `
-    --name $resolvedWebApp `
-    --src-path "$root/src/api/publish.zip" `
-    --type zip
+$zipPath = "$root/src/api/publish.zip"
+$zipSizeMb = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
+Write-Host "Deploying package to $resolvedWebApp ($zipSizeMb MB)..."
+if ($zipSizeMb -gt 100) {
+    Write-Warning "Package is large; upload may time out. Consider excluding .pdb files from publish."
+}
 
-if ($LASTEXITCODE -ne 0) {
-    throw "Web app deployment failed."
+function Invoke-ZipDeploy {
+    param([string]$Method)
+
+    if ($Method -eq "onedeploy") {
+        # az often prints track-status lines as WARNING on stderr even when deploy succeeds.
+        $output = az webapp deploy `
+            --resource-group $ResourceGroup `
+            --name $resolvedWebApp `
+            --src-path $zipPath `
+            --type zip `
+            --timeout 1800000 `
+            --track-status $true 2>&1 | Out-String
+
+        if ($output) {
+            Write-Host $output.TrimEnd()
+        }
+
+        if ($LASTEXITCODE -eq 0) {
+            return 0
+        }
+
+        if ($output -match 'Site started successfully|RuntimeSuccessful') {
+            Write-Warning "az webapp deploy exited with code $LASTEXITCODE but reported success; treating deploy as successful."
+            return 0
+        }
+
+        return $LASTEXITCODE
+    }
+
+    # Fallback: Zip Deploy API (often more reliable when OneDeploy resets the connection).
+    az webapp deployment source config-zip `
+        --resource-group $ResourceGroup `
+        --name $resolvedWebApp `
+        --src $zipPath
+    return $LASTEXITCODE
+}
+
+$deployed = $false
+foreach ($attempt in 1..3) {
+    Write-Host "Deploy attempt $attempt/3 (OneDeploy)..."
+    if ((Invoke-ZipDeploy -Method "onedeploy") -eq 0) {
+        $deployed = $true
+        break
+    }
+    if ($attempt -lt 3) {
+        Write-Warning "Deploy failed (often transient). Retrying in 15s..."
+        Start-Sleep -Seconds 15
+    }
+}
+
+if (-not $deployed) {
+    Write-Warning "OneDeploy failed after 3 attempts. Trying Zip Deploy API..."
+    if ((Invoke-ZipDeploy -Method "config-zip") -ne 0) {
+        throw @"
+Web app deployment failed.
+Try manually:
+  az webapp deploy -g $ResourceGroup -n $resolvedWebApp --src-path $zipPath --type zip --timeout 1800000
+Or check SCM: https://$resolvedWebApp.scm.azurewebsites.net
+If on VPN, disconnect and retry.
+"@
+    }
 }
 
 $webAppHost = az webapp show --resource-group $ResourceGroup --name $resolvedWebApp --query "defaultHostName" -o tsv
 Write-Host ""
 Write-Host "App deployment complete."
 Write-Host "URL: https://$webAppHost"
-Write-Host "Health: https://$webAppHost/health"
+Write-Host "Liveness: https://$webAppHost/health/live"
+Write-Host "Health (includes DB): https://$webAppHost/health"
+Write-Host ""
+Write-Host "If startup is slow, stream logs with:"
+Write-Host "  az webapp log tail --resource-group $ResourceGroup --name $resolvedWebApp"

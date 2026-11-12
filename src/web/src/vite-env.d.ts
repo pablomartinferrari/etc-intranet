@@ -1,1 +1,13 @@
 /// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_ENTRA_CLIENT_ID: string;
+  readonly VITE_ENTRA_TENANT_ID: string;
+  readonly VITE_API_SCOPE: string;
+  readonly VITE_SHAREPOINT_SITE_URL?: string;
+  readonly VITE_FEATURE_AGENTIC_WORKSPACE?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}

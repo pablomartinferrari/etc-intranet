@@ -1,8 +1,20 @@
+using Intranet.Api.Agentic;
 using Intranet.Api.Cleat;
 using Intranet.Api.Data;
 using Intranet.Api.Data.Entities;
+using Intranet.Api.FeatureRequests;
+using Intranet.Api.Help;
+using Intranet.Api.KnowledgeBase;
+using Intranet.Api.MultifamilyLbp;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.Identity.Web;
+using Microsoft.OpenApi;
+using System.Security.Claims;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,21 +25,76 @@ builder.Services.AddDbContext<IntranetDbContext>(options =>
     options.UseNpgsql(connectionString);
 });
 
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<IntranetDbContext>();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"))
+    .EnableTokenAcquisitionToCallDownstreamApi()
+    .AddInMemoryTokenCaches();
+builder.Services.AddAuthorization();
+builder.Services.AddMemoryCache();
 builder.Services.Configure<CleatOptions>(builder.Configuration.GetSection(CleatOptions.SectionName));
 builder.Services.AddHttpClient<CleatClient>((sp, client) =>
 {
     var options = sp.GetRequiredService<IOptions<CleatOptions>>().Value;
-    var origin = string.IsNullOrWhiteSpace(options.BaseUrl)
-        ? "https://api.cleat.ai"
-        : options.BaseUrl.TrimEnd('/');
+    var origin = options.ResolvedBaseUrl.TrimEnd('/');
     client.BaseAddress = new Uri(origin + "/");
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 builder.Services.AddScoped<PipelineService>();
+builder.Services.AddScoped<IFeatureRequestLlm, OllamaFeatureRequestLlm>();
+builder.Services.Configure<FeatureRequestOptions>(
+    builder.Configuration.GetSection(FeatureRequestOptions.SectionName));
+builder.Services.Configure<FeatureRequestSmsOptions>(
+    builder.Configuration.GetSection(FeatureRequestSmsOptions.SectionName));
+builder.Services.Configure<FeatureRequestEmailOptions>(
+    builder.Configuration.GetSection(FeatureRequestEmailOptions.SectionName));
+builder.Services.AddHttpClient<IFeatureRequestSmsClient, TwilioFeatureRequestSmsClient>((_, client) =>
+{
+    client.BaseAddress = new Uri("https://api.twilio.com/");
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
+builder.Services.AddScoped<GraphFeatureRequestEmailClient>();
+builder.Services.AddScoped<SmtpFeatureRequestEmailClient>();
+builder.Services.AddScoped<IFeatureRequestEmailClient, FeatureRequestEmailClient>();
+builder.Services.AddScoped<FeatureRequestService>();
+builder.Services.AddMultifamilyLbp(builder.Configuration);
+builder.Services.AddKnowledgeBase(builder.Configuration);
+builder.Services.AddHelpAgent();
+builder.Services.AddAgenticWorkspace(builder.Configuration);
 
-builder.Services.AddOpenApi();
-builder.Services.AddHealthChecks()
-    .AddDbContextCheck<IntranetDbContext>();
+var enableSwagger = builder.Environment.IsDevelopment()
+    || builder.Configuration.GetValue("Swagger:Enabled", false);
+if (enableSwagger)
+{
+    builder.Services.AddSwaggerGen(options =>
+    {
+        options.SwaggerDoc("v1", new OpenApiInfo
+        {
+            Title = "ETC Intranet API",
+            Version = "v1",
+            Description = "Intranet endpoints, CLEATUS opportunities/pipeline, and multifamily lead inspection.",
+        });
+        options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+        {
+            Name = "Authorization",
+            Type = SecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            In = ParameterLocation.Header,
+            Description = "Microsoft Entra access token with the API scope (same token the React app sends).",
+        });
+        options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecuritySchemeReference("Bearer", document)] = [],
+        });
+    });
+}
+builder.Services.ConfigureHttpJsonOptions(o =>
+{
+    o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    o.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+});
 
 builder.Services.AddCors(options =>
 {
@@ -35,16 +102,45 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins("http://localhost:5173")
             .AllowAnyHeader()
-            .AllowAnyMethod();
+            .AllowAnyMethod()
+            .AllowCredentials();
     });
 });
 
 var app = builder.Build();
 
-using (var scope = app.Services.CreateScope())
+var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+if (app.Environment.IsDevelopment())
 {
+    startupLogger.LogInformation(
+        "Environment={Environment} AzureAd:TenantId={TenantId} AzureAd:Audience={Audience}",
+        app.Environment.EnvironmentName,
+        builder.Configuration["AzureAd:TenantId"],
+        builder.Configuration["AzureAd:Audience"]);
+}
+
+try
+{
+    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<IntranetDbContext>();
     await db.Database.MigrateAsync();
+    try
+    {
+        await app.MigrateMultifamilyDatabaseAsync();
+    }
+    catch (Exception mfEx)
+    {
+        startupLogger.LogWarning(mfEx, "Multifamily database init skipped.");
+    }
+    try
+    {
+        await app.InitializeKnowledgeDatabaseAsync();
+    }
+    catch (Exception kbEx)
+    {
+        startupLogger.LogWarning(kbEx, "Knowledge database init skipped; Chat at /knowledge needs KnowledgeDb. Agentic workspace still seeds.");
+    }
+    await app.SeedAgenticWorkspaceAsync();
 
     if (!await db.SiteMessages.AnyAsync())
     {
@@ -57,10 +153,33 @@ using (var scope = app.Services.CreateScope())
         await db.SaveChangesAsync();
     }
 }
+catch (Exception ex)
+{
+    // Do not block Kestrel from starting — Azure health checks and logs need the process up.
+    startupLogger.LogError(ex, "Database migration/seed failed at startup. Fix ConnectionStrings:IntranetDb in App Service settings.");
+}
+
+var sharePointSiteUrl = builder.Configuration["SharePoint:SiteUrl"];
+var graphClientSecret = builder.Configuration["AzureAd:ClientSecret"];
+if (string.IsNullOrWhiteSpace(sharePointSiteUrl) || string.IsNullOrWhiteSpace(graphClientSecret))
+{
+    startupLogger.LogWarning(
+        "SharePoint import is disabled. Set SharePoint:SiteUrl and AzureAd:ClientSecret (plus Graph Sites.Read.All application permission) to enable import-legacy.");
+}
+
+if (enableSwagger)
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "ETC Intranet API v1");
+        options.DocumentTitle = "ETC Intranet API";
+        options.RoutePrefix = "swagger";
+    });
+}
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
     app.UseCors("DevCors");
 }
 else
@@ -70,6 +189,12 @@ else
 }
 
 app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAgenticDevIdentity();
+app.UseAuthorization();
+
+// Liveness: no DB — used by Azure App Service health check (see app-service.bicep).
+app.MapGet("/health/live", () => Results.Ok(new { status = "alive", timestamp = DateTimeOffset.UtcNow }));
 
 app.MapHealthChecks("/health");
 
@@ -85,7 +210,7 @@ app.MapGet("/api/status", async (IntranetDbContext db, CancellationToken cancell
         messageCount,
         timestamp = DateTimeOffset.UtcNow,
     });
-});
+}).RequireAuthorization();
 
 app.MapGet("/api/messages", async (IntranetDbContext db, CancellationToken cancellationToken) =>
 {
@@ -96,7 +221,10 @@ app.MapGet("/api/messages", async (IntranetDbContext db, CancellationToken cance
         .ToListAsync(cancellationToken);
 
     return Results.Ok(messages);
-});
+}).RequireAuthorization();
+
+app.MapControllers().RequireAuthorization();
+app.MapAgenticWorkspace();
 
 app.MapGet("/api/cleat/recommendations", async (
     CleatClient cleat,
@@ -115,7 +243,7 @@ app.MapGet("/api/cleat/recommendations", async (
     {
         return MapCleatError(ex);
     }
-});
+}).RequireAuthorization();
 
 app.MapGet("/api/cleat/opportunities/{id}", async (
     string id,
@@ -150,7 +278,7 @@ app.MapGet("/api/cleat/opportunities/{id}", async (
     {
         return MapCleatError(ex);
     }
-});
+}).RequireAuthorization();
 
 app.MapGet("/api/cleat/pipeline", async (
     PipelineService pipeline,
@@ -165,7 +293,7 @@ app.MapGet("/api/cleat/pipeline", async (
     {
         return MapCleatError(ex);
     }
-});
+}).RequireAuthorization();
 
 app.MapPost("/api/cleat/pursuits/{id}/close-out", async (
     string id,
@@ -209,6 +337,136 @@ app.MapPost("/api/cleat/pursuits/{id}/close-out", async (
     {
         return MapCleatError(ex);
     }
+}).RequireAuthorization();
+
+app.MapPost("/api/feature-requests", async (
+    CreateFeatureRequestBody body,
+    FeatureRequestService features,
+    ClaimsPrincipal user,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var created = await features.CreateAsync(
+            body.Page ?? string.Empty,
+            body.RawText ?? string.Empty,
+            FeatureRequestActor.FromUser(user).CreatedBy,
+            cancellationToken,
+            body.AreaLabel);
+        return Results.Ok(created);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.Json(
+            new { error = "invalid_feature_request", message = ex.Message },
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+}).RequireAuthorization();
+
+app.MapGet("/api/feature-requests/meta", (
+    FeatureRequestService features,
+    ClaimsPrincipal user) =>
+{
+    return Results.Ok(features.GetMeta(FeatureRequestActor.FromUser(user)));
+}).RequireAuthorization();
+
+app.MapGet("/api/feature-requests", async (
+    FeatureRequestService features,
+    ClaimsPrincipal user,
+    CancellationToken cancellationToken) =>
+{
+    var items = await features.ListAsync(FeatureRequestActor.FromUser(user), cancellationToken);
+    return Results.Ok(new { items });
+}).RequireAuthorization();
+
+app.MapPatch("/api/feature-requests/{id:int}", async (
+    int id,
+    UpdateFeatureRequestStatusBody body,
+    FeatureRequestService features,
+    ClaimsPrincipal user,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var updated = await features.UpdateStatusAsync(
+            id,
+            body.Status ?? string.Empty,
+            FeatureRequestActor.FromUser(user),
+            cancellationToken);
+        return updated is null
+            ? Results.Json(
+                new { error = "not_found", message = "Feature request not found." },
+                statusCode: StatusCodes.Status404NotFound)
+            : Results.Ok(updated);
+    }
+    catch (FeatureRequestException ex)
+    {
+        return Results.Json(
+            new { error = ex.Error, message = ex.Message },
+            statusCode: ex.StatusCode);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.Json(
+            new { error = "invalid_status", message = ex.Message },
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+}).RequireAuthorization();
+
+app.MapGet("/api/me", [Authorize] (ClaimsPrincipal user) =>
+{
+    static string? FirstClaim(ClaimsPrincipal principal, params string[] claimTypes)
+    {
+        foreach (var claimType in claimTypes)
+        {
+            var value = principal.FindFirstValue(claimType);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    var identityName = user.Identity?.Name;
+    var nameClaim = FirstClaim(user, "name", ClaimTypes.Name);
+    var email = FirstClaim(
+        user,
+        "preferred_username",
+        "email",
+        ClaimTypes.Email,
+        "upn",
+        ClaimTypes.Upn,
+        "unique_name");
+    var objectId = FirstClaim(
+        user,
+        "oid",
+        "http://schemas.microsoft.com/identity/claims/objectidentifier",
+        ClaimTypes.NameIdentifier,
+        "sub");
+    var tenantId = FirstClaim(
+        user,
+        "tid",
+        "http://schemas.microsoft.com/identity/claims/tenantid",
+        "tenant_id");
+
+    // Identity.Name is often UPN/email in Entra; prefer a real display name when available.
+    var displayName = nameClaim;
+    if (string.IsNullOrWhiteSpace(displayName) && !string.IsNullOrWhiteSpace(identityName) && !identityName.Contains('@'))
+    {
+        displayName = identityName;
+    }
+
+    email ??= identityName?.Contains('@', StringComparison.Ordinal) == true ? identityName : null;
+
+    return Results.Ok(new
+    {
+        name = displayName,
+        email,
+        objectId,
+        tenantId,
+    });
 });
 
 app.MapFallbackToFile("index.html");
