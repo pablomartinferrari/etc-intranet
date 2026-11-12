@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.RegularExpressions;
 using Intranet.Api.Agentic.Data;
 using Intranet.Api.Data;
@@ -24,6 +23,17 @@ public sealed record RepoSearchHit(
     IReadOnlyList<string> Highlights,
     int Score = 0);
 
+public sealed record RepoDocumentContext(
+    Guid DocumentId,
+    Guid FolderId,
+    string Title,
+    string Path,
+    IReadOnlyList<string> Chunks,
+    string? ExtractedText,
+    string ExtractionStatus,
+    string? ExtractionNote,
+    bool NamedOrAttached);
+
 /// <summary>
 /// Search seam. The POC uses <see cref="LocalRepositorySearch"/>. Swap the
 /// DI registration for <see cref="AzureAiSearchRepositorySearch"/> when an
@@ -38,6 +48,15 @@ public interface IRepositorySearch
     Task RemoveDocumentAsync(Guid documentId, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<RepoSearchHit>> SearchAsync(RepoSearchQuery query, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<RepoDocumentContext>> GetDocumentsAsync(
+        IReadOnlyCollection<Guid> documentIds,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<RepoDocumentContext>> FindNamedDocumentsAsync(
+        string question,
+        Guid? folderId,
+        CancellationToken cancellationToken);
 }
 
 public sealed class LocalRepositorySearch : IRepositorySearch
@@ -72,6 +91,11 @@ public sealed class LocalRepositorySearch : IRepositorySearch
         }
 
         document.IsIndexed = chunks.Count > 0;
+        if (chunks.Count == 0 && document.ExtractionStatus == RepositoryExtractionStatus.Ok)
+        {
+            document.ExtractionStatus = RepositoryExtractionStatus.Empty;
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
     }
 
@@ -135,7 +159,7 @@ public sealed class LocalRepositorySearch : IRepositorySearch
                 if (chunkScore > score)
                 {
                     score = chunkScore;
-                    bestSnippet = HighlightSnippet(chunk.Text, terms);
+                    bestSnippet = chunk.Text;
                 }
             }
 
@@ -144,6 +168,13 @@ public sealed class LocalRepositorySearch : IRepositorySearch
             if (score <= 0)
             {
                 continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(bestSnippet))
+            {
+                bestSnippet = document.Chunks.OrderBy(c => c.ChunkIndex).Select(c => c.Text).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t))
+                    ?? document.ExtractedText
+                    ?? "";
             }
 
             var folderPath = string.IsNullOrWhiteSpace(document.FolderPath) ? document.Folder.Path : document.FolderPath;
@@ -166,6 +197,57 @@ public sealed class LocalRepositorySearch : IRepositorySearch
             .ToList();
     }
 
+    public Task<IReadOnlyList<RepoDocumentContext>> GetDocumentsAsync(
+        IReadOnlyCollection<Guid> documentIds,
+        CancellationToken cancellationToken) =>
+        LoadContextsAsync(documentIds, namedOrAttached: true, cancellationToken);
+
+    public async Task<IReadOnlyList<RepoDocumentContext>> FindNamedDocumentsAsync(
+        string question,
+        Guid? folderId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(question))
+        {
+            return [];
+        }
+
+        string? scopePath = null;
+        if (folderId is { } id)
+        {
+            scopePath = await _db.AgenticRepoFolders.AsNoTracking()
+                .Where(f => f.Id == id)
+                .Select(f => f.Path)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        var prefix = scopePath is null ? null : RepositoryNames.PrefixFilter(scopePath);
+        var names = await _db.AgenticRepoDocuments
+            .AsNoTracking()
+            .Where(d =>
+                scopePath == null
+                || d.FolderPath == scopePath
+                || (prefix != null && d.FolderPath.StartsWith(prefix)))
+            .Select(d => new { d.Id, d.Name })
+            .ToListAsync(cancellationToken);
+        var matched = names
+            .Where(d => RepositoryNamedDocuments.NamesDocument(question, d.Name))
+            .Select(d => d.Id)
+            .ToList();
+        if (matched.Count == 0 && folderId is not null)
+        {
+            var wider = await _db.AgenticRepoDocuments.AsNoTracking()
+                .Select(d => new { d.Id, d.Name })
+                .ToListAsync(cancellationToken);
+            matched = wider
+                .Where(d => RepositoryNamedDocuments.NamesDocument(question, d.Name))
+                .Select(d => d.Id)
+                .ToList();
+        }
+
+        return await LoadContextsAsync(matched, namedOrAttached: true, cancellationToken);
+    }
+
     internal static List<string> Tokenize(string text)
     {
         var terms = new List<string>();
@@ -184,7 +266,7 @@ public sealed class LocalRepositorySearch : IRepositorySearch
         return terms;
     }
 
-    internal static List<string> Chunk(string text, int size = 500)
+    internal static List<string> Chunk(string text, int size = 1800, int overlap = 200)
     {
         var normalized = Regex.Replace(text ?? "", @"\s+", " ").Trim();
         if (normalized.Length == 0)
@@ -192,11 +274,45 @@ public sealed class LocalRepositorySearch : IRepositorySearch
             return [];
         }
 
-        var chunks = new List<string>();
-        for (var i = 0; i < normalized.Length; i += size)
+        if (size <= 0)
         {
-            var len = Math.Min(size, normalized.Length - i);
-            chunks.Add(normalized.Substring(i, len));
+            size = 1800;
+        }
+
+        overlap = Math.Clamp(overlap, 0, Math.Max(0, size - 1));
+        if (normalized.Length <= size)
+        {
+            return [normalized];
+        }
+
+        var chunks = new List<string>();
+        var start = 0;
+        while (start < normalized.Length)
+        {
+            var length = Math.Min(size, normalized.Length - start);
+            var end = start + length;
+            if (end < normalized.Length)
+            {
+                var window = Math.Min(400, length);
+                var breakAt = normalized.LastIndexOfAny([' ', '.', ';', '\n'], end - 1, window);
+                if (breakAt > start + size / 2)
+                {
+                    end = breakAt + 1;
+                }
+            }
+
+            var slice = normalized[start..end].Trim();
+            if (slice.Length > 0)
+            {
+                chunks.Add(slice);
+            }
+
+            if (end >= normalized.Length)
+            {
+                break;
+            }
+
+            start = Math.Max(end - overlap, start + 1);
         }
 
         return chunks;
@@ -278,6 +394,47 @@ public sealed class LocalRepositorySearch : IRepositorySearch
         };
         return days == 0 || modified >= DateTimeOffset.UtcNow.AddDays(-days);
     }
+
+    private async Task<IReadOnlyList<RepoDocumentContext>> LoadContextsAsync(
+        IReadOnlyCollection<Guid> documentIds,
+        bool namedOrAttached,
+        CancellationToken cancellationToken)
+    {
+        if (documentIds.Count == 0)
+        {
+            return [];
+        }
+
+        var ids = documentIds.Distinct().ToList();
+        var documents = await _db.AgenticRepoDocuments
+            .AsNoTracking()
+            .Include(d => d.Folder)
+            .Include(d => d.Chunks)
+            .Where(d => ids.Contains(d.Id))
+            .ToListAsync(cancellationToken);
+        return documents.Select(d => ToContext(d, namedOrAttached)).ToList();
+    }
+
+    internal static RepoDocumentContext ToContext(AgenticRepoDocument document, bool namedOrAttached)
+    {
+        var folderPath = string.IsNullOrWhiteSpace(document.FolderPath) ? document.Folder?.Path ?? "" : document.FolderPath;
+        var chunks = document.Chunks.OrderBy(c => c.ChunkIndex).Select(c => c.Text).Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+        if (chunks.Count == 0 && !string.IsNullOrWhiteSpace(document.ExtractedText))
+        {
+            chunks = Chunk(document.ExtractedText);
+        }
+
+        return new RepoDocumentContext(
+            document.Id,
+            document.FolderId,
+            document.Name,
+            RepositoryNames.DocumentPath(folderPath, document.Name),
+            chunks,
+            document.ExtractedText,
+            string.IsNullOrWhiteSpace(document.ExtractionStatus) ? RepositoryExtractionStatus.Pending : document.ExtractionStatus,
+            document.ExtractionNote,
+            namedOrAttached);
+    }
 }
 
 /// <summary>
@@ -304,6 +461,17 @@ public sealed class AzureAiSearchRepositorySearch : IRepositorySearch
     public Task RemoveDocumentAsync(Guid documentId, CancellationToken cancellationToken) =>
         _fallback.RemoveDocumentAsync(documentId, cancellationToken);
 
+    public Task<IReadOnlyList<RepoDocumentContext>> GetDocumentsAsync(
+        IReadOnlyCollection<Guid> documentIds,
+        CancellationToken cancellationToken) =>
+        _fallback.GetDocumentsAsync(documentIds, cancellationToken);
+
+    public Task<IReadOnlyList<RepoDocumentContext>> FindNamedDocumentsAsync(
+        string question,
+        Guid? folderId,
+        CancellationToken cancellationToken) =>
+        _fallback.FindNamedDocumentsAsync(question, folderId, cancellationToken);
+
     public Task<IReadOnlyList<RepoSearchHit>> SearchAsync(RepoSearchQuery query, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(_options.AzureSearchEndpoint)
@@ -314,56 +482,5 @@ public sealed class AzureAiSearchRepositorySearch : IRepositorySearch
 
         // Seam: replace this fallback with Azure.Search.Documents when an index exists.
         return _fallback.SearchAsync(query, cancellationToken);
-    }
-}
-
-public static class RepositoryTextExtractor
-{
-    public static string DetectFileType(string fileName, string? mime)
-    {
-        var ext = Path.GetExtension(fileName).ToLowerInvariant();
-        if (ext is ".xls" or ".xlsx" or ".csv")
-        {
-            return "spreadsheet";
-        }
-
-        if (ext is ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" || (mime?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ?? false))
-        {
-            return "image";
-        }
-
-        return "document";
-    }
-
-    public static string Extract(string fileName, string mime, Stream content)
-    {
-        var ext = Path.GetExtension(fileName).ToLowerInvariant();
-        if (ext is ".txt" or ".md" or ".csv" || mime.StartsWith("text/", StringComparison.OrdinalIgnoreCase))
-        {
-            using var reader = new StreamReader(content, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
-            return reader.ReadToEnd();
-        }
-
-        if (ext == ".pdf" || mime.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
-        {
-            try
-            {
-                content.Position = 0;
-                using var doc = UglyToad.PdfPig.PdfDocument.Open(content);
-                var builder = new StringBuilder();
-                foreach (var page in doc.GetPages())
-                {
-                    builder.AppendLine(page.Text);
-                }
-
-                return builder.ToString();
-            }
-            catch
-            {
-                return "";
-            }
-        }
-
-        return "";
     }
 }

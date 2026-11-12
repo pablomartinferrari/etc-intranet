@@ -172,6 +172,14 @@ export function WorkspaceChatPage() {
                 {chat.folderPath ?? chat.folderName}
               </Link>
             ) : null}
+            {chat?.documentId ? (
+              <Link
+                to={`/workspace/repo/${chat.folderId ?? ""}?doc=${chat.documentId}`}
+                className="text-xs text-muted-foreground hover:underline"
+              >
+                {chat.documentName ?? "Attached file"}
+              </Link>
+            ) : null}
             {shareLine ? <span className="text-xs text-muted-foreground">{shareLine}</span> : null}
           </div>
           {others.length > 0 ? (
@@ -210,8 +218,8 @@ export function WorkspaceChatPage() {
       <div ref={scroller} className="min-h-0 flex-1 space-y-6 overflow-y-auto py-6">
         {(messagesQuery.data ?? []).length === 0 && !sendMutation.isPending ? (
           <div className="mx-auto max-w-[760px] px-6 text-sm text-muted-foreground">
-            This chat is empty. Ask a question — the assistant uses project instructions, linked files, and repository
-            search as context.
+            This chat is empty. Ask a question — the assistant uses the attached file (if any), project instructions,
+            and repository search as context.
           </div>
         ) : null}
         {(messagesQuery.data ?? []).map((message) => (

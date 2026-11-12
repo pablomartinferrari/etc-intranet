@@ -167,6 +167,7 @@ public class IntranetDbContext(DbContextOptions<IntranetDbContext> options) : Db
             entity.HasIndex(e => e.OwnerOid);
             entity.HasIndex(e => e.ProjectId);
             entity.HasIndex(e => e.FolderId);
+            entity.HasIndex(e => e.DocumentId);
             entity.HasOne(e => e.Project)
                 .WithMany(p => p.Chats)
                 .HasForeignKey(e => e.ProjectId)
@@ -174,6 +175,10 @@ public class IntranetDbContext(DbContextOptions<IntranetDbContext> options) : Db
             entity.HasOne(e => e.Folder)
                 .WithMany(f => f.Chats)
                 .HasForeignKey(e => e.FolderId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne(e => e.Document)
+                .WithMany(d => d.AttachedChats)
+                .HasForeignKey(e => e.DocumentId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 
@@ -239,8 +244,11 @@ public class IntranetDbContext(DbContextOptions<IntranetDbContext> options) : Db
             entity.Property(e => e.UpdatedByName).HasMaxLength(200);
             entity.Property(e => e.StoragePath).HasMaxLength(500);
             entity.Property(e => e.FolderPath).HasMaxLength(1000);
+            entity.Property(e => e.ExtractionStatus).HasMaxLength(32);
+            entity.Property(e => e.ExtractionNote).HasMaxLength(500);
             entity.HasIndex(e => e.FolderId);
             entity.HasIndex(e => e.FolderPath);
+            entity.HasIndex(e => e.ExtractionStatus);
             entity.HasOne(e => e.Folder)
                 .WithMany(f => f.Documents)
                 .HasForeignKey(e => e.FolderId)

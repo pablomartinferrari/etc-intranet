@@ -28,9 +28,11 @@ public static class AgenticServiceExtensions
         services.AddScoped<IDayAggregator, DayAggregator>();
         services.AddScoped<IWorkspaceDirectory, WorkspaceDirectory>();
         services.AddScoped<IWorkspaceChatComposer, WorkspaceChatComposer>();
+        services.AddScoped<IRepositoryReindexService, RepositoryReindexService>();
         services.AddScoped<IWorkspaceService, WorkspaceService>();
         services.AddScoped<WorkspaceSeeder>();
         services.AddScoped<WorkspaceDemoCleanup>();
+        services.AddHostedService<RepositoryReindexWorker>();
         services.AddSignalR();
         return services;
     }

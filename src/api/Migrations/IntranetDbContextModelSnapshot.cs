@@ -31,6 +31,9 @@ namespace Intranet.Api.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("DocumentId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("FolderId")
                         .HasColumnType("uuid");
 
@@ -54,6 +57,8 @@ namespace Intranet.Api.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DocumentId");
 
                     b.HasIndex("FolderId");
 
@@ -291,6 +296,15 @@ namespace Intranet.Api.Migrations
                     b.Property<string>("ExtractedText")
                         .HasColumnType("text");
 
+                    b.Property<string>("ExtractionNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ExtractionStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<string>("FileType")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -344,6 +358,8 @@ namespace Intranet.Api.Migrations
                         .HasColumnType("character varying(64)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ExtractionStatus");
 
                     b.HasIndex("FolderId");
 
@@ -737,6 +753,11 @@ namespace Intranet.Api.Migrations
 
             modelBuilder.Entity("Intranet.Api.Agentic.Data.AgenticChat", b =>
                 {
+                    b.HasOne("Intranet.Api.Agentic.Data.AgenticRepoDocument", "Document")
+                        .WithMany("AttachedChats")
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Intranet.Api.Agentic.Data.AgenticRepoFolder", "Folder")
                         .WithMany("Chats")
                         .HasForeignKey("FolderId")
@@ -746,6 +767,8 @@ namespace Intranet.Api.Migrations
                         .WithMany("Chats")
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Document");
 
                     b.Navigation("Folder");
 
@@ -876,6 +899,8 @@ namespace Intranet.Api.Migrations
 
             modelBuilder.Entity("Intranet.Api.Agentic.Data.AgenticRepoDocument", b =>
                 {
+                    b.Navigation("AttachedChats");
+
                     b.Navigation("Chunks");
                 });
 

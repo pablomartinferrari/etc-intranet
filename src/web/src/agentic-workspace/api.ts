@@ -82,6 +82,8 @@ export type WorkspaceChat = {
   folderId?: string | null;
   folderName?: string | null;
   folderPath?: string | null;
+  documentId?: string | null;
+  documentName?: string | null;
   title: string;
   visibility: string;
   realtimeCollaboration: boolean;
@@ -167,6 +169,8 @@ export type RepoDocument = {
   path: string;
   modifiedAt: string;
   previewText?: string | null;
+  extractionStatus?: string | null;
+  extractionNote?: string | null;
 };
 
 export type RepoBrowse = {
@@ -268,10 +272,23 @@ export const workspaceApi = {
     apiSend<WorkspaceProject>("PATCH", `/workspace/projects/${id}`, body),
   chat: (id: string) => apiGet<WorkspaceChat>(`/workspace/chats/${id}`),
   messages: (id: string) => apiGet<ChatMessage[]>(`/workspace/chats/${id}/messages`),
-  createChat: (body: { title?: string; projectId?: string | null; folderId?: string | null; realtimeCollaboration?: boolean }) =>
-    apiSend<WorkspaceChat>("POST", "/workspace/chats", body),
-  updateChat: (id: string, body: { title?: string; projectId?: string | null; folderId?: string | null; realtimeCollaboration?: boolean }) =>
-    apiSend<WorkspaceChat>("PATCH", `/workspace/chats/${id}`, body),
+  createChat: (body: {
+    title?: string;
+    projectId?: string | null;
+    folderId?: string | null;
+    documentId?: string | null;
+    realtimeCollaboration?: boolean;
+  }) => apiSend<WorkspaceChat>("POST", "/workspace/chats", body),
+  updateChat: (
+    id: string,
+    body: {
+      title?: string;
+      projectId?: string | null;
+      folderId?: string | null;
+      documentId?: string | null;
+      realtimeCollaboration?: boolean;
+    },
+  ) => apiSend<WorkspaceChat>("PATCH", `/workspace/chats/${id}`, body),
   send: (id: string, text: string) =>
     apiSend<{ user: ChatMessage; assistant: ChatMessage }>("POST", `/workspace/chats/${id}/messages`, { text }),
   shares: (id: string) => apiGet<ChatShare[]>(`/workspace/chats/${id}/shares`),
@@ -335,6 +352,8 @@ export const workspaceApi = {
     });
     if (!res.ok) throw new Error(await readError(res));
   },
+  reindexDocument: (documentId: string) =>
+    apiSend<RepoDocument>("POST", `/workspace/repo/documents/${documentId}/reindex`),
 };
 
 export function isAgenticEnabled(): boolean {

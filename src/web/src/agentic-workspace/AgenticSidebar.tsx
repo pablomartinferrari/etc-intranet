@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { workspaceApi, type RepoFolder, type SidebarPayload, type WorkspaceChat, type WorkspaceProject } from "./api";
 
 function locationLabel(chat: WorkspaceChat) {
-  return chat.folderPath || chat.projectName || undefined;
+  return chat.documentName || chat.folderPath || chat.projectName || undefined;
 }
 
 function initial(name: string) {
@@ -200,7 +200,8 @@ export function AgenticSidebar({
         (c) =>
           c.title.toLowerCase().includes(q) ||
           (c.folderPath ?? "").toLowerCase().includes(q) ||
-          (c.projectName ?? "").toLowerCase().includes(q),
+          (c.projectName ?? "").toLowerCase().includes(q) ||
+          (c.documentName ?? "").toLowerCase().includes(q),
       )
     : [];
 

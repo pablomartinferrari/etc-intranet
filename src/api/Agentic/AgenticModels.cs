@@ -69,6 +69,8 @@ public sealed record WorkspaceChatDto(
     Guid? FolderId,
     string? FolderName,
     string? FolderPath,
+    Guid? DocumentId,
+    string? DocumentName,
     string Title,
     string Visibility,
     bool RealtimeCollaboration,
@@ -106,9 +108,19 @@ public sealed record WorkspaceMessageDto(
 
 public sealed record SendChatRequestDto(string Text);
 
-public sealed record CreateChatRequestDto(string? Title, Guid? ProjectId, Guid? FolderId, bool RealtimeCollaboration);
+public sealed record CreateChatRequestDto(
+    string? Title,
+    Guid? ProjectId,
+    Guid? FolderId,
+    bool RealtimeCollaboration,
+    Guid? DocumentId = null);
 
-public sealed record UpdateChatRequestDto(string? Title, Guid? ProjectId, Guid? FolderId, bool? RealtimeCollaboration);
+public sealed record UpdateChatRequestDto(
+    string? Title,
+    Guid? ProjectId,
+    Guid? FolderId,
+    bool? RealtimeCollaboration,
+    Guid? DocumentId = null);
 
 public sealed record CreateProjectRequestDto(string Name, string? Instructions);
 
@@ -162,7 +174,9 @@ public sealed record RepoDocumentDto(
     bool IsPublic,
     string Path,
     DateTimeOffset ModifiedAt,
-    string? PreviewText);
+    string? PreviewText,
+    string ExtractionStatus = "",
+    string? ExtractionNote = null);
 
 public sealed record RepoBrowseDto(
     RepoFolderDto Folder,

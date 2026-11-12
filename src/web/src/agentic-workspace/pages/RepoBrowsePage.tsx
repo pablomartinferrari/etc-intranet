@@ -78,11 +78,21 @@ export function WorkspaceRepoBrowsePage() {
       const chat = await workspaceApi.createChat({
         title: `Ask about ${doc.name}`,
         folderId: doc.folderId,
+        documentId: doc.id,
       });
-      await workspaceApi.send(chat.id, `What does ${doc.name} say? Cite the repository.`);
       return chat;
     },
-    onSuccess: (chat) => navigate(`/workspace/chats/${chat.id}`),
+    onSuccess: (chat) => {
+      void queryClient.invalidateQueries({ queryKey: ["ws-sidebar"] });
+      navigate(`/workspace/chats/${chat.id}`);
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const reindexMutation = useMutation({
+    mutationFn: (doc: RepoDocument) => workspaceApi.reindexDocument(doc.id),
+    onSuccess: () => void refresh(),
+    onError: (err: Error) => setError(err.message),
   });
 
   const newChatMutation = useMutation({
@@ -414,12 +424,21 @@ export function WorkspaceRepoBrowsePage() {
                     <span className="flex items-center gap-2">
                       <FileIcon type={doc.fileType} />
                       {doc.name}
+                      {doc.extractionStatus && doc.extractionStatus !== "ok" ? (
+                        <span className="text-[11px] text-amber-700">No extractable text</span>
+                      ) : null}
                     </span>
                   </td>
                   <td className="px-4 py-2 capitalize text-muted-foreground">{doc.fileType}</td>
                   <td className="px-4 py-2 text-muted-foreground">{new Date(doc.modifiedAt).toLocaleDateString()}</td>
                   <td className="px-4 py-2 text-muted-foreground">{doc.ownerName}</td>
                   <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                    <button type="button" className="mr-2 text-xs hover:underline" onClick={() => askMutation.mutate(doc)}>
+                      Chat about this
+                    </button>
+                    <button type="button" className="mr-2 text-xs hover:underline" onClick={() => reindexMutation.mutate(doc)}>
+                      Re-index
+                    </button>
                     <button type="button" className="mr-2 text-xs hover:underline" onClick={() => void renameDocument(doc)}>
                       Rename
                     </button>
@@ -459,12 +478,26 @@ export function WorkspaceRepoBrowsePage() {
             <div className="flex flex-col gap-3">
               <h2 className="text-base font-semibold">{selected.name}</h2>
               <p className="text-xs text-muted-foreground">Preview</p>
-              <p className="text-sm leading-relaxed text-muted-foreground">{selected.previewText || "No extracted text yet."}</p>
+              {selected.extractionStatus && selected.extractionStatus !== "ok" ? (
+                <p className="text-sm leading-relaxed text-amber-800">
+                  No extractable text. {selected.extractionNote || "This file may be a scan or image-only PDF. Try Re-index, or upload a text/DOCX copy."}
+                </p>
+              ) : (
+                <p className="text-sm leading-relaxed text-muted-foreground">{selected.previewText || "No extracted text yet."}</p>
+              )}
               <p className="text-[11px] text-muted-foreground">
                 {selected.path} · {Math.max(1, Math.round(selected.sizeBytes / 1024))} KB · {selected.isIndexed ? "Indexed" : "Not indexed"} · {selected.isPublic ? "Public" : "Private"}
               </p>
               <Button className="rounded-full" onClick={() => askMutation.mutate(selected)}>
-                <Sparkles /> Ask agent about this
+                <Sparkles /> Chat about this file
+              </Button>
+              <Button
+                variant="outline"
+                className="rounded-full"
+                disabled={reindexMutation.isPending}
+                onClick={() => reindexMutation.mutate(selected)}
+              >
+                {reindexMutation.isPending ? "Re-indexing…" : "Re-index"}
               </Button>
             </div>
           ) : (

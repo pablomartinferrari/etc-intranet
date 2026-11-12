@@ -105,14 +105,17 @@ public class WorkspaceChatAgentTests
             CreateRouter(hosted, ollamaHealthy: false, fallbackKey: "unit-test-placeholder-key"),
             search,
             NullLogger<WorkspaceChatComposer>.Instance);
+        var options = Options.Create(new AgenticOptions { Enabled = true });
+        var env = new StubWebEnvironment();
         var service = new WorkspaceService(
             db,
             new FakeDirectory(),
             search,
+            new RepositoryReindexService(db, search, options, env, NullLogger<RepositoryReindexService>.Instance),
             composer,
             CreateRouter(hosted, ollamaHealthy: false, fallbackKey: "unit-test-placeholder-key"),
-            Options.Create(new AgenticOptions { Enabled = true }),
-            new StubWebEnvironment());
+            options,
+            env);
 
         var actor = new WorkspaceActor("tester", "Tester", "tester@etc.local");
         var (user, assistant) = await service.SendAsync(actor, chat.Id, "What does the quarterly report say?", CancellationToken.None);
