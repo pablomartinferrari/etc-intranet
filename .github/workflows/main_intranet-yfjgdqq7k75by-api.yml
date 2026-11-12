@@ -6,6 +6,12 @@
 # includes that folder. Production Program.cs serves it with UseDefaultFiles /
 # UseStaticFiles and MapFallbackToFile("index.html").
 #
+# `npm run build` uses Vite production mode, which loads committed
+# src/web/.env.production — the same source as scripts/deploy-app.ps1
+# -BuildFrontend. Do not map vars.VITE_* onto the build step: empty GitHub
+# repository variables would override the .env file (Vite prefers real env
+# vars over .env files).
+#
 # OIDC secret names match the Azure Portal–generated names from that workflow so
 # existing repo secrets still work. AZURE_CLIENT_ID / AZURE_TENANT_ID /
 # AZURE_SUBSCRIPTION_ID are accepted as a fallback.
@@ -39,31 +45,10 @@ jobs:
           cache: npm
           cache-dependency-path: src/web/package-lock.json
 
-      - name: Require Vite build variables
-        env:
-          VITE_ENTRA_CLIENT_ID: ${{ vars.VITE_ENTRA_CLIENT_ID }}
-          VITE_ENTRA_TENANT_ID: ${{ vars.VITE_ENTRA_TENANT_ID }}
-          VITE_API_SCOPE: ${{ vars.VITE_API_SCOPE }}
-        run: |
-          : "${VITE_ENTRA_CLIENT_ID:?Set repository variable VITE_ENTRA_CLIENT_ID}"
-          : "${VITE_ENTRA_TENANT_ID:?Set repository variable VITE_ENTRA_TENANT_ID}"
-          : "${VITE_API_SCOPE:?Set repository variable VITE_API_SCOPE}"
-
       - name: Build web app
         working-directory: src/web
-        env:
-          VITE_ENTRA_CLIENT_ID: ${{ vars.VITE_ENTRA_CLIENT_ID }}
-          VITE_ENTRA_TENANT_ID: ${{ vars.VITE_ENTRA_TENANT_ID }}
-          VITE_API_SCOPE: ${{ vars.VITE_API_SCOPE }}
-          VITE_SHAREPOINT_SITE_URL: ${{ vars.VITE_SHAREPOINT_SITE_URL }}
-          VITE_FEATURE_AGENTIC_WORKSPACE: ${{ vars.VITE_FEATURE_AGENTIC_WORKSPACE }}
-          VITE_ENTRA_REDIRECT_URI: ${{ vars.VITE_ENTRA_REDIRECT_URI }}
         run: |
           npm ci
-          # Empty optional vars would override Vite/code fallbacks — drop them.
-          [ -z "${VITE_SHAREPOINT_SITE_URL}" ] && unset VITE_SHAREPOINT_SITE_URL
-          [ -z "${VITE_FEATURE_AGENTIC_WORKSPACE}" ] && unset VITE_FEATURE_AGENTIC_WORKSPACE
-          [ -z "${VITE_ENTRA_REDIRECT_URI}" ] && unset VITE_ENTRA_REDIRECT_URI
           npm run build
 
       - name: Confirm SPA was written into API wwwroot
