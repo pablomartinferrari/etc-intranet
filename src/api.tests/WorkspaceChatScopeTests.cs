@@ -173,6 +173,46 @@ public class WorkspaceChatScopeTests
         Assert.Contains("No matching documents in Root / Hotel", hosted.LastUserPrompt, StringComparison.Ordinal);
         Assert.Contains("do not pull from the rest of the repository", hosted.LastSystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(answer.Citations, c => (c.Path ?? "").Contains("warehouse", StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(answer.Citations);
+    }
+
+    [Fact]
+    public async Task ComposerScopedMissReturnsZeroCitations()
+    {
+        var (harness, hotel, _, composer, hosted) = await FolderPairAsync();
+        await using var _ = harness;
+        var folder = await harness.Db.AgenticRepoFolders.AsNoTracking().SingleAsync(f => f.Id == hotel);
+        var chat = new AgenticChat
+        {
+            Id = Guid.NewGuid(),
+            OwnerOid = harness.Actor.Oid,
+            Title = "Hotel chat",
+            FolderId = hotel,
+            Folder = folder,
+        };
+
+        var answer = await composer.ComposeAsync(chat, "what is the wifi password for guests?", [], CancellationToken.None);
+
+        Assert.Empty(answer.Citations);
+        Assert.Contains("No matching documents in Root / Hotel", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("finishes.txt", hosted.LastUserPrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("warehouse.txt", hosted.LastUserPrompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SelectCitationsIgnoresZeroScoreHits()
+    {
+        var focused = Array.Empty<RepoDocumentContext>();
+        var hits = new[]
+        {
+            new RepoSearchHit(Guid.NewGuid(), Guid.NewGuid(), "notes.txt", "document", "Root / Hotel / notes.txt", "planning notes", ["in"], Score: 0),
+            new RepoSearchHit(Guid.NewGuid(), Guid.NewGuid(), "wifi.txt", "document", "Root / Hotel / wifi.txt", "wifi password", ["wifi"], Score: 4),
+        };
+
+        var citations = WorkspaceChatComposer.SelectCitations(focused, hits);
+
+        Assert.Single(citations);
+        Assert.Equal("wifi.txt", citations[0].Title);
     }
 
     [Fact]

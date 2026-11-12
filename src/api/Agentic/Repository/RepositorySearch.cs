@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 using Intranet.Api.Agentic.Data;
 using Intranet.Api.Data;
@@ -226,6 +227,13 @@ public sealed class LocalRepositorySearch : IRepositorySearch
         return await LoadContextsAsync(matched, namedOrAttached: true, cancellationToken);
     }
 
+    internal static readonly HashSet<string> Stopwords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "the", "and", "for", "with", "from", "this", "that", "into", "about", "have", "what",
+        "when", "where", "which", "will", "your", "you", "are", "was", "were", "not", "any",
+        "did", "does", "find", "anything", "something", "please", "pdf", "docx", "xlsx", "pptx", "txt",
+    };
+
     internal static List<string> Tokenize(string text)
     {
         var terms = new List<string>();
@@ -233,7 +241,7 @@ public sealed class LocalRepositorySearch : IRepositorySearch
         foreach (Match match in Regex.Matches(text ?? "", @"[\p{L}\p{N}']+"))
         {
             var term = match.Value.ToLowerInvariant();
-            if (term.Length < 2 || !seen.Add(term))
+            if (term.Length < 3 || Stopwords.Contains(term) || !seen.Add(term))
             {
                 continue;
             }
@@ -296,6 +304,39 @@ public sealed class LocalRepositorySearch : IRepositorySearch
         return chunks;
     }
 
+    /// <summary>
+    /// Reassemble overlapping chunks into a single string so named-file injection
+    /// does not duplicate the overlap window (which made the LLM repeat bullets).
+    /// </summary>
+    internal static string JoinOverlappingChunks(IReadOnlyList<string> chunks, int overlap = 200)
+    {
+        if (chunks.Count == 0)
+        {
+            return "";
+        }
+
+        var sb = new StringBuilder(chunks[0]);
+        for (var i = 1; i < chunks.Count; i++)
+        {
+            var previous = chunks[i - 1];
+            var current = chunks[i];
+            var skip = 0;
+            var max = Math.Min(Math.Max(overlap, 0), Math.Min(previous.Length, current.Length));
+            for (var n = max; n > 0; n--)
+            {
+                if (previous.EndsWith(current[..n], StringComparison.Ordinal))
+                {
+                    skip = n;
+                    break;
+                }
+            }
+
+            sb.Append(current[skip..]);
+        }
+
+        return sb.ToString();
+    }
+
     internal static int Score(string text, IReadOnlyList<string> terms)
     {
         if (string.IsNullOrWhiteSpace(text) || terms.Count == 0)
@@ -303,21 +344,22 @@ public sealed class LocalRepositorySearch : IRepositorySearch
             return 0;
         }
 
-        var hay = text.ToLowerInvariant();
+        var hay = " " + Regex.Replace(text.ToLowerInvariant(), @"[^\p{L}\p{N}']+", " ") + " ";
         var score = 0;
         foreach (var term in terms)
         {
+            var needle = " " + term + " ";
             var start = 0;
             while (start < hay.Length)
             {
-                var at = hay.IndexOf(term, start, StringComparison.Ordinal);
+                var at = hay.IndexOf(needle, start, StringComparison.Ordinal);
                 if (at < 0)
                 {
                     break;
                 }
 
                 score++;
-                start = at + term.Length;
+                start = at + needle.Length - 1;
             }
         }
 

@@ -4,11 +4,6 @@ namespace Intranet.Api.Agentic.Repository;
 
 public static class RepositoryNamedDocuments
 {
-    private static readonly HashSet<string> Stopwords = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "the", "and", "for", "with", "from", "this", "that", "pdf", "docx", "xlsx", "pptx", "txt",
-    };
-
     public static bool NamesDocument(string question, string fileName)
     {
         if (string.IsNullOrWhiteSpace(question) || string.IsNullOrWhiteSpace(fileName))
@@ -30,7 +25,7 @@ public static class RepositoryNamedDocuments
 
         var questionTerms = new HashSet<string>(LocalRepositorySearch.Tokenize(question), StringComparer.OrdinalIgnoreCase);
         var nameTerms = LocalRepositorySearch.Tokenize(stem)
-            .Where(t => t.Length >= 3 && !Stopwords.Contains(t))
+            .Where(t => t.Length >= 3 && !LocalRepositorySearch.Stopwords.Contains(t))
             .ToList();
         if (nameTerms.Count >= 2)
         {
@@ -42,7 +37,7 @@ public static class RepositoryNamedDocuments
 
     public static IReadOnlyList<string> DistinctiveNameTerms(string fileName) =>
         LocalRepositorySearch.Tokenize(Path.GetFileNameWithoutExtension(fileName) ?? "")
-            .Where(t => t.Length >= 3 && !Stopwords.Contains(t))
+            .Where(t => t.Length >= 3 && !LocalRepositorySearch.Stopwords.Contains(t))
             .ToList();
 
     public static string NormalizeName(string fileName) =>

@@ -427,7 +427,7 @@ public sealed class WorkspaceRepositoryController(
     [HttpPatch("repo/folders/{folderId:guid}")]
     public async Task<IActionResult> UpdateFolder(
         Guid folderId,
-        [FromBody] RenameRepoItemRequestDto? rename,
+        [FromBody] PatchRepoItemRequestDto? patch,
         [FromQuery] Guid? parentId,
         CancellationToken cancellationToken)
     {
@@ -439,13 +439,14 @@ public sealed class WorkspaceRepositoryController(
         try
         {
             RepoFolderDto folder;
-            if (parentId is { } destination)
+            var destination = parentId ?? patch?.ParentId;
+            if (destination is { } target)
             {
-                folder = await workspace.MoveFolderAsync(Actor(), folderId, destination, cancellationToken);
+                folder = await workspace.MoveFolderAsync(Actor(), folderId, target, cancellationToken);
             }
             else
             {
-                folder = await workspace.RenameFolderAsync(Actor(), folderId, rename?.Name ?? "", cancellationToken);
+                folder = await workspace.RenameFolderAsync(Actor(), folderId, patch?.Name ?? "", cancellationToken);
             }
 
             await NotifyRepositoryChanged(cancellationToken);
@@ -480,7 +481,7 @@ public sealed class WorkspaceRepositoryController(
     [HttpPatch("repo/documents/{documentId:guid}")]
     public async Task<IActionResult> UpdateDocument(
         Guid documentId,
-        [FromBody] RenameRepoItemRequestDto? rename,
+        [FromBody] PatchRepoItemRequestDto? patch,
         [FromQuery] Guid? folderId,
         CancellationToken cancellationToken)
     {
@@ -492,13 +493,14 @@ public sealed class WorkspaceRepositoryController(
         try
         {
             RepoDocumentDto document;
-            if (folderId is { } destination)
+            var destination = folderId ?? patch?.FolderId;
+            if (destination is { } target)
             {
-                document = await workspace.MoveDocumentAsync(Actor(), documentId, destination, cancellationToken);
+                document = await workspace.MoveDocumentAsync(Actor(), documentId, target, cancellationToken);
             }
             else
             {
-                document = await workspace.RenameDocumentAsync(Actor(), documentId, rename?.Name ?? "", cancellationToken);
+                document = await workspace.RenameDocumentAsync(Actor(), documentId, patch?.Name ?? "", cancellationToken);
             }
 
             await NotifyRepositoryChanged(cancellationToken);

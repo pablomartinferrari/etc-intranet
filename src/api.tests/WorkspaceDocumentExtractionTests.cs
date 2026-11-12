@@ -38,6 +38,42 @@ public class WorkspaceDocumentExtractionTests
     }
 
     [Fact]
+    public void DocxExtractionIncludesTableCellText()
+    {
+        var extraction = RepositoryTextExtractor.Extract(
+            "scope.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            WorkspaceDocumentFixtures.DocxWithTableSection());
+        Assert.Equal(RepositoryExtractionStatus.Ok, extraction.Status);
+        Assert.Contains("Scope", extraction.Text, StringComparison.Ordinal);
+        Assert.Contains("Table section: phase two budget", extraction.Text, StringComparison.Ordinal);
+        Assert.Contains("Closing paragraph", extraction.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NamedFilePromptDoesNotDuplicateOverlappingChunks()
+    {
+        var overlap = " duplicated-bullet ";
+        var context = new RepoDocumentContext(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "notes.docx",
+            "Root / Hotel / notes.docx",
+            ["alpha" + overlap, overlap + "omega"],
+            ExtractedText: null,
+            RepositoryExtractionStatus.Ok,
+            null,
+            NamedOrAttached: true);
+        var rendered = WorkspaceChatComposer.RenderDocumentContents([context]);
+        var first = rendered.IndexOf("duplicated-bullet", StringComparison.Ordinal);
+        var last = rendered.LastIndexOf("duplicated-bullet", StringComparison.Ordinal);
+        Assert.True(first >= 0);
+        Assert.Equal(first, last);
+        Assert.Contains("alpha", rendered, StringComparison.Ordinal);
+        Assert.Contains("omega", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NamesDocumentMatchesResumeTitleWithoutKeywordOverlap()
     {
         Assert.True(RepositoryNamedDocuments.NamesDocument(

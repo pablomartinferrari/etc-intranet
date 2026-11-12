@@ -13,6 +13,24 @@ public class LocalRepositorySearchTests
     }
 
     [Fact]
+    public void TokenizeDropsStopwordsSoScopedMissesDoNotMatchEveryFile()
+    {
+        var terms = LocalRepositorySearch.Tokenize("I didn't find anything about that in the folder");
+        Assert.DoesNotContain("the", terms);
+        Assert.DoesNotContain("that", terms);
+        Assert.DoesNotContain("about", terms);
+        Assert.DoesNotContain("find", terms);
+        Assert.Contains("folder", terms);
+    }
+
+    [Fact]
+    public void ScoreDoesNotCountSubstringHitsInsideOtherWords()
+    {
+        Assert.Equal(0, LocalRepositorySearch.Score("Meeting notes for planning", ["in"]));
+        Assert.True(LocalRepositorySearch.Score("wifi password is posted", ["wifi", "password"]) >= 2);
+    }
+
+    [Fact]
     public void ScoreCountsOverlaps()
     {
         var score = LocalRepositorySearch.Score(
@@ -45,5 +63,18 @@ public class LocalRepositorySearchTests
         Assert.True(chunks.Count >= 2);
         Assert.Contains("555-0100", chunks[^1], StringComparison.Ordinal);
         Assert.True(chunks[0].Length <= 500);
+    }
+
+    [Fact]
+    public void JoinOverlappingChunksStripsTheOverlapWindow()
+    {
+        var joined = LocalRepositorySearch.JoinOverlappingChunks(
+            ["alpha duplicated-bullet omega", "duplicated-bullet omega tail"],
+            overlap: 32);
+        var first = joined.IndexOf("duplicated-bullet", StringComparison.Ordinal);
+        var last = joined.LastIndexOf("duplicated-bullet", StringComparison.Ordinal);
+        Assert.Equal(first, last);
+        Assert.Contains("alpha", joined, StringComparison.Ordinal);
+        Assert.Contains("tail", joined, StringComparison.Ordinal);
     }
 }

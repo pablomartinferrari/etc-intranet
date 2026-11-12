@@ -333,7 +333,7 @@ export const workspaceApi = {
   renameFolder: (folderId: string, name: string) =>
     apiSend<RepoFolder>("PATCH", `/workspace/repo/folders/${folderId}`, { name }),
   moveFolder: (folderId: string, parentId: string) =>
-    apiSend<RepoFolder>("PATCH", `/workspace/repo/folders/${folderId}?parentId=${encodeURIComponent(parentId)}`, {}),
+    apiSend<RepoFolder>("PATCH", `/workspace/repo/folders/${folderId}`, { parentId }),
   deleteFolder: async (folderId: string, recursive = false) => {
     const res = await fetch(`${base}/workspace/repo/folders/${folderId}?recursive=${recursive}`, {
       method: "DELETE",
@@ -344,7 +344,7 @@ export const workspaceApi = {
   renameDocument: (documentId: string, name: string) =>
     apiSend<RepoDocument>("PATCH", `/workspace/repo/documents/${documentId}`, { name }),
   moveDocument: (documentId: string, folderId: string) =>
-    apiSend<RepoDocument>("PATCH", `/workspace/repo/documents/${documentId}?folderId=${encodeURIComponent(folderId)}`, {}),
+    apiSend<RepoDocument>("PATCH", `/workspace/repo/documents/${documentId}`, { folderId }),
   deleteDocument: async (documentId: string) => {
     const res = await fetch(`${base}/workspace/repo/documents/${documentId}`, {
       method: "DELETE",

@@ -197,7 +197,7 @@ public static class RepositoryTextExtractor
         }
 
         var sb = new StringBuilder();
-        foreach (var paragraph in body.Elements<Word.Paragraph>())
+        foreach (var paragraph in body.Descendants<Word.Paragraph>())
         {
             var line = string.Concat(paragraph.Descendants<Word.Text>().Select(t => t.Text));
             if (!string.IsNullOrWhiteSpace(line))

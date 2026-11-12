@@ -160,6 +160,14 @@ public sealed record CreateFolderRequestDto(string Name);
 
 public sealed record RenameRepoItemRequestDto(string Name);
 
+/// <summary>
+/// PATCH body for repository folders and documents. Move-only requests send
+/// <see cref="ParentId"/> (folders) or <see cref="FolderId"/> (documents) and
+/// omit <see cref="Name"/>. An empty object is valid when the destination is
+/// supplied as a query string.
+/// </summary>
+public sealed record PatchRepoItemRequestDto(string? Name = null, Guid? ParentId = null, Guid? FolderId = null);
+
 public sealed record MoveRepoItemRequestDto(Guid ParentId);
 
 public sealed record RepoDocumentDto(
