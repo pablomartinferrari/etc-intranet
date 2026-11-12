@@ -32,6 +32,9 @@ export function WorkspaceRepoSearchPage() {
   const navigate = useNavigate();
   const q = params.get("q") ?? "";
   const folderId = params.get("folderId") || undefined;
+  // "All of repository" is a manual choice (`all=1`) or the default when search
+  // was opened without a folder. Empty-state "Search all of repository" only
+  // widens when the user clicks it — search never auto-widens.
   const allRepo = params.get("all") === "1" || !folderId;
   const scopedFolderId = allRepo ? undefined : folderId;
   const [types, setTypes] = useState<string[]>(["document", "spreadsheet", "image"]);

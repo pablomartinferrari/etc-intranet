@@ -34,17 +34,33 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
         "No language model is configured (Ollama is offline and KnowledgeBase__Fallback__ApiKey is not set), " +
         "so this answer is assembled from repository search only — it is not a generated conversation.";
 
-    internal const string SystemPrompt =
+    internal const string SystemPromptPreamble =
         "You are the ETC intranet Workspace assistant for the signed-in user. " +
         "Answer using the project instructions, attached files, and repository document excerpts provided below. " +
-        "Quote or cite documents by title when you use them. " +
+        "Cite documents by title and folder path when you use them. " +
         "These documents were uploaded by this user into their own workspace. " +
         "You MUST extract and return personal details that appear in those excerpts " +
         "(phone numbers, emails, addresses, names, employment history) — they belong to the user. " +
         "Do not refuse to read or quote the provided excerpts, and do not claim you cannot access a file that is listed below. " +
         "If a document is marked as having no extractable text, say so and suggest Re-index or a text/DOCX copy. " +
         "Do not invent files, people, or numbers that are not in the excerpts. " +
-        "This is not the /knowledge Chat app; you only have this workspace's repository and project context.";
+        "This is not the /knowledge Chat app; you only have this workspace's repository and project context. ";
+
+    internal static string BuildSystemPrompt(AgenticChat chat)
+    {
+        if (chat.Folder is not null)
+        {
+            return SystemPromptPreamble +
+                $"This chat is scoped to the repository folder '{chat.Folder.Path}' and its subfolders. " +
+                "Use only excerpts from that subtree. The only exception is a file the user named in the question, " +
+                "or a file this chat is attached to, which may live outside the folder. " +
+                "If nothing relevant is in the subtree, say so and name that folder; do not pull from the rest of the repository.";
+        }
+
+        return SystemPromptPreamble +
+            "This chat is not in a folder (My chats). You may use the whole workspace repository the user can see. " +
+            "A file the user named, or a file this chat is attached to, is included even when keyword search is weak.";
+    }
 
     private readonly ChatCompletionRouter _chat;
     private readonly IRepositorySearch _search;
@@ -70,16 +86,6 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
         var hits = await _search.SearchAsync(
             new RepoSearchQuery(question, chat.FolderId, emptyTypes, Take: 5),
             cancellationToken);
-        var widened = false;
-        if (chat.FolderId is not null && LocalRepositorySearch.IsWeak(hits))
-        {
-            var wider = await _search.SearchAsync(
-                new RepoSearchQuery(question, FolderId: null, emptyTypes, Take: 5),
-                cancellationToken);
-            hits = MergePreferringScoped(hits, wider);
-            widened = wider.Count > 0;
-        }
-
         var named = await _search.FindNamedDocumentsAsync(question, chat.FolderId, cancellationToken);
         var attachedIds = new List<Guid>();
         if (chat.DocumentId is { } attachedId)
@@ -112,6 +118,9 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
             .Select(f => f.Document)
             .Where(d => d is not null)
             .Cast<AgenticRepoDocument>()
+            .Where(d => chat.Folder is null || RepositoryNames.IsInSubtree(
+                string.IsNullOrWhiteSpace(d.FolderPath) ? d.Folder?.Path ?? "" : d.FolderPath,
+                chat.Folder.Path))
             .ToList() ?? [];
         foreach (var document in projectFiles)
         {
@@ -135,19 +144,21 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
                 $"/workspace/repo/{document.FolderId}?doc={document.Id}"));
         }
 
-        var userPrompt = UserPrompt(chat, question, history, citations, focused, projectFiles, widened);
+        var systemPrompt = BuildSystemPrompt(chat);
+        var userPrompt = UserPrompt(chat, question, history, citations, focused, projectFiles);
         _logger.LogInformation(
-            "Workspace chat prompt ~{PromptTokens} tokens (system {SystemChars} chars, user {UserChars} chars, {CitationCount} citations, {FocusedCount} named/attached docs). Contents not logged.",
-            EstimateTokens(SystemPrompt) + EstimateTokens(userPrompt),
-            SystemPrompt.Length,
+            "Workspace chat prompt ~{PromptTokens} tokens (system {SystemChars} chars, user {UserChars} chars, {CitationCount} citations, {FocusedCount} named/attached docs, folderScope={FolderScope}). Contents not logged.",
+            EstimateTokens(systemPrompt) + EstimateTokens(userPrompt),
+            systemPrompt.Length,
             userPrompt.Length,
             citations.Count,
-            focused.Count);
+            focused.Count,
+            chat.Folder?.Path ?? "(whole repository)");
 
         var fallback = BuildSearchFallback(chat, citations);
         try
         {
-            var result = await _chat.CompleteAsync(SystemPrompt, userPrompt, cancellationToken);
+            var result = await _chat.CompleteAsync(systemPrompt, userPrompt, cancellationToken);
             var text = result.Content?.Trim();
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -187,7 +198,15 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
 
         if (citations.Count == 0)
         {
-            sb.Append("I do not have a matching repository document yet. Upload a file or start a project and try again.");
+            if (chat.Folder is not null)
+            {
+                sb.Append($"I did not find a matching document in {chat.Folder.Path} or its subfolders.");
+            }
+            else
+            {
+                sb.Append("I do not have a matching repository document yet. Upload a file or start a project and try again.");
+            }
+
             return sb.ToString();
         }
 
@@ -231,7 +250,7 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
         var remaining = budget;
         foreach (var document in documents)
         {
-            sb.AppendLine($"Document: {document.Title} ({document.Path})");
+            sb.AppendLine($"Document: {document.Title} (folder path: {document.Path})");
             if (document.ExtractionStatus is RepositoryExtractionStatus.Empty
                 or RepositoryExtractionStatus.Unsupported
                 or RepositoryExtractionStatus.Error)
@@ -308,8 +327,7 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
         IReadOnlyList<AgenticChatMessage> history,
         IReadOnlyList<WorkspaceCitationDto> citations,
         IReadOnlyList<RepoDocumentContext> focused,
-        IReadOnlyList<AgenticRepoDocument> projectFiles,
-        bool widenedFromFolderScope)
+        IReadOnlyList<AgenticRepoDocument> projectFiles)
     {
         var sb = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(chat.Project?.Name))
@@ -319,18 +337,18 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
 
         if (chat.Folder is not null)
         {
-            sb.AppendLine($"Repository folder: {chat.Folder.Path}");
-            sb.AppendLine("Prefer files in this folder and its subfolders.");
-            if (widenedFromFolderScope)
-            {
-                sb.AppendLine("Folder search was weak; additional excerpts below come from the rest of the repository.");
-            }
+            sb.AppendLine($"Repository folder scope: {chat.Folder.Path} (this folder and its subfolders only).");
+            sb.AppendLine("Do not use files from outside this subtree unless they are named in the question or attached to this chat.");
+        }
+        else
+        {
+            sb.AppendLine("Repository scope: whole repository (My chats).");
         }
 
         if (chat.Document is not null)
         {
             sb.AppendLine($"This chat is attached to the file: {chat.Document.Name}.");
-            sb.AppendLine("Use that file's contents first.");
+            sb.AppendLine("Use that file's contents first, even if it is outside the folder scope.");
         }
 
         if (!string.IsNullOrWhiteSpace(chat.Project?.Instructions))
@@ -360,7 +378,7 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
         var extra = citations.Where(c => focused.All(d => d.DocumentId != c.DocumentId)).ToList();
         if (extra.Count > 0)
         {
-            sb.AppendLine("Additional repository excerpts (cite these when used):");
+            sb.AppendLine("Additional repository excerpts (cite these by title and folder path when used):");
             foreach (var citation in extra)
             {
                 sb.AppendLine($"- {citation.Title} ({citation.Path}): {citation.Snippet}");
@@ -370,7 +388,15 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
         }
         else if (focused.Count == 0)
         {
-            sb.AppendLine("No repository search hits.");
+            if (chat.Folder is not null)
+            {
+                sb.AppendLine($"No matching documents in {chat.Folder.Path} or its subfolders. Say so, naming that folder.");
+            }
+            else
+            {
+                sb.AppendLine("No repository search hits.");
+            }
+
             sb.AppendLine();
         }
 
@@ -391,23 +417,6 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
 
         sb.AppendLine($"Question: {question}");
         return sb.ToString();
-    }
-
-    internal static IReadOnlyList<RepoSearchHit> MergePreferringScoped(
-        IReadOnlyList<RepoSearchHit> scoped,
-        IReadOnlyList<RepoSearchHit> wider)
-    {
-        var merged = new List<RepoSearchHit>(scoped);
-        var seen = new HashSet<Guid>(scoped.Select(h => h.DocumentId));
-        foreach (var hit in wider)
-        {
-            if (seen.Add(hit.DocumentId))
-            {
-                merged.Add(hit);
-            }
-        }
-
-        return merged.Take(5).ToList();
     }
 
     private static string? Trim(string? value, int max) =>
