@@ -31,6 +31,26 @@ internal static class WorkspaceDocumentFixtures
         return ms.ToArray();
     }
 
+    public static byte[] DocxWithTableSection(string heading = "Scope", string cellText = "Table section: phase two budget")
+    {
+        using var ms = new MemoryStream();
+        using (var doc = WordprocessingDocument.Create(ms, WordprocessingDocumentType.Document, true))
+        {
+            var main = doc.AddMainDocumentPart();
+            var table = new Table(
+                new TableRow(
+                    new TableCell(
+                        new Paragraph(new Run(new Text(cellText))))));
+            main.Document = new Document(new Body(
+                new Paragraph(new Run(new Text(heading))),
+                table,
+                new Paragraph(new Run(new Text("Closing paragraph")))));
+            main.Document.Save();
+        }
+
+        return ms.ToArray();
+    }
+
     public static byte[] XlsxWithPhone(string phone = PhoneNumber)
     {
         using var ms = new MemoryStream();

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Intranet.Api.Agentic;
 using Intranet.Api.Agentic.Data;
 using Intranet.Api.Agentic.Repository;
@@ -45,6 +46,57 @@ public class WorkspaceRepositoryTests
         var moved = await harness.Db.AgenticRepoFolders.AsNoTracking().SingleAsync(f => f.Id == nested.Id);
         Assert.Equal(other.Id, moved.ParentId);
         Assert.Equal("Root / Other / Nested", moved.Path);
+    }
+
+    [Fact]
+    public void MovePatchBodyDoesNotRequireName()
+    {
+        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+        var empty = JsonSerializer.Deserialize<PatchRepoItemRequestDto>("{}", options);
+        Assert.NotNull(empty);
+        Assert.Null(empty!.Name);
+        Assert.Null(empty.ParentId);
+
+        var parentId = Guid.NewGuid();
+        var move = JsonSerializer.Deserialize<PatchRepoItemRequestDto>(
+            $$"""{"parentId":"{{parentId}}"}""",
+            options);
+        Assert.NotNull(move);
+        Assert.Null(move!.Name);
+        Assert.Equal(parentId, move.ParentId);
+    }
+
+    [Fact]
+    public async Task MoveFolderWithoutNameUpdatesSubtreePathsAndDocumentFolderPath()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var alpha = await harness.Service.CreateFolderAsync(harness.Actor, harness.RootId, "Alpha", CancellationToken.None);
+        var nested = await harness.Service.CreateFolderAsync(harness.Actor, alpha.Id, "Nested", CancellationToken.None);
+        await using (var stream = new MemoryStream("elevation drawing"u8.ToArray()))
+        {
+            await harness.Service.UploadAsync(
+                harness.Actor,
+                nested.Id,
+                "elevation.txt",
+                "text/plain",
+                stream,
+                CancellationToken.None);
+        }
+
+        var dest = await harness.Service.CreateFolderAsync(harness.Actor, harness.RootId, "Archive", CancellationToken.None);
+        var patch = JsonSerializer.Deserialize<PatchRepoItemRequestDto>("{}", new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        });
+        Assert.Null(patch?.Name);
+        var moved = await harness.Service.MoveFolderAsync(harness.Actor, nested.Id, dest.Id, CancellationToken.None);
+        Assert.Equal("Root / Archive / Nested", moved.Path);
+
+        var stored = await harness.Db.AgenticRepoFolders.AsNoTracking().SingleAsync(f => f.Id == nested.Id);
+        Assert.Equal(dest.Id, stored.ParentId);
+        Assert.Equal("Root / Archive / Nested", stored.Path);
+        var doc = await harness.Db.AgenticRepoDocuments.AsNoTracking().SingleAsync(d => d.Name == "elevation.txt");
+        Assert.Equal("Root / Archive / Nested", doc.FolderPath);
     }
 
     [Fact]

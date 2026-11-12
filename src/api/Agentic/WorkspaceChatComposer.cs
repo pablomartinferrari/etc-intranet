@@ -97,22 +97,8 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
             ? (IReadOnlyList<RepoDocumentContext>)[]
             : await _search.GetDocumentsAsync(attachedIds, cancellationToken);
         var focused = MergeContexts(attached, named);
-
-        var citations = new List<WorkspaceCitationDto>();
-        foreach (var document in focused)
-        {
-            citations.Add(ToCitation(document));
-        }
-
-        foreach (var hit in hits)
-        {
-            if (citations.Any(c => c.DocumentId == hit.DocumentId))
-            {
-                continue;
-            }
-
-            citations.Add(ToCitation(hit));
-        }
+        var matchedHits = hits.Where(h => h.Score > 0).ToList();
+        var citations = SelectCitations(focused, matchedHits);
 
         var projectFiles = chat.Project?.Files
             .Select(f => f.Document)
@@ -122,27 +108,6 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
                 string.IsNullOrWhiteSpace(d.FolderPath) ? d.Folder?.Path ?? "" : d.FolderPath,
                 chat.Folder.Path))
             .ToList() ?? [];
-        foreach (var document in projectFiles)
-        {
-            if (citations.Any(c => c.DocumentId == document.Id))
-            {
-                continue;
-            }
-
-            var snippet = Trim(document.ExtractedText, 280);
-            if (string.IsNullOrWhiteSpace(snippet))
-            {
-                continue;
-            }
-
-            citations.Add(new WorkspaceCitationDto(
-                "repository",
-                document.Name,
-                snippet,
-                document.Id,
-                RepositoryNames.DocumentPath(document.Folder?.Path ?? document.FolderPath, document.Name),
-                $"/workspace/repo/{document.FolderId}?doc={document.Id}"));
-        }
 
         var systemPrompt = BuildSystemPrompt(chat);
         var userPrompt = UserPrompt(chat, question, history, citations, focused, projectFiles);
@@ -260,31 +225,25 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
                 continue;
             }
 
-            var chunks = document.Chunks.Count > 0
-                ? document.Chunks
-                : string.IsNullOrWhiteSpace(document.ExtractedText)
-                    ? []
-                    : LocalRepositorySearch.Chunk(document.ExtractedText);
-            if (chunks.Count == 0)
+            var text = !string.IsNullOrWhiteSpace(document.ExtractedText)
+                ? document.ExtractedText
+                : LocalRepositorySearch.JoinOverlappingChunks(document.Chunks);
+            if (string.IsNullOrWhiteSpace(text))
             {
                 sb.AppendLine("[no extractable text]");
                 sb.AppendLine();
                 continue;
             }
 
-            foreach (var chunk in chunks)
+            if (remaining <= 0)
             {
-                if (remaining <= 0)
-                {
-                    sb.AppendLine("[additional chunks omitted to stay within the token budget]");
-                    return sb.ToString();
-                }
-
-                var take = chunk.Length <= remaining ? chunk : chunk[..remaining];
-                sb.AppendLine(take);
-                remaining -= take.Length;
+                sb.AppendLine("[additional chunks omitted to stay within the token budget]");
+                return sb.ToString();
             }
 
+            var take = text.Length <= remaining ? text : text[..remaining] + "…";
+            sb.AppendLine(take);
+            remaining -= take.Length;
             sb.AppendLine();
         }
 
@@ -292,6 +251,37 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
     }
 
     internal static int EstimateTokens(string text) => Math.Max(1, (text ?? "").Length / 4);
+
+    /// <summary>
+    /// Citations are only named/attached documents and keyword hits with a
+    /// positive score. Folder files are never padded in on a scoped miss.
+    /// </summary>
+    internal static IReadOnlyList<WorkspaceCitationDto> SelectCitations(
+        IReadOnlyList<RepoDocumentContext> focused,
+        IReadOnlyList<RepoSearchHit> hits)
+    {
+        var citations = new List<WorkspaceCitationDto>();
+        var seen = new HashSet<Guid>();
+        foreach (var document in focused)
+        {
+            if (seen.Add(document.DocumentId))
+            {
+                citations.Add(ToCitation(document));
+            }
+        }
+
+        foreach (var hit in hits)
+        {
+            if (hit.Score <= 0 || !seen.Add(hit.DocumentId))
+            {
+                continue;
+            }
+
+            citations.Add(ToCitation(hit));
+        }
+
+        return citations;
+    }
 
     private static WorkspaceCitationDto ToCitation(RepoSearchHit hit) =>
         new(
