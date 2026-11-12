@@ -21,24 +21,29 @@ public interface IWorkspaceChatComposer
 
 /// <summary>
 /// Workspace assistant: same Ollama → hosted Azure OpenAI / OpenAI router as
-/// <c>/knowledge</c>. Repository search + project files are cited RAG context.
-/// <c>/knowledge</c> uses non-streaming <see cref="ChatCompletionRouter.CompleteAsync"/>,
-/// so this path matches (SignalR still broadcasts the finished message).
+/// <c>/knowledge</c>. Repository search + named/attached document chunks are
+/// the RAG context. Prompt token counts are logged; contents are not.
 /// </summary>
 public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
 {
     public const string LlmSource = "llm";
     public const string SearchSource = "search";
+    public const int DocumentCharBudget = 24_000;
 
     public const string NoModelMessage =
         "No language model is configured (Ollama is offline and KnowledgeBase__Fallback__ApiKey is not set), " +
         "so this answer is assembled from repository search only — it is not a generated conversation.";
 
-    private const string SystemPrompt =
+    internal const string SystemPrompt =
         "You are the ETC intranet Workspace assistant for the signed-in user. " +
-        "Use only the project instructions, project files, repository excerpts, and chat history provided. " +
-        "Cite repository documents by title when you use them. Do not invent files, people, or numbers. " +
-        "If the excerpts are not enough, say so and suggest uploading a file or refining the question. " +
+        "Answer using the project instructions, attached files, and repository document excerpts provided below. " +
+        "Quote or cite documents by title when you use them. " +
+        "These documents were uploaded by this user into their own workspace. " +
+        "You MUST extract and return personal details that appear in those excerpts " +
+        "(phone numbers, emails, addresses, names, employment history) — they belong to the user. " +
+        "Do not refuse to read or quote the provided excerpts, and do not claim you cannot access a file that is listed below. " +
+        "If a document is marked as having no extractable text, say so and suggest Re-index or a text/DOCX copy. " +
+        "Do not invent files, people, or numbers that are not in the excerpts. " +
         "This is not the /knowledge Chat app; you only have this workspace's repository and project context.";
 
     private readonly ChatCompletionRouter _chat;
@@ -75,7 +80,34 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
             widened = wider.Count > 0;
         }
 
-        var citations = hits.Select(ToCitation).ToList();
+        var named = await _search.FindNamedDocumentsAsync(question, chat.FolderId, cancellationToken);
+        var attachedIds = new List<Guid>();
+        if (chat.DocumentId is { } attachedId)
+        {
+            attachedIds.Add(attachedId);
+        }
+
+        var attached = attachedIds.Count == 0
+            ? (IReadOnlyList<RepoDocumentContext>)[]
+            : await _search.GetDocumentsAsync(attachedIds, cancellationToken);
+        var focused = MergeContexts(attached, named);
+
+        var citations = new List<WorkspaceCitationDto>();
+        foreach (var document in focused)
+        {
+            citations.Add(ToCitation(document));
+        }
+
+        foreach (var hit in hits)
+        {
+            if (citations.Any(c => c.DocumentId == hit.DocumentId))
+            {
+                continue;
+            }
+
+            citations.Add(ToCitation(hit));
+        }
+
         var projectFiles = chat.Project?.Files
             .Select(f => f.Document)
             .Where(d => d is not null)
@@ -103,13 +135,19 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
                 $"/workspace/repo/{document.FolderId}?doc={document.Id}"));
         }
 
+        var userPrompt = UserPrompt(chat, question, history, citations, focused, projectFiles, widened);
+        _logger.LogInformation(
+            "Workspace chat prompt ~{PromptTokens} tokens (system {SystemChars} chars, user {UserChars} chars, {CitationCount} citations, {FocusedCount} named/attached docs). Contents not logged.",
+            EstimateTokens(SystemPrompt) + EstimateTokens(userPrompt),
+            SystemPrompt.Length,
+            userPrompt.Length,
+            citations.Count,
+            focused.Count);
+
         var fallback = BuildSearchFallback(chat, citations);
         try
         {
-            var result = await _chat.CompleteAsync(
-                SystemPrompt,
-                UserPrompt(chat, question, history, citations, projectFiles, widened),
-                cancellationToken);
+            var result = await _chat.CompleteAsync(SystemPrompt, userPrompt, cancellationToken);
             var text = result.Content?.Trim();
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -164,20 +202,112 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
         return sb.ToString().TrimEnd();
     }
 
+    internal static IReadOnlyList<RepoDocumentContext> MergeContexts(
+        IReadOnlyList<RepoDocumentContext> attached,
+        IReadOnlyList<RepoDocumentContext> named)
+    {
+        var merged = new List<RepoDocumentContext>();
+        var seen = new HashSet<Guid>();
+        foreach (var document in attached.Concat(named))
+        {
+            if (seen.Add(document.DocumentId))
+            {
+                merged.Add(document);
+            }
+        }
+
+        return merged;
+    }
+
+    internal static string RenderDocumentContents(IReadOnlyList<RepoDocumentContext> documents, int budget = DocumentCharBudget)
+    {
+        if (documents.Count == 0)
+        {
+            return "";
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine("Attached or named document contents (answer from these; they were uploaded by the signed-in user):");
+        var remaining = budget;
+        foreach (var document in documents)
+        {
+            sb.AppendLine($"Document: {document.Title} ({document.Path})");
+            if (document.ExtractionStatus is RepositoryExtractionStatus.Empty
+                or RepositoryExtractionStatus.Unsupported
+                or RepositoryExtractionStatus.Error)
+            {
+                sb.AppendLine($"[no extractable text: {document.ExtractionNote ?? document.ExtractionStatus}]");
+                sb.AppendLine();
+                continue;
+            }
+
+            var chunks = document.Chunks.Count > 0
+                ? document.Chunks
+                : string.IsNullOrWhiteSpace(document.ExtractedText)
+                    ? []
+                    : LocalRepositorySearch.Chunk(document.ExtractedText);
+            if (chunks.Count == 0)
+            {
+                sb.AppendLine("[no extractable text]");
+                sb.AppendLine();
+                continue;
+            }
+
+            foreach (var chunk in chunks)
+            {
+                if (remaining <= 0)
+                {
+                    sb.AppendLine("[additional chunks omitted to stay within the token budget]");
+                    return sb.ToString();
+                }
+
+                var take = chunk.Length <= remaining ? chunk : chunk[..remaining];
+                sb.AppendLine(take);
+                remaining -= take.Length;
+            }
+
+            sb.AppendLine();
+        }
+
+        return sb.ToString();
+    }
+
+    internal static int EstimateTokens(string text) => Math.Max(1, (text ?? "").Length / 4);
+
     private static WorkspaceCitationDto ToCitation(RepoSearchHit hit) =>
         new(
             "repository",
             hit.Title,
-            hit.Snippet,
+            Trim(hit.Snippet, 1200) ?? "",
             hit.DocumentId,
             hit.Path,
             $"/workspace/repo/{hit.FolderId}?doc={hit.DocumentId}");
+
+    private static WorkspaceCitationDto ToCitation(RepoDocumentContext document)
+    {
+        var snippet = document.Chunks.Count > 0
+            ? document.Chunks[0]
+            : document.ExtractedText;
+        if (string.IsNullOrWhiteSpace(snippet))
+        {
+            snippet = document.ExtractionNote ?? "No extractable text.";
+        }
+
+        return new WorkspaceCitationDto(
+            "repository",
+            document.Title,
+            Trim(snippet, 1200) ?? "",
+            document.DocumentId,
+            document.Path,
+            $"/workspace/repo/{document.FolderId}?doc={document.DocumentId}");
+    }
 
     private static string UserPrompt(
         AgenticChat chat,
         string question,
         IReadOnlyList<AgenticChatMessage> history,
         IReadOnlyList<WorkspaceCitationDto> citations,
+        IReadOnlyList<RepoDocumentContext> focused,
         IReadOnlyList<AgenticRepoDocument> projectFiles,
         bool widenedFromFolderScope)
     {
@@ -195,6 +325,12 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
             {
                 sb.AppendLine("Folder search was weak; additional excerpts below come from the rest of the repository.");
             }
+        }
+
+        if (chat.Document is not null)
+        {
+            sb.AppendLine($"This chat is attached to the file: {chat.Document.Name}.");
+            sb.AppendLine("Use that file's contents first.");
         }
 
         if (!string.IsNullOrWhiteSpace(chat.Project?.Instructions))
@@ -215,17 +351,24 @@ public sealed class WorkspaceChatComposer : IWorkspaceChatComposer
             sb.AppendLine();
         }
 
-        if (citations.Count > 0)
+        var contents = RenderDocumentContents(focused);
+        if (!string.IsNullOrWhiteSpace(contents))
         {
-            sb.AppendLine("Repository search excerpts (cite these when used):");
-            foreach (var citation in citations)
+            sb.AppendLine(contents);
+        }
+
+        var extra = citations.Where(c => focused.All(d => d.DocumentId != c.DocumentId)).ToList();
+        if (extra.Count > 0)
+        {
+            sb.AppendLine("Additional repository excerpts (cite these when used):");
+            foreach (var citation in extra)
             {
                 sb.AppendLine($"- {citation.Title} ({citation.Path}): {citation.Snippet}");
             }
 
             sb.AppendLine();
         }
-        else
+        else if (focused.Count == 0)
         {
             sb.AppendLine("No repository search hits.");
             sb.AppendLine();

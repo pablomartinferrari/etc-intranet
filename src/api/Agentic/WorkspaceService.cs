@@ -66,6 +66,8 @@ public interface IWorkspaceService
 
     Task<RepoDocumentDto> UploadAsync(WorkspaceActor actor, Guid folderId, string fileName, string contentType, Stream content, CancellationToken cancellationToken);
 
+    Task<RepoDocumentDto> ReindexDocumentAsync(WorkspaceActor actor, Guid documentId, CancellationToken cancellationToken);
+
     Task<RepoSearchResponseDto> SearchAsync(WorkspaceActor actor, string query, Guid? folderId, IReadOnlyList<string> types, string? modified, CancellationToken cancellationToken);
 }
 
@@ -76,6 +78,7 @@ public sealed partial class WorkspaceService : IWorkspaceService
     private readonly IntranetDbContext _db;
     private readonly IWorkspaceDirectory _directory;
     private readonly IRepositorySearch _search;
+    private readonly IRepositoryReindexService _reindex;
     private readonly IWorkspaceChatComposer _composer;
     private readonly ChatCompletionRouter _llm;
     private readonly AgenticOptions _options;
@@ -85,6 +88,7 @@ public sealed partial class WorkspaceService : IWorkspaceService
         IntranetDbContext db,
         IWorkspaceDirectory directory,
         IRepositorySearch search,
+        IRepositoryReindexService reindex,
         IWorkspaceChatComposer composer,
         ChatCompletionRouter llm,
         IOptions<AgenticOptions> options,
@@ -93,6 +97,7 @@ public sealed partial class WorkspaceService : IWorkspaceService
         _db = db;
         _directory = directory;
         _search = search;
+        _reindex = reindex;
         _composer = composer;
         _llm = llm;
         _options = options.Value;
@@ -253,9 +258,19 @@ public sealed partial class WorkspaceService : IWorkspaceService
             await RequireProject(actor, projectId, view: true, cancellationToken: cancellationToken);
         }
 
-        if (request.FolderId is { } folderId)
+        Guid? folderId = request.FolderId;
+        Guid? documentId = request.DocumentId;
+        if (documentId is { } attachId)
         {
-            _ = await _db.AgenticRepoFolders.AsNoTracking().FirstOrDefaultAsync(f => f.Id == folderId, cancellationToken)
+            var attached = await _db.AgenticRepoDocuments.AsNoTracking()
+                .FirstOrDefaultAsync(d => d.Id == attachId, cancellationToken)
+                ?? throw new AgenticException("File not found.", StatusCodes.Status404NotFound);
+            folderId ??= attached.FolderId;
+        }
+
+        if (folderId is { } resolvedFolderId)
+        {
+            _ = await _db.AgenticRepoFolders.AsNoTracking().FirstOrDefaultAsync(f => f.Id == resolvedFolderId, cancellationToken)
                 ?? throw new AgenticException("Folder not found.", StatusCodes.Status404NotFound);
         }
 
@@ -265,7 +280,8 @@ public sealed partial class WorkspaceService : IWorkspaceService
             Id = Guid.NewGuid(),
             OwnerOid = actor.Oid,
             ProjectId = request.ProjectId,
-            FolderId = request.FolderId,
+            FolderId = folderId,
+            DocumentId = documentId,
             Title = string.IsNullOrWhiteSpace(request.Title) ? "New chat" : request.Title.Trim(),
             RealtimeCollaboration = request.RealtimeCollaboration,
             CreatedAt = now,
@@ -321,6 +337,22 @@ public sealed partial class WorkspaceService : IWorkspaceService
         if (request.RealtimeCollaboration is { } realtime)
         {
             chat.RealtimeCollaboration = realtime;
+        }
+
+        if (request.DocumentId.HasValue)
+        {
+            if (request.DocumentId.Value == Guid.Empty)
+            {
+                chat.DocumentId = null;
+            }
+            else
+            {
+                var attached = await _db.AgenticRepoDocuments.AsNoTracking()
+                    .FirstOrDefaultAsync(d => d.Id == request.DocumentId.Value, cancellationToken)
+                    ?? throw new AgenticException("File not found.", StatusCodes.Status404NotFound);
+                chat.DocumentId = attached.Id;
+                chat.FolderId ??= attached.FolderId;
+            }
         }
 
         chat.UpdatedAt = DateTimeOffset.UtcNow;
@@ -516,8 +548,8 @@ public sealed partial class WorkspaceService : IWorkspaceService
 
         await using var buffer = new MemoryStream();
         await content.CopyToAsync(buffer, cancellationToken);
-        buffer.Position = 0;
-        var extracted = RepositoryTextExtractor.Extract(safeName, contentType, buffer);
+        var bytes = buffer.ToArray();
+        var extracted = RepositoryTextExtractor.Extract(safeName, contentType, bytes);
         buffer.Position = 0;
         var id = Guid.NewGuid();
         var root = RepositoryStorage.ResolveRoot(_options, _environment);
@@ -545,7 +577,9 @@ public sealed partial class WorkspaceService : IWorkspaceService
             UpdatedByOid = actor.Oid,
             UpdatedByName = actor.DisplayName,
             StoragePath = relative,
-            ExtractedText = extracted,
+            ExtractedText = string.IsNullOrWhiteSpace(extracted.Text) ? null : extracted.Text,
+            ExtractionStatus = extracted.Status,
+            ExtractionNote = extracted.Note,
             IsIndexed = false,
             ModifiedAt = DateTimeOffset.UtcNow,
             Folder = folder,
@@ -554,6 +588,17 @@ public sealed partial class WorkspaceService : IWorkspaceService
         await _db.SaveChangesAsync(cancellationToken);
         await _search.ReindexDocumentAsync(document, cancellationToken);
         return ToDocumentDto(document, folder.Path);
+    }
+
+    public async Task<RepoDocumentDto> ReindexDocumentAsync(
+        WorkspaceActor actor,
+        Guid documentId,
+        CancellationToken cancellationToken)
+    {
+        RequireSignedIn(actor);
+        var document = await RequireDocumentAsync(documentId, cancellationToken);
+        await _reindex.ReextractDocumentAsync(document, cancellationToken);
+        return ToDocumentDto(document, document.Folder.Path);
     }
 
     public async Task<RepoSearchResponseDto> SearchAsync(
@@ -593,6 +638,7 @@ public sealed partial class WorkspaceService : IWorkspaceService
         var chats = await _db.AgenticChats
             .Include(c => c.Shares)
             .Include(c => c.Folder)
+            .Include(c => c.Document)
             .Include(c => c.Project)!.ThenInclude(p => p!.Shares)
             .ToListAsync(cancellationToken);
         var oid = EffectiveOid(actor);
@@ -623,6 +669,7 @@ public sealed partial class WorkspaceService : IWorkspaceService
         var chat = await _db.AgenticChats
             .Include(c => c.Shares)
             .Include(c => c.Folder)
+            .Include(c => c.Document)
             .Include(c => c.Project)!.ThenInclude(p => p!.Shares)
             .Include(c => c.Project)!.ThenInclude(p => p!.Files).ThenInclude(f => f.Document).ThenInclude(d => d.Folder)
             .FirstOrDefaultAsync(c => c.Id == chatId, cancellationToken)
@@ -719,6 +766,8 @@ public sealed partial class WorkspaceService : IWorkspaceService
             chat.FolderId,
             chat.Folder?.Name,
             chat.Folder?.Path,
+            chat.DocumentId,
+            chat.Document?.Name,
             chat.Title,
             visibility,
             chat.RealtimeCollaboration,
@@ -776,7 +825,9 @@ public sealed partial class WorkspaceService : IWorkspaceService
             true,
             folderPath.TrimEnd('/') + " / " + document.Name,
             document.ModifiedAt,
-            Trim(document.ExtractedText, 400));
+            Trim(document.ExtractedText, 400),
+            string.IsNullOrWhiteSpace(document.ExtractionStatus) ? RepositoryExtractionStatus.Pending : document.ExtractionStatus,
+            document.ExtractionNote);
 
     private async Task<Dictionary<Guid, int>> ChatCountsByFolderAsync(CancellationToken cancellationToken)
     {

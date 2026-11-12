@@ -530,6 +530,26 @@ public sealed class WorkspaceRepositoryController(
         }
     }
 
+    [HttpPost("repo/documents/{documentId:guid}/reindex")]
+    public async Task<IActionResult> ReindexDocument(Guid documentId, CancellationToken cancellationToken)
+    {
+        if (GuardEnabled() is { } disabled)
+        {
+            return disabled;
+        }
+
+        try
+        {
+            var document = await workspace.ReindexDocumentAsync(Actor(), documentId, cancellationToken);
+            await NotifyRepositoryChanged(cancellationToken);
+            return Ok(document);
+        }
+        catch (AgenticException ex)
+        {
+            return MapError(ex);
+        }
+    }
+
     [HttpPost("repo/{folderId:guid}/upload")]
     [RequestSizeLimit(20_000_000)]
     public async Task<IActionResult> Upload(Guid folderId, IFormFile file, CancellationToken cancellationToken)

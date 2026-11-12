@@ -205,14 +205,17 @@ public class WorkspaceRepositoryTests
                 new AlwaysDownProbe(),
                 new KnowledgeBaseFallbackOptions { ApiKey = "unit-test-placeholder-key" },
                 NullLogger<ChatCompletionRouter>.Instance);
+            var options = Options.Create(new AgenticOptions { Enabled = true, RepositoryRoot = rootPath });
+            var env = new StubWebEnvironment { ContentRootPath = rootPath };
             var service = new WorkspaceService(
                 db,
                 new FakeDirectory(),
                 search,
+                new RepositoryReindexService(db, search, options, env, NullLogger<RepositoryReindexService>.Instance),
                 new WorkspaceChatComposer(router, search, NullLogger<WorkspaceChatComposer>.Instance),
                 router,
-                Options.Create(new AgenticOptions { Enabled = true, RepositoryRoot = rootPath }),
-                new StubWebEnvironment { ContentRootPath = rootPath });
+                options,
+                env);
             return new Harness { Db = db, Service = service, RootId = root.Id, RootPath = rootPath };
         }
 

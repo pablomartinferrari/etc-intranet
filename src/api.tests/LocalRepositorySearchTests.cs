@@ -33,8 +33,17 @@ public class LocalRepositorySearchTests
     [Fact]
     public void ChunkSplitsLongText()
     {
-        var chunks = LocalRepositorySearch.Chunk(new string('a', 1200), 500);
+        var chunks = LocalRepositorySearch.Chunk(new string('a', 1200), 500, 0);
         Assert.Equal(3, chunks.Count);
         Assert.Equal(500, chunks[0].Length);
+    }
+
+    [Fact]
+    public void ChunkOverlapsAdjacentWindows()
+    {
+        var chunks = LocalRepositorySearch.Chunk(new string('a', 900) + " phone 555-0100", 500, 120);
+        Assert.True(chunks.Count >= 2);
+        Assert.Contains("555-0100", chunks[^1], StringComparison.Ordinal);
+        Assert.True(chunks[0].Length <= 500);
     }
 }

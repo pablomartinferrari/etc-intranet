@@ -266,6 +266,7 @@ public sealed class WorkspaceSeeder
             OwnerName = "ETC",
             StoragePath = relative,
             ExtractedText = text,
+            ExtractionStatus = RepositoryExtractionStatus.Ok,
             IsIndexed = false,
             ModifiedAt = modified,
         });

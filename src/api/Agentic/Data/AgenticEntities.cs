@@ -42,12 +42,14 @@ public sealed class AgenticChat
     public string OwnerOid { get; set; } = "";
     public Guid? ProjectId { get; set; }
     public Guid? FolderId { get; set; }
+    public Guid? DocumentId { get; set; }
     public string Title { get; set; } = "New chat";
     public bool RealtimeCollaboration { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
     public AgenticProject? Project { get; set; }
     public AgenticRepoFolder? Folder { get; set; }
+    public AgenticRepoDocument? Document { get; set; }
     public ICollection<AgenticChatMessage> Messages { get; set; } = new List<AgenticChatMessage>();
     public ICollection<AgenticChatShare> Shares { get; set; } = new List<AgenticChatShare>();
 }
@@ -115,10 +117,13 @@ public sealed class AgenticRepoDocument
     public string UpdatedByName { get; set; } = "";
     public string StoragePath { get; set; } = "";
     public string? ExtractedText { get; set; }
+    public string ExtractionStatus { get; set; } = "";
+    public string? ExtractionNote { get; set; }
     public bool IsIndexed { get; set; }
     public DateTimeOffset ModifiedAt { get; set; }
     public AgenticRepoFolder Folder { get; set; } = null!;
     public ICollection<AgenticRepoChunk> Chunks { get; set; } = new List<AgenticRepoChunk>();
+    public ICollection<AgenticChat> AttachedChats { get; set; } = new List<AgenticChat>();
 }
 
 public sealed class AgenticRepoChunk
