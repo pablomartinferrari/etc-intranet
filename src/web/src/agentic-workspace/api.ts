@@ -8,8 +8,15 @@ export type WorkspaceCapabilities = {
   enabled: boolean;
   allowAnonymous: boolean;
   useGraphCalendar: boolean;
+  useGraphMail: boolean;
+  seedDemoData: boolean;
+  shareDemoCatalog: boolean;
+  hostedLlmConfigured: boolean;
+  directorySearchConfigured: boolean;
   searchProvider: string;
   realtimeProvider: string;
+  chatModel: string;
+  repositoryRoot: string;
   demoUserOid: string;
   demoUserName: string;
 };
@@ -41,6 +48,11 @@ export type CalendarStatus = {
   message?: string | null;
 };
 
+export type MailStatus = {
+  state: string;
+  message?: string | null;
+};
+
 export type DaySummary = {
   greeting: string;
   userDisplayName: string;
@@ -50,6 +62,7 @@ export type DaySummary = {
   sources: string[];
   brief?: MeetingBrief | null;
   calendar: CalendarStatus;
+  mail: MailStatus;
 };
 
 export type WorkspaceProject = {
@@ -159,6 +172,7 @@ export type RepoBrowse = {
 
 export type RepoSearchHit = {
   documentId: string;
+  folderId: string;
   title: string;
   fileType: string;
   path: string;

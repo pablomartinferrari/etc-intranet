@@ -1,15 +1,17 @@
 using Intranet.Api.KnowledgeBase.Services;
+using Microsoft.Extensions.Options;
 
 namespace Intranet.Api.Agentic;
 
 /// <summary>
-/// Directory search for Share. Reuses the existing Graph client when configured
-/// and always includes the local demo principals so the POC share dialog works
-/// without Entra admin consent.
+/// Directory search for Share. Production uses Graph only (no demo principals).
+/// Development can include local demo principals when ShareDemoCatalog/AllowAnonymous is on.
 /// </summary>
 public interface IWorkspaceDirectory
 {
     IReadOnlyList<DirectoryPrincipalDto> LocalPrincipals { get; }
+
+    bool GraphConfigured { get; }
 
     Task<IReadOnlyList<DirectoryPrincipalDto>> SearchAsync(string query, CancellationToken cancellationToken);
 
@@ -21,14 +23,7 @@ public interface IWorkspaceDirectory
 
 public sealed class WorkspaceDirectory : IWorkspaceDirectory
 {
-    private readonly IGraphDirectoryClient _graph;
-
-    public WorkspaceDirectory(IGraphDirectoryClient graph)
-    {
-        _graph = graph;
-    }
-
-    public IReadOnlyList<DirectoryPrincipalDto> LocalPrincipals { get; } =
+    public static readonly IReadOnlyList<DirectoryPrincipalDto> DemoPrincipals =
     [
         new(AgenticRoles.User, WorkspaceIds.DemoYouOid, "You", "you@etc.local", null),
         new(AgenticRoles.User, WorkspaceIds.DemoUserBOid, "User B", "user.b@etc.local", null),
@@ -36,6 +31,20 @@ public sealed class WorkspaceDirectory : IWorkspaceDirectory
         new(AgenticRoles.User, WorkspaceIds.DemoUserDOid, "User D", "user.d@etc.local", null),
         new(AgenticRoles.Group, WorkspaceIds.DemoGroupXOid, "Group X", null, 12),
     ];
+
+    private readonly IGraphDirectoryClient _graph;
+    private readonly AgenticOptions _options;
+
+    public WorkspaceDirectory(IGraphDirectoryClient graph, IOptions<AgenticOptions> options)
+    {
+        _graph = graph;
+        _options = options.Value;
+    }
+
+    public bool GraphConfigured => _graph.IsConfigured;
+
+    public IReadOnlyList<DirectoryPrincipalDto> LocalPrincipals =>
+        _options.IncludeDemoDirectory ? DemoPrincipals : [];
 
     public async Task<IReadOnlyList<DirectoryPrincipalDto>> SearchAsync(string query, CancellationToken cancellationToken)
     {
@@ -68,7 +77,7 @@ public sealed class WorkspaceDirectory : IWorkspaceDirectory
         }
         catch (GraphDirectoryException)
         {
-            // Local demo principals still work.
+            // Graph directory failed; Development still has local principals when enabled.
         }
 
         return local;
@@ -80,7 +89,8 @@ public sealed class WorkspaceDirectory : IWorkspaceDirectory
         CancellationToken cancellationToken)
     {
         var matches = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (AgenticAccess.OidsEqual(userOid, WorkspaceIds.DemoYouOid)
+        if (_options.IncludeDemoDirectory
+            && AgenticAccess.OidsEqual(userOid, WorkspaceIds.DemoYouOid)
             && groupOids.Any(g => AgenticAccess.OidsEqual(g, WorkspaceIds.DemoGroupXOid)))
         {
             matches.Add(WorkspaceIds.DemoGroupXOid);

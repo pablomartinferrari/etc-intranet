@@ -10,11 +10,12 @@ import {
   Users,
 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { NavLink, useNavigate } from "react-router-dom";
 
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import type { RepoFolder, SidebarPayload, WorkspaceChat, WorkspaceProject } from "./api";
+import { workspaceApi, type RepoFolder, SidebarPayload, WorkspaceChat, WorkspaceProject } from "./api";
 
 function initial(name: string) {
   return (name.trim()[0] ?? "?").toUpperCase();
@@ -101,7 +102,10 @@ export function AgenticSidebar({
   onNewChat: () => void;
 }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [filter, setFilter] = useState("");
+  const [projectName, setProjectName] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
   const q = filter.trim().toLowerCase();
 
   const projects = data?.projects ?? [];
@@ -146,6 +150,53 @@ export function AgenticSidebar({
           <Plus className="size-4" />
           New chat
         </button>
+        {creatingProject ? (
+          <form
+            className="flex flex-col gap-1 px-1"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const name = projectName.trim();
+              if (!name) return;
+              const project = await workspaceApi.createProject({ name });
+              setProjectName("");
+              setCreatingProject(false);
+              await queryClient.invalidateQueries({ queryKey: ["ws-sidebar"] });
+              navigate(`/workspace/projects/${project.id}`);
+            }}
+          >
+            <Input
+              autoFocus
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              placeholder="Project name"
+              className="h-8 border-sidebar-border bg-sidebar-accent/40 text-xs text-sidebar-foreground"
+            />
+            <div className="flex gap-1">
+              <button type="submit" className="rounded-md px-2 py-1 text-[11px] hover:bg-sidebar-accent">
+                Create
+              </button>
+              <button
+                type="button"
+                className="rounded-md px-2 py-1 text-[11px] hover:bg-sidebar-accent"
+                onClick={() => {
+                  setCreatingProject(false);
+                  setProjectName("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setCreatingProject(true)}
+            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-sidebar-foreground/85 hover:bg-sidebar-accent"
+          >
+            <Folder className="size-4" />
+            New project
+          </button>
+        )}
         <div className="relative px-1 py-1">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-sidebar-foreground/40" />
           <Input
@@ -176,8 +227,14 @@ export function AgenticSidebar({
               label={chat.title}
             />
           ))}
+        {visibleProjects.length === 0 && unfiled.length === 0 ? (
+          <p className="px-2 py-1 text-[11px] text-sidebar-foreground/45">No chats yet — start one above.</p>
+        ) : null}
 
         <SectionLabel>Shared with me</SectionLabel>
+        {(data?.sharedWithMe ?? []).length === 0 ? (
+          <p className="px-2 py-1 text-[11px] text-sidebar-foreground/45">Nothing shared with you yet.</p>
+        ) : null}
         {(data?.sharedWithMe ?? [])
           .filter((c) => !q || c.title.toLowerCase().includes(q))
           .map((chat) => (
@@ -204,6 +261,13 @@ export function AgenticSidebar({
           ))}
 
         <SectionLabel>Repository</SectionLabel>
+        {(data?.repository ?? []).filter((f) => f.parentId).length === 0 ? (
+          <Row
+            to="/workspace/repo"
+            icon={<Folder className="size-3.5" />}
+            label="Browse & upload"
+          />
+        ) : null}
         <FolderTree
           folders={(data?.repository ?? []).filter((f) => f.name !== "Root" || f.parentId)}
           parentId={(data?.repository ?? []).find((f) => !f.parentId)?.id ?? null}

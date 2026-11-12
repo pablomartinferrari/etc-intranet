@@ -64,16 +64,16 @@ The SPA uses **shadcn/ui** (Tailwind CSS + Radix, Nova style) rather than Fluent
 
 After `dotnet run`, the **http** profile opens Swagger automatically. Use **Authorize** in Swagger and paste a Bearer token from the SPA (or Entra) to call protected endpoints.
 
-### Agentic workspace POC (`/workspace`)
+### Agentic workspace (`/workspace`)
 
-A ChatGPT-style **Workspace** lives at http://localhost:5173/workspace and is isolated from production Chat (`/knowledge`). Existing Chat, Share, and Entra directory search are reused; this POC does not replace them.
+A ChatGPT-style **Workspace** lives at http://localhost:5173/workspace and is isolated from Chat (`/knowledge`). Each signed-in Entra user gets their own chats, projects, and Your day. Production (`appsettings.json`) does **not** seed demo data; Development still can.
 
 | URL | Screen |
 |-----|--------|
-| `/workspace` | Your day (Outlook meetings for the signed-in user, tasks, follow-ups, agent brief) |
-| `/workspace/chats/{id}` | Chat thread (citations, Share, presence) |
+| `/workspace` | Your day (Outlook meetings + mail follow-ups + meeting brief) |
+| `/workspace/chats/{id}` | Chat thread (LLM + repository citations, Share, presence) |
 | `/workspace/projects/{id}` | Project instructions, linked repository files, chats |
-| `/workspace/repo/{folderId}` | Public indexed repository browse + upload |
+| `/workspace/repo/{folderId}` | Repository browse + upload |
 | `/workspace/search?q=` | Folder-scoped repository search with snippets |
 
 **How to run locally**
@@ -81,7 +81,7 @@ A ChatGPT-style **Workspace** lives at http://localhost:5173/workspace and is is
 1. `docker compose up -d`
 2. `cd src/api && dotnet ef database update && dotnet run`
 3. `cd src/web && npm install && npm run dev`
-4. Open http://localhost:5173/workspace — Development allows the demo user without Entra (`Features:AgenticWorkspace:AllowAnonymous=true`). The Home **Workspace** card also appears after sign-in.
+4. Open http://localhost:5173/workspace — Development allows the demo user without Entra (`Features:AgenticWorkspace:AllowAnonymous=true`) and seeds the wireframe catalog. Production users always start empty.
 
 Hide it without touching other pages:
 
@@ -96,32 +96,53 @@ Shared chats use **ASP.NET Core SignalR** at `/hubs/workspace` (Vite proxies `/h
 
 Repository search is a **local inverted index** over extracted document text (`IRepositorySearch` / `LocalRepositorySearch`). Set `Features:AgenticWorkspace:SearchProvider=azure` plus `AzureSearchEndpoint` / `AzureSearchApiKey` (user secrets — never commit keys) when an Azure AI Search index is ready. The azure adapter falls back to the local index until those settings exist.
 
+**Repository storage (Azure App Service)**
+
+Infra (`infra/modules/app-service.bicep`) is **Linux** (`kind: linux`, `WEBSITE_RUN_FROM_PACKAGE=1`), so the site content root is a read-only zip. Uploads are stored under the persistent `HOME` directory (`/home` on Linux, `%HOME%` on Windows):
+
+`Features:AgenticWorkspace:RepositoryRoot` (default `data/agentic-repo`) is resolved as:
+
+- Absolute path → used as-is
+- Else if `HOME` is set (App Service) → `$HOME/data/agentic-repo` (persists across deploys)
+- Else → `{ContentRoot}/data/agentic-repo` (local `dotnet run`)
+
+Override with App Setting `Features__AgenticWorkspace__RepositoryRoot` if you mount Azure Files elsewhere. Not SharePoint and not Blob unless you change that setting to a mounted path.
+
 **What is mocked vs real**
 
-| Capability | POC behavior |
-|------------|----------------|
-| Your day | **Signed-in user's Outlook calendar** via delegated Graph `GET /me/calendarView` when Entra is configured (see below). **Mock** `IDayDataSource` for local/demo and when Graph is off. Tasks/follow-ups/suggestions stay mock. Agent brief uses the same LLM router as `/knowledge`, with a deterministic fallback. |
-| Projects, chats, shares | **Real** rows in IntranetDb (`Agentic*` tables). Seeded demo catalog matches the wireframes. |
-| Entra share search | Reuses existing Graph directory search when configured, plus **local demo principals** (User B/C/D, Group X) so Share works without admin consent. |
-| Collaborative chat | **Real** SignalR presence/typing and persisted messages. The agent answers the group from the repository index (templated cited answers — not the production `/knowledge` LLM unless you later wire `RagService`). |
-| Repository | **Real** folder tree, upload to `App_Data/agentic-repo` (gitignored), text/PDF extract, local index. Seeded “quarterly report” docs. Not SharePoint and not Azure Blob. |
-| Auth | Development demo identity when anonymous is allowed. Signed-in Entra users work; `ShareDemoCatalog` shows them the seeded workspace so the POC is reviewable after login. |
+| Capability | Production | Development |
+|------------|------------|-------------|
+| Your day meetings | Delegated Graph `GET /me/calendarView`. **Never mock.** Failures show the specific reason (missing secret, consent, token error). | Mock catalog for the demo identity; Graph for signed-in Entra users. |
+| Your day follow-ups | Delegated Graph mail (`Mail.Read`, **separate OBO token** from calendar): flagged messages + inbox items from the last 3 days that were addressed to the user and have no later Sent Item in the conversation. Metadata + `bodyPreview` only; bodies are not stored. Optional in-memory LLM one-liner. | Mock follow-ups for the demo identity. |
+| Tasks / agent suggestions | Hidden (not real data). | Mock sections for the demo identity. |
+| Projects, chats, shares | Real IntranetDb rows **owned by the signed-in user's oid**. No shared demo catalog. | Optional seed (`SeedDemoData` / `ShareDemoCatalog` in `appsettings.Development.json` only). |
+| Entra share search | Graph directory only (no User B/C/D / Group X). | Graph + local demo principals when anonymous/demo catalog is on. |
+| Collaborative chat | Real SignalR + persisted messages. Assistant uses the same LLM router as `/knowledge` (Ollama, else `KnowledgeBase__Fallback__*`). Repository search + project files are cited context. If no model is configured, the UI says so and falls back to search snippets. `/knowledge` does not stream, so Workspace does not either; SignalR still broadcasts the finished reply. | Same router; search fallback if no model. |
+| Repository | Real folder tree, upload, extract, local index. Empty root until someone uploads. | Seeded “quarterly report” docs when `SeedDemoData=true`. |
 
-**Your day calendar (Microsoft Graph, delegated)**
+**Your day (Microsoft Graph, delegated)**
 
-When Entra is configured (`AzureAd__TenantId`, `AzureAd__ClientId`, `AzureAd__ClientSecret`), Workspace Home reads **only the signed-in user's** Outlook calendar with an **on-behalf-of** call to `GET /me/calendarView` for today in that user's time zone (`X-User-Timezone` from the browser, mailbox timezone if the header is missing). It never queries `/users/{other-oid}`. Results are cached briefly per user (`oid` + date + timezone, ~90 seconds).
+When Entra is configured (`AzureAd__TenantId`, `AzureAd__ClientId`, `AzureAd__ClientSecret` or `AzureAd:ClientCertificates`), Workspace Home reads **only the signed-in user's** Outlook data with **on-behalf-of** tokens. Calendar and mail are **separate** token requests so missing `Mail.Read` cannot break the calendar. It never queries `/users/{other-oid}`. Results are cached briefly per user (`oid` + date + timezone, ~90 seconds).
 
-Grant this **delegated** permission on the **API** app registration and **admin-consent** it:
+Grant these **delegated** permissions on the **intranet web API** app registration and **admin-consent** them:
 
 | Permission | Type | Why |
 |------------|------|-----|
-| `Calendars.Read` | Delegated | Read the signed-in user's events (subject, time, organizer, attendees, location / Teams join URL, `bodyPreview`) for Your day |
+| `Calendars.Read` | Delegated | Read the signed-in user's events for Your day meetings |
+| `Mail.Read` | Delegated | Read the signed-in user's flagged mail and recent inbox metadata for Your day follow-ups |
 
-This is **not** the application (app-only) `Calendars.Read` used for other mailboxes. Missing consent or scope returns a clear message on Home and **does not** mix sample meetings into a real mailbox. Local/demo (`AllowAnonymous`, `dev-*` identities) and `Features:AgenticWorkspace:UseGraphCalendar=false` keep the mock meetings source.
+Portal steps for `Mail.Read` (calendar is the same flow with `Calendars.Read`):
+
+1. Entra ID → App registrations → **intranet web API** (the API app, audience `api://…`, not the SPA)
+2. **API permissions** → Add a permission → Microsoft Graph → **Delegated** → `Mail.Read`
+3. **Grant admin consent for [tenant]**
+4. Users sign out and back in so the OBO token can include the new scope
+
+This is **not** the application (app-only) `Calendars.Read` / `Mail.Read` used for other mailboxes. Missing consent returns a clear message on Home and **does not** mix sample items into a real mailbox.
 
 The meeting brief uses the same Ollama → hosted Azure OpenAI / OpenAI router as `/knowledge` (`KnowledgeBase__Fallback__*`). If no model is configured, a deterministic summary covers what's next, back-to-back/conflicts, prep, and free blocks.
 
-This POC extends the Chat work in PRs #19–#22 (project areas, Entra share, ChatGPT sidebar, multi-chat drafts). It does **not** change `/knowledge`.
+Workspace does **not** change `/knowledge`.
 
 ### Multifamily lead inspection (from SharePoint)
 

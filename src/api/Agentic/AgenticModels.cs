@@ -4,8 +4,15 @@ public sealed record WorkspaceCapabilitiesDto(
     bool Enabled,
     bool AllowAnonymous,
     bool UseGraphCalendar,
+    bool UseGraphMail,
+    bool SeedDemoData,
+    bool ShareDemoCatalog,
+    bool HostedLlmConfigured,
+    bool DirectorySearchConfigured,
     string SearchProvider,
     string RealtimeProvider,
+    string ChatModel,
+    string RepositoryRoot,
     string DemoUserOid,
     string DemoUserName);
 
@@ -33,6 +40,8 @@ public sealed record MeetingBriefDto(
 
 public sealed record CalendarStatusDto(string State, string? Message);
 
+public sealed record MailStatusDto(string State, string? Message);
+
 public sealed record DaySummaryDto(
     string Greeting,
     string UserDisplayName,
@@ -41,7 +50,8 @@ public sealed record DaySummaryDto(
     IReadOnlyList<DaySectionDto> Sections,
     IReadOnlyList<string> Sources,
     MeetingBriefDto? Brief,
-    CalendarStatusDto Calendar);
+    CalendarStatusDto Calendar,
+    MailStatusDto Mail);
 
 public sealed record WorkspaceProjectDto(
     Guid Id,
@@ -150,6 +160,7 @@ public sealed record RepoBrowseDto(
 
 public sealed record RepoSearchHitDto(
     Guid DocumentId,
+    Guid FolderId,
     string Title,
     string FileType,
     string Path,

@@ -19,14 +19,18 @@ public static class AgenticServiceExtensions
                 ? new AzureAiSearchRepositorySearch(sp.GetRequiredService<IOptions<AgenticOptions>>(), local)
                 : local;
         });
-        services.AddSingleton<IDayDataSource, MockDayDataSource>();
+        services.AddSingleton<IDayDataSource>(sp =>
+            new MockDayDataSource(sp.GetRequiredService<IHostEnvironment>()));
         services.AddScoped<IUserGraphTokenProvider, ObOUserGraphTokenProvider>();
         services.AddScoped<IUserGraphCalendarClient, GraphUserCalendarClient>();
+        services.AddScoped<IUserGraphMailClient, GraphUserMailClient>();
         services.AddScoped<IMeetingBriefGenerator, MeetingBriefGenerator>();
         services.AddScoped<IDayAggregator, DayAggregator>();
         services.AddScoped<IWorkspaceDirectory, WorkspaceDirectory>();
+        services.AddScoped<IWorkspaceChatComposer, WorkspaceChatComposer>();
         services.AddScoped<IWorkspaceService, WorkspaceService>();
         services.AddScoped<WorkspaceSeeder>();
+        services.AddScoped<WorkspaceDemoCleanup>();
         services.AddSignalR();
         return services;
     }
@@ -36,10 +40,12 @@ public static class AgenticServiceExtensions
         return app.Use(async (context, next) =>
         {
             var options = context.RequestServices.GetRequiredService<IOptions<AgenticOptions>>().Value;
+            var environment = context.RequestServices.GetRequiredService<IHostEnvironment>();
             var path = context.Request.Path;
             var inWorkspace = path.StartsWithSegments("/api/workspace") || path.StartsWithSegments("/hubs/workspace");
             if (options.Enabled
                 && options.AllowAnonymous
+                && !environment.IsProduction()
                 && inWorkspace
                 && context.User.Identity?.IsAuthenticated != true)
             {
@@ -57,17 +63,27 @@ public static class AgenticServiceExtensions
         });
     }
 
-    public static async Task SeedAgenticWorkspaceAsync(this WebApplication app, CancellationToken cancellationToken = default)
+    public static async Task InitializeAgenticWorkspaceAsync(this WebApplication app, CancellationToken cancellationToken = default)
     {
         var options = app.Services.GetRequiredService<IOptions<AgenticOptions>>().Value;
-        if (!options.Enabled || !options.SeedDemoData)
+        if (!options.Enabled)
         {
             return;
         }
 
         using var scope = app.Services.CreateScope();
-        var seeder = scope.ServiceProvider.GetRequiredService<WorkspaceSeeder>();
-        await seeder.SeedAsync(cancellationToken);
+        var cleanup = scope.ServiceProvider.GetRequiredService<WorkspaceDemoCleanup>();
+        if (options.SeedDemoData && !app.Environment.IsProduction())
+        {
+            var seeder = scope.ServiceProvider.GetRequiredService<WorkspaceSeeder>();
+            await seeder.SeedAsync(cancellationToken);
+        }
+        else
+        {
+            await cleanup.RunAsync(cancellationToken);
+        }
+
+        await cleanup.EnsureRootFolderAsync(cancellationToken);
     }
 
     public static IEndpointRouteBuilder MapAgenticWorkspace(this IEndpointRouteBuilder endpoints)

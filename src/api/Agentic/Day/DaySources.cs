@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Hosting;
 
 namespace Intranet.Api.Agentic.Day;
 
@@ -44,9 +45,26 @@ public interface IDayAggregator
 
 public sealed class MockDayDataSource : IDayDataSource
 {
+    private readonly bool _enabled;
+
+    public MockDayDataSource()
+        : this(enabled: true)
+    {
+    }
+
+    public MockDayDataSource(IHostEnvironment environment)
+        : this(environment.IsDevelopment())
+    {
+    }
+
+    public MockDayDataSource(bool enabled)
+    {
+        _enabled = enabled;
+    }
+
     public string Name => "mock";
 
-    public bool IsEnabled => true;
+    public bool IsEnabled => _enabled;
 
     public Task<IReadOnlyList<DaySection>> GetAsync(DayQuery query, CancellationToken cancellationToken)
     {
@@ -137,19 +155,25 @@ public sealed class DayAggregator : IDayAggregator
 
     private readonly IEnumerable<IDayDataSource> _sources;
     private readonly IUserGraphCalendarClient _calendar;
+    private readonly IUserGraphMailClient _mail;
     private readonly IMeetingBriefGenerator _brief;
     private readonly IMemoryCache _cache;
+    private readonly IHostEnvironment _environment;
 
     public DayAggregator(
         IEnumerable<IDayDataSource> sources,
         IUserGraphCalendarClient calendar,
+        IUserGraphMailClient mail,
         IMeetingBriefGenerator brief,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        IHostEnvironment environment)
     {
         _sources = sources;
         _calendar = calendar;
+        _mail = mail;
         _brief = brief;
         _cache = cache;
+        _environment = environment;
     }
 
     public async Task<DaySummaryDto> GetAsync(DayQuery query, CancellationToken cancellationToken)
@@ -162,9 +186,15 @@ public sealed class DayAggregator : IDayAggregator
 
         var sections = new Dictionary<string, DaySection>(StringComparer.OrdinalIgnoreCase);
         var used = new List<string>();
+        var allowMock = !_environment.IsProduction();
         foreach (var source in _sources)
         {
             if (!source.IsEnabled)
+            {
+                continue;
+            }
+
+            if (!allowMock && string.Equals(source.Name, "mock", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -183,6 +213,13 @@ public sealed class DayAggregator : IDayAggregator
         }
 
         var calendar = await ResolveCalendarAsync(query, sections, used, cancellationToken);
+        var mail = await ResolveMailAsync(query, sections, used, cancellationToken);
+        if (!allowMock)
+        {
+            sections.Remove("tasks");
+            sections.Remove("suggestions");
+        }
+
         var meetings = MeetingsFrom(sections);
         var brief = await _brief.GenerateAsync(meetings, query, cancellationToken);
 
@@ -201,7 +238,8 @@ public sealed class DayAggregator : IDayAggregator
             ordered,
             used,
             brief,
-            calendar);
+            calendar,
+            mail);
 
         _cache.Set(cacheKey, summary, CacheDuration);
         return summary;
@@ -216,13 +254,22 @@ public sealed class DayAggregator : IDayAggregator
         List<string> used,
         CancellationToken cancellationToken)
     {
-        var useGraph = _calendar.IsEnabled && !query.Actor.IsDemoIdentity;
-        if (!useGraph)
+        var production = _environment.IsProduction();
+        var demo = query.Actor.IsDemoIdentity;
+        if (demo && !production)
         {
             return new CalendarStatusDto(CalendarReadStates.Mock, null);
         }
 
         var result = await _calendar.GetTodaysMeetingsAsync(query, cancellationToken);
+        if (production && result.State == CalendarReadStates.Mock)
+        {
+            result = new CalendarDayResult(
+                CalendarReadStates.Unavailable,
+                "Sample calendar data is disabled in production. Sign in with Microsoft Entra and set AzureAd:ClientSecret so Graph can read your Outlook calendar.",
+                []);
+        }
+
         if (!used.Contains("graph-calendar", StringComparer.OrdinalIgnoreCase))
         {
             used.Insert(0, "graph-calendar");
@@ -232,6 +279,64 @@ public sealed class DayAggregator : IDayAggregator
             ? ToSection(result.Meetings)
             : new DaySection("meetings", "Meetings", []);
         return new CalendarStatusDto(result.State, result.Message);
+    }
+
+    private async Task<MailStatusDto> ResolveMailAsync(
+        DayQuery query,
+        Dictionary<string, DaySection> sections,
+        List<string> used,
+        CancellationToken cancellationToken)
+    {
+        var production = _environment.IsProduction();
+        var demo = query.Actor.IsDemoIdentity;
+        if (demo && !production)
+        {
+            return new MailStatusDto(MailReadStates.Mock, null);
+        }
+
+        var result = await _mail.GetFollowUpsAsync(query, cancellationToken);
+        if (production && result.State == MailReadStates.Mock)
+        {
+            result = new MailDayResult(
+                MailReadStates.Unavailable,
+                "Sample follow-ups are disabled in production. Grant delegated Mail.Read (admin consent) on the intranet web API app registration.",
+                []);
+        }
+
+        if (!used.Contains("graph-mail", StringComparer.OrdinalIgnoreCase)
+            && result.State is MailReadStates.Ok or MailReadStates.ConsentRequired or MailReadStates.Unavailable)
+        {
+            used.Add("graph-mail");
+        }
+
+        sections["follow-ups"] = result.State == MailReadStates.Ok
+            ? ToMailSection(result.Items)
+            : new DaySection("follow-ups", "Follow-ups", []);
+        return new MailStatusDto(result.State, result.Message);
+    }
+
+    private static DaySection ToMailSection(IReadOnlyList<MailFollowUp> items) =>
+        new("follow-ups", "Follow-ups", items.Select(ToMailItem).ToList());
+
+    public static DayItem ToMailItem(MailFollowUp item)
+    {
+        var when = item.Received is { } received
+            ? received.ToLocalTime().ToString("MMM d h:mm tt")
+            : null;
+        var from = item.SenderName ?? item.SenderEmail;
+        var kind = item.Kind == "flagged" ? "Flagged" : "Needs a reply";
+        var detail = string.Join(
+            " · ",
+            new[] { from is null ? null : "From " + from, when, kind }
+                .Where(s => !string.IsNullOrWhiteSpace(s)));
+        return new DayItem(
+            item.Id,
+            item.Subject,
+            string.IsNullOrWhiteSpace(detail) ? null : detail,
+            item.Received,
+            item.WebLink,
+            Organizer: from,
+            BodyPreview: item.NeedFromYou ?? item.BodyPreview);
     }
 
     private static IReadOnlyList<DayMeeting> MeetingsFrom(IReadOnlyDictionary<string, DaySection> sections)

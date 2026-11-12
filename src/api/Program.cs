@@ -138,9 +138,9 @@ try
     }
     catch (Exception kbEx)
     {
-        startupLogger.LogWarning(kbEx, "Knowledge database init skipped; Chat at /knowledge needs KnowledgeDb. Agentic workspace still seeds.");
+        startupLogger.LogWarning(kbEx, "Knowledge database init skipped; Chat at /knowledge needs KnowledgeDb. Agentic workspace still initializes.");
     }
-    await app.SeedAgenticWorkspaceAsync();
+    await app.InitializeAgenticWorkspaceAsync();
 
     if (!await db.SiteMessages.AnyAsync())
     {

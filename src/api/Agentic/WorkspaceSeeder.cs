@@ -112,7 +112,7 @@ public sealed class WorkspaceSeeder
         _db.AgenticChatShares.AddRange(
             new AgenticChatShare
             {
-                Id = Guid.Parse("66666666-6666-6666-6666-666666666661"),
+                Id = WorkspaceIds.ShareTeamYou,
                 ChatId = WorkspaceIds.ChatTeam,
                 PrincipalType = AgenticRoles.User,
                 PrincipalOid = owner,
@@ -124,7 +124,7 @@ public sealed class WorkspaceSeeder
             },
             new AgenticChatShare
             {
-                Id = Guid.Parse("66666666-6666-6666-6666-666666666662"),
+                Id = WorkspaceIds.ShareTeamC,
                 ChatId = WorkspaceIds.ChatTeam,
                 PrincipalType = AgenticRoles.User,
                 PrincipalOid = WorkspaceIds.DemoUserCOid,
@@ -136,7 +136,7 @@ public sealed class WorkspaceSeeder
             },
             new AgenticChatShare
             {
-                Id = Guid.Parse("66666666-6666-6666-6666-666666666663"),
+                Id = WorkspaceIds.ShareTeamGroupX,
                 ChatId = WorkspaceIds.ChatTeam,
                 PrincipalType = AgenticRoles.Group,
                 PrincipalOid = WorkspaceIds.DemoGroupXOid,
@@ -147,7 +147,7 @@ public sealed class WorkspaceSeeder
             },
             new AgenticChatShare
             {
-                Id = Guid.Parse("66666666-6666-6666-6666-666666666664"),
+                Id = WorkspaceIds.ShareByMeB,
                 ChatId = WorkspaceIds.ChatSharedByMe,
                 PrincipalType = AgenticRoles.User,
                 PrincipalOid = WorkspaceIds.DemoUserBOid,
@@ -159,7 +159,7 @@ public sealed class WorkspaceSeeder
             },
             new AgenticChatShare
             {
-                Id = Guid.Parse("66666666-6666-6666-6666-666666666665"),
+                Id = WorkspaceIds.ShareByMeC,
                 ChatId = WorkspaceIds.ChatSharedByMe,
                 PrincipalType = AgenticRoles.User,
                 PrincipalOid = WorkspaceIds.DemoUserCOid,
@@ -171,7 +171,7 @@ public sealed class WorkspaceSeeder
             },
             new AgenticChatShare
             {
-                Id = Guid.Parse("66666666-6666-6666-6666-666666666666"),
+                Id = WorkspaceIds.ShareByMeGroupX,
                 ChatId = WorkspaceIds.ChatSharedByMe,
                 PrincipalType = AgenticRoles.Group,
                 PrincipalOid = WorkspaceIds.DemoGroupXOid,
@@ -250,7 +250,7 @@ public sealed class WorkspaceSeeder
     private void AddDocument(Guid id, Guid folderId, string name, string fileType, DateTimeOffset modified, string text)
     {
         var relative = $"{id:N}{ExtensionFor(fileType)}";
-        var root = Path.Combine(_environment.ContentRootPath, _options.RepositoryRoot);
+        var root = RepositoryStorage.ResolveRoot(_options, _environment);
         Directory.CreateDirectory(root);
         var full = Path.Combine(root, relative);
         File.WriteAllText(full, text);

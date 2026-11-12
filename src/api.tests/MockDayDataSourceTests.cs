@@ -1,6 +1,8 @@
 using Intranet.Api.Agentic;
 using Intranet.Api.Agentic.Day;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 
 namespace Intranet.Api.Tests;
@@ -79,11 +81,36 @@ internal static class DayTestHarness
     public static DayAggregator Aggregator(
         IUserGraphCalendarClient calendar,
         IMemoryCache cache,
+        params IDayDataSource[] sources) =>
+        Aggregator(calendar, new DisabledMail(), cache, "Development", sources);
+
+    public static DayAggregator Aggregator(
+        IUserGraphCalendarClient calendar,
+        IUserGraphMailClient mail,
+        IMemoryCache cache,
+        string environmentName,
         params IDayDataSource[] sources)
     {
         var list = sources.Length == 0 ? [new MockDayDataSource()] : sources;
-        return new DayAggregator(list, calendar, new DeterministicOnlyBrief(), cache);
+        return new DayAggregator(
+            list,
+            calendar,
+            mail,
+            new DeterministicOnlyBrief(),
+            cache,
+            new StubHostEnvironment { EnvironmentName = environmentName });
     }
+
+    public static DayAggregator ProductionAggregator(
+        IUserGraphCalendarClient calendar,
+        IUserGraphMailClient? mail = null,
+        params IDayDataSource[] sources) =>
+        Aggregator(
+            calendar,
+            mail ?? new DisabledMail(),
+            new MemoryCache(new MemoryCacheOptions()),
+            "Production",
+            sources);
 
     public static DayMeeting Meeting(
         string id,
@@ -128,4 +155,35 @@ internal sealed class DeterministicOnlyBrief : IMeetingBriefGenerator
         DayQuery query,
         CancellationToken cancellationToken) =>
         Task.FromResult(DeterministicMeetingBrief.Build(meetings, query));
+}
+
+internal sealed class DisabledMail : IUserGraphMailClient
+{
+    public bool IsEnabled => false;
+
+    public Task<MailDayResult> GetFollowUpsAsync(DayQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult(new MailDayResult(MailReadStates.Disabled, "Mail follow-ups are turned off.", []));
+}
+
+internal sealed class ScriptedMail : IUserGraphMailClient
+{
+    public bool IsEnabled { get; set; } = true;
+    public MailDayResult Result { get; set; } = new(MailReadStates.Ok, null, []);
+    public int Calls { get; private set; }
+    public List<string> Oids { get; } = [];
+
+    public Task<MailDayResult> GetFollowUpsAsync(DayQuery query, CancellationToken cancellationToken)
+    {
+        Calls++;
+        Oids.Add(query.Actor.Oid);
+        return Task.FromResult(Result);
+    }
+}
+
+internal sealed class StubHostEnvironment : IHostEnvironment
+{
+    public string EnvironmentName { get; set; } = "Development";
+    public string ApplicationName { get; set; } = "tests";
+    public string ContentRootPath { get; set; } = Path.GetTempPath();
+    public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
 }

@@ -132,6 +132,12 @@ export function ShareChatDialog({
               Searching directory…
             </p>
           ) : null}
+          {debounced.length > 0 && !searchQuery.isFetching && results.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No people or groups matched. Share uses Microsoft Graph directory search (AzureAd ClientSecret plus
+              application User.Read.All / Group.Read.All).
+            </p>
+          ) : null}
           {results.length > 0 ? (
             <ul className="max-h-40 overflow-y-auto rounded-md border">
               {results.map((principal) => (
@@ -204,16 +210,10 @@ export function ShareChatDialog({
           </div>
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
         </div>
-        <DialogFooter className="sm:justify-between">
-          <Button variant="outline" disabled>
-            Copy link
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose}>
+            Done
           </Button>
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button onClick={onClose}>Share</Button>
-          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -48,6 +48,12 @@ public interface IUserGraphTokenProvider
     bool IsConfigured { get; }
 
     Task<string> AcquireCalendarTokenAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Separate OBO request from <see cref="AcquireCalendarTokenAsync"/> so missing
+    /// Mail.Read consent cannot fail the calendar token.
+    /// </summary>
+    Task<string> AcquireMailTokenAsync(CancellationToken cancellationToken);
 }
 
 public sealed class CalendarConsentException : Exception
@@ -74,23 +80,40 @@ public sealed class CalendarConsentException : Exception
 public sealed class ObOUserGraphTokenProvider : IUserGraphTokenProvider
 {
     public static readonly string[] CalendarScopes = ["https://graph.microsoft.com/Calendars.Read"];
+    public static readonly string[] MailScopes = ["https://graph.microsoft.com/Mail.Read"];
 
     private readonly ITokenAcquisition _tokens;
     private readonly AzureAdOptions _azureAd;
+    private readonly IConfiguration _configuration;
 
-    public ObOUserGraphTokenProvider(ITokenAcquisition tokens, IOptions<AzureAdOptions> azureAd)
+    public ObOUserGraphTokenProvider(
+        ITokenAcquisition tokens,
+        IOptions<AzureAdOptions> azureAd,
+        IConfiguration configuration)
     {
         _tokens = tokens;
         _azureAd = azureAd.Value;
+        _configuration = configuration;
     }
 
-    public bool IsConfigured => EntraConfidentialClient.IsConfigured(_azureAd);
+    public bool IsConfigured => EntraConfidentialClient.IsConfigured(_azureAd, _configuration);
 
-    public async Task<string> AcquireCalendarTokenAsync(CancellationToken cancellationToken)
+    public Task<string> AcquireCalendarTokenAsync(CancellationToken cancellationToken) =>
+        AcquireAsync(CalendarScopes, () => new CalendarConsentException(), cancellationToken);
+
+    public Task<string> AcquireMailTokenAsync(CancellationToken cancellationToken) =>
+        AcquireAsync(MailScopes, () => new MailConsentException(), cancellationToken);
+
+    private async Task<string> AcquireAsync(
+        string[] scopes,
+        Func<Exception> consent,
+        CancellationToken cancellationToken)
     {
         if (!IsConfigured)
         {
-            throw new InvalidOperationException("Entra confidential client is not configured for Graph OBO.");
+            throw new InvalidOperationException(
+                EntraConfidentialClient.MissingReason(_azureAd, _configuration)
+                ?? "Entra confidential client is not configured for Graph OBO.");
         }
 
         try
@@ -100,25 +123,64 @@ public sealed class ObOUserGraphTokenProvider : IUserGraphTokenProvider
                 ? null
                 : _azureAd.TenantId;
             return await _tokens.GetAccessTokenForUserAsync(
-                CalendarScopes,
+                scopes,
                 tenantId: tenant,
                 tokenAcquisitionOptions: new TokenAcquisitionOptions { CancellationToken = cancellationToken });
         }
-        catch (Exception ex) when (GraphCalendarMapper.IsConsentError(ex))
+        catch (Exception ex) when (GraphCalendarMapper.IsConsentError(ex) || GraphMailMapper.IsConsentError(ex))
         {
-            throw new CalendarConsentException();
+            throw consent();
         }
     }
 }
 
 public static class EntraConfidentialClient
 {
-    public static bool IsConfigured(AzureAdOptions azureAd) =>
-        HasValue(azureAd.TenantId)
-        && !string.Equals(azureAd.TenantId, "common", StringComparison.OrdinalIgnoreCase)
-        && HasValue(azureAd.ClientId)
-        && !azureAd.ClientId.Contains("placeholder", StringComparison.OrdinalIgnoreCase)
-        && HasValue(azureAd.ClientSecret);
+    public static bool IsConfigured(AzureAdOptions azureAd, IConfiguration? configuration = null) =>
+        MissingReason(azureAd, configuration) is null;
+
+    public static string? MissingReason(AzureAdOptions azureAd, IConfiguration? configuration = null)
+    {
+        if (!HasValue(azureAd.TenantId) || string.Equals(azureAd.TenantId, "common", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Outlook Graph is not available: AzureAd:TenantId is missing or set to 'common'. Set the directory (tenant) ID in App Service Configuration.";
+        }
+
+        if (!HasValue(azureAd.ClientId) || azureAd.ClientId.Contains("placeholder", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Outlook Graph is not available: AzureAd:ClientId is missing or still a placeholder. Set the intranet web API app registration client ID.";
+        }
+
+        if (!HasValue(azureAd.ClientSecret) && !HasCertificate(configuration))
+        {
+            return "Outlook Graph is not available: AzureAd:ClientSecret is not set (and no AzureAd:ClientCertificates entry was found). " +
+                   "On-behalf-of calendar and mail need a confidential client. Add the secret (or a certificate) in App Service Configuration / Key Vault references. " +
+                   "Sample meetings are never shown in production.";
+        }
+
+        return null;
+    }
+
+    public static bool HasCertificate(IConfiguration? configuration)
+    {
+        var certs = configuration?.GetSection("AzureAd:ClientCertificates").GetChildren();
+        if (certs is null)
+        {
+            return false;
+        }
+
+        foreach (var cert in certs)
+        {
+            if (HasValue(cert["CertificateThumbprint"])
+                || HasValue(cert["KeyVaultCertificateName"])
+                || HasValue(cert["CertificateDiskPath"]))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static bool HasValue(string? value) => !string.IsNullOrWhiteSpace(value);
 }
@@ -132,32 +194,47 @@ public sealed class GraphUserCalendarClient : IUserGraphCalendarClient
     private readonly IUserGraphTokenProvider _tokens;
     private readonly AgenticOptions _options;
     private readonly AzureAdOptions _azureAd;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<GraphUserCalendarClient> _logger;
 
     public GraphUserCalendarClient(
         IUserGraphTokenProvider tokens,
         IOptions<AgenticOptions> options,
         IOptions<AzureAdOptions> azureAd,
+        IConfiguration configuration,
         ILogger<GraphUserCalendarClient> logger)
     {
         _tokens = tokens;
         _options = options.Value;
         _azureAd = azureAd.Value;
+        _configuration = configuration;
         _logger = logger;
     }
 
     public bool IsEnabled =>
         _options.UseGraphCalendar
-        && EntraConfidentialClient.IsConfigured(_azureAd)
+        && EntraConfidentialClient.IsConfigured(_azureAd, _configuration)
         && _tokens.IsConfigured;
 
     public async Task<CalendarDayResult> GetTodaysMeetingsAsync(
         DayQuery query,
         CancellationToken cancellationToken)
     {
-        if (!IsEnabled)
+        if (!_options.UseGraphCalendar)
         {
-            return new CalendarDayResult(CalendarReadStates.Disabled, null, []);
+            return new CalendarDayResult(
+                CalendarReadStates.Disabled,
+                "Your day calendar is turned off (Features:AgenticWorkspace:UseGraphCalendar=false).",
+                []);
+        }
+
+        if (!EntraConfidentialClient.IsConfigured(_azureAd, _configuration) || !_tokens.IsConfigured)
+        {
+            return new CalendarDayResult(
+                CalendarReadStates.Unavailable,
+                EntraConfidentialClient.MissingReason(_azureAd, _configuration)
+                    ?? "Outlook Graph is not available.",
+                []);
         }
 
         if (query.Actor.IsDemoIdentity)
@@ -208,9 +285,15 @@ public sealed class GraphUserCalendarClient : IUserGraphCalendarClient
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Delegated Graph calendarView failed for {Oid}.", query.Actor.Oid);
+            var detail = ex.Message;
+            if (detail.Length > 180)
+            {
+                detail = detail[..177] + "...";
+            }
+
             return new CalendarDayResult(
                 CalendarReadStates.Unavailable,
-                "Outlook calendar is temporarily unavailable. Sample meetings are hidden so another person's data cannot appear here.",
+                "Outlook calendar is temporarily unavailable (" + detail + "). Sample meetings are never shown in production.",
                 []);
         }
     }

@@ -139,4 +139,90 @@ public class DayAggregatorCalendarTests
         Assert.Equal("agentic:day:oid-a:2026-11-04:UTC", DayAggregator.CacheKey(queryA));
         Assert.Equal("agentic:day:oid-b:2026-11-04:UTC", DayAggregator.CacheKey(queryB));
     }
+
+    [Fact]
+    public async Task ProductionNeverReturnsMockCalendarEvenWhenGraphIsOff()
+    {
+        var calendar = new DisabledCalendar();
+        var aggregator = DayTestHarness.ProductionAggregator(calendar, new DisabledMail(), new MockDayDataSource());
+        var actor = new WorkspaceActor("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "Pat", "pat@etc.local");
+
+        var summary = await aggregator.GetAsync(DayTestHarness.Query(actor), CancellationToken.None);
+
+        Assert.NotEqual(CalendarReadStates.Mock, summary.Calendar.State);
+        Assert.NotEqual(MailReadStates.Mock, summary.Mail.State);
+        Assert.DoesNotContain("Pipeline standup", summary.Sections.SelectMany(s => s.Items).Select(i => i.Title));
+        Assert.DoesNotContain("tasks", summary.Sections.Select(s => s.Id));
+        Assert.DoesNotContain("suggestions", summary.Sections.Select(s => s.Id));
+        Assert.Contains("Mail follow-ups are turned off", summary.Mail.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ProductionMailFollowUpsReplaceMockAndStayUserScoped()
+    {
+        var mail = new ScriptedMail
+        {
+            Result = new MailDayResult(
+                MailReadStates.Ok,
+                null,
+                [
+                    new MailFollowUp(
+                        "msg-1",
+                        "Please send the bid form",
+                        "Ada",
+                        "ada@etc.local",
+                        new DateTimeOffset(2026, 11, 4, 14, 0, 0, TimeSpan.Zero),
+                        "https://outlook.office.com/mail/msg-1",
+                        "Need the signed form today.",
+                        "awaiting-reply",
+                        "They need the signed bid form."),
+                ]),
+        };
+        var aggregator = DayTestHarness.ProductionAggregator(
+            new ScriptedCalendar { Result = new CalendarDayResult(CalendarReadStates.Ok, null, []) },
+            mail,
+            new MockDayDataSource());
+        var actor = new WorkspaceActor("oid-pat", "Pat", "pat@etc.local");
+
+        var summary = await aggregator.GetAsync(DayTestHarness.Query(actor), CancellationToken.None);
+        var followUp = Assert.Single(summary.Sections.First(s => s.Id == "follow-ups").Items);
+
+        Assert.Equal(MailReadStates.Ok, summary.Mail.State);
+        Assert.Equal("Please send the bid form", followUp.Title);
+        Assert.Equal("https://outlook.office.com/mail/msg-1", followUp.Href);
+        Assert.Equal("They need the signed bid form.", followUp.BodyPreview);
+        Assert.DoesNotContain("Reply to User C", summary.Sections.SelectMany(s => s.Items).Select(i => i.Title));
+        Assert.Equal(["oid-pat"], mail.Oids);
+    }
+
+    [Fact]
+    public async Task MailConsentDoesNotClearCalendarMeetings()
+    {
+        var query = DayTestHarness.Query(new WorkspaceActor("oid-pat", "Pat", "pat@etc.local"));
+        var calendar = new ScriptedCalendar
+        {
+            Result = new CalendarDayResult(
+                CalendarReadStates.Ok,
+                null,
+                [
+                    DayTestHarness.Meeting(
+                        "g1",
+                        "Budget review",
+                        DayTimeZones.At(query.Date, 10, 0, TimeZoneInfo.Utc),
+                        DayTimeZones.At(query.Date, 11, 0, TimeZoneInfo.Utc)),
+                ]),
+        };
+        var mail = new ScriptedMail
+        {
+            Result = new MailDayResult(MailReadStates.ConsentRequired, MailConsentException.UserMessage, []),
+        };
+        var aggregator = DayTestHarness.ProductionAggregator(calendar, mail);
+
+        var summary = await aggregator.GetAsync(query, CancellationToken.None);
+
+        Assert.Equal("Budget review", Assert.Single(summary.Sections.First(s => s.Id == "meetings").Items).Title);
+        Assert.Equal(MailReadStates.ConsentRequired, summary.Mail.State);
+        Assert.Contains("Mail.Read", summary.Mail.Message, StringComparison.Ordinal);
+        Assert.Empty(summary.Sections.First(s => s.Id == "follow-ups").Items);
+    }
 }
